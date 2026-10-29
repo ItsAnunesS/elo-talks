@@ -58,3 +58,10 @@ Uma falha da interface não reinicia mais janelas: encerra os processos, fecha o
 O contêiner GtkBox usado pelo Tauri/Wry no Linux não aplica os limites de posição das webviews filhas. A interface local e as contas agora compartilham um GtkOverlay: a interface ocupa a janela, e cada conta recebe margens nativas de 304 px à esquerda e 72 px no topo. O GTK gerencia redimensionamento e escala. O fullscreen solicitado por conteúdo remoto é desabilitado e seu sinal é interceptado.
 
 O exemplo `layout_smoke` testa a composição real Tauri/WebKit com duas páginas sintéticas, sem contas nem dados pessoais. Validado em Xvfb isolado com sandbox WebKit obrigatório, em escalas de 100% e 200%: alternância, retorno à visão geral, redução para 900×640, expansão para 1400×900, limites das contas e recusa de fullscreen. O workflow executa essa regressão antes do empacotamento. O teste não substitui a validação de conversas, anexos e notificações com contas WhatsApp reais.
+
+
+### Restrição AppArmor no runner Ubuntu
+
+O teste nativo no GitHub Actions falhou com `bwrap: setting up uid map: Permission denied`. A restrição de user namespaces do Ubuntu impede esse executável de teste, sem perfil AppArmor, de iniciar o sandbox. O runner recebe um perfil temporário apenas para o caminho exato de `layout_smoke`, com a permissão `userns`; o script remove o perfil ao terminar, inclusive em falha. Não há alteração de sysctl nem desativação do sandbox WebKit. O perfil não integra a AppImage.
+
+**Esse teste valida o layout sob uma permissão específica de CI, não a compatibilidade de instalação padrão do Ubuntu 24.04.** A execução sem configuração administrativa nesse sistema permanece pendente e exige validação/revisão da arquitetura antes de anunciar suporte certificado. Referência: [restrições de user namespaces do Ubuntu](https://documentation.ubuntu.com/release-notes/24.04/#unprivileged-user-namespace-restrictions).

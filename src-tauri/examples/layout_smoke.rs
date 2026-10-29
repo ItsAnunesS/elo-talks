@@ -4,7 +4,7 @@ mod ui_layout;
 use gtk::prelude::*;
 use std::{cell::Cell, rc::Rc, time::Duration};
 use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, WebviewUrl};
-use webkit2gtk::{SettingsExt, WebViewExt};
+use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
 
 fn main() {
     tauri::Builder::default()
@@ -24,6 +24,7 @@ fn main() {
                 )?;
                 view.with_webview(move |platform| {
                     let webview = platform.inner();
+                    assert!(webview.context().is_some_and(|context| context.is_sandbox_enabled()), "WebKit sandbox must remain enabled in the layout test");
                     ui_layout::attach(&webview, index != 0).unwrap();
                     webview.load_html(
                         if index == 0 {
