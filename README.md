@@ -114,3 +114,19 @@ subject to manual validation.
 The app does not write extracted photos to disk. WhatsApp's own image cache may
 still exist inside the encrypted profile, and memory can be swapped by the OS.
 No changes are made to TLS, sandboxing, authentication or encrypted storage.
+
+## Desktop icon refresh
+
+On each AppImage launch, Elo Talks refreshes matching launchers in the user's
+`$XDG_DATA_HOME/applications` directory (normally `~/.local/share/applications`).
+The bundled application logo is copied to `elo-talks/desktop-icons` under the same
+data directory with its SHA-256 in the filename. A logo change therefore gives
+GNOME a new icon path, instead of reusing a cached image under the old name.
+
+Only existing, user-owned Elo Talks launchers targeting the current AppImage are
+updated. Their filename, Exec command, manager metadata, translations and actions
+are preserved. No duplicate launcher is created, no manager-owned icon is replaced,
+and no desktop restart or cache-deletion command is needed. Unchanged launchers
+are not rewritten. An update manager can regenerate its launcher; opening the
+updated AppImage reapplies the icon automatically. Integration errors are nonfatal
+and retried on the next launch. This handles the application logo, not account photos.

@@ -5,6 +5,7 @@ mod account_runtime;
 mod auth;
 mod controller;
 mod crypto;
+mod desktop_integration;
 mod ipc;
 mod session_monitor;
 mod storage;
@@ -40,16 +41,21 @@ fn run() -> Result<()> {
         );
     }
     let home = PathBuf::from(std::env::var_os("HOME").context("HOME unavailable")?);
-    let data = std::env::var_os("XDG_DATA_HOME")
+    let data_home = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(".local/share"))
-        .join("elo-talks");
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| home.join(".local/share"));
+    let data = data_home.join("elo-talks");
     let runtime = PathBuf::from(
         std::env::var_os("XDG_RUNTIME_DIR").context("Linux session has no runtime directory")?,
     )
     .join("elo-talks");
     // Register the original AppImage path, not the transient mount path.
     if let Some(appimage) = std::env::var_os("APPIMAGE") {
+        if desktop_integration::refresh(&data_home, std::path::Path::new(&appimage)).is_err() {
+            // Desktop cosmetics must not prevent vault access; retry on the next launch.
+            eprintln!("Elo Talks: desktop icon refresh was unavailable; it will be retried on next launch.");
+        }
         let config = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".config"));
