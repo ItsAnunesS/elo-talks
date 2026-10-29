@@ -80,8 +80,23 @@ notifications. Counters exist only in memory and reset when the vault closes.
 Settings offers global **Do not disturb** and per-account muting. These suppress
 new desktop popups while retaining counters. Preferences are saved inside the vault.
 Desktop notifications contain only a generic message, and clicking opens the account.
-At most four notification action handlers wait concurrently; extra events still
-update the badges. Already delivered desktop notifications are controlled by the OS.
+A selected account can contain other chats, so window focus does not discard native
+notification events. WhatsApp decides when to emit them; app muting still applies.
+Delivery uses asynchronous GIO/D-Bus calls with a three-second timeout and one
+retained notification per account. Clicks and dismissal arrive as native signals;
+there are no threads waiting for notification clicks. Bursts share an in-flight
+request, while all native events still update counters. Already delivered desktop
+notifications are controlled by the OS.
+
+The account context initializes notification permission only for
+`https://web.whatsapp.com`; other feature requests remain denied. WhatsApp's own
+notification settings still apply. **Settings → Notifications → Test Linux
+notification** tests desktop delivery independently of WhatsApp and app muting.
+A successful test means the desktop service accepted it; GNOME may still hide banners.
+Safe diagnostics include `nativeNotifications` and `notificationDelivery` per account:
+`none`, `muted`, `do-not-disturb`, `pending`, `submitted` or `failed`.
+These counters and fixed status codes contain no sender, message, URL or timestamp
+and reset with the UI process. `submitted` confirms desktop acceptance, not visibility.
 
 The window title includes the pending total. Compatible docks can also receive a
 Unity LauncherEntry numeric badge for the desktop entry. GNOME Shell does not

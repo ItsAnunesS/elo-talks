@@ -382,6 +382,12 @@ function notificationControls(parent) {
       "hint",
       "Muting stops desktop popups. Badges count native notifications since last viewed, not exact WhatsApp unread messages. Enable notifications in WhatsApp to receive them. Counters reset when the vault closes.",
     ),
+    createButton("Test Linux notification", async () => {
+      await invoke("test_notification");
+      showToast(
+        "Linux accepted the test notification. If no banner appeared, check GNOME notification settings.",
+      );
+    }),
     createButton("Save notification settings", async () => {
       await request("notifications", {
         doNotDisturb: dnd.checked,

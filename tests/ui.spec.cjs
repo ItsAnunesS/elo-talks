@@ -61,6 +61,8 @@ const http = require("node:http"),
         core: {
           invoke: async (cmd, args) => {
             window.testRequests.push({ cmd, args });
+            if (cmd === "test_notification" && window.testNotificationError)
+              throw Error("Linux notification service unavailable");
             if (cmd === "account_snapshot") return structuredClone(window.testAccountStatus);
             if (cmd === "diagnostics")
               return {
@@ -244,6 +246,27 @@ const http = require("node:http"),
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.screenshot({ path: "/tmp/elo-settings-premium.png" });
     await page.getByRole("tab", { name: "Notifications", exact: true }).click();
+    await page.getByRole("button", { name: "Test Linux notification", exact: true }).click();
+    await page
+      .getByRole("status")
+      .filter({ hasText: "Linux accepted the test notification" })
+      .waitFor();
+    assert.ok(
+      await page.evaluate(() =>
+        window.testRequests.some((request) => request.cmd === "test_notification"),
+      ),
+    );
+    await page.evaluate(() => {
+      window.testNotificationError = true;
+    });
+    await page.getByRole("button", { name: "Test Linux notification", exact: true }).click();
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "Linux notification service unavailable" })
+      .waitFor();
+    await page.evaluate(() => {
+      window.testNotificationError = false;
+    });
     await page.getByLabel("Do not disturb", { exact: true }).check();
     await page.getByLabel("Mute Work", { exact: true }).check();
     await page.getByRole("button", { name: "Save notification settings" }).click();

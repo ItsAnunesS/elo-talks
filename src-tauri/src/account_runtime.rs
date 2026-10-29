@@ -23,11 +23,25 @@ pub enum PageState {
     SandboxUnavailable,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotificationDelivery {
+    #[default]
+    None,
+    Muted,
+    DoNotDisturb,
+    Pending,
+    Submitted,
+    Failed,
+}
+
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountHealth {
     pub page: PageState,
     pub pending_notifications: u32,
+    pub native_notifications: u64,
+    pub notification_delivery: NotificationDelivery,
 }
 
 #[derive(Default, Serialize)]
@@ -67,11 +81,18 @@ impl AccountRuntime {
         let Some(account) = self.accounts.get_mut(id) else {
             return false;
         };
-        if self.focused && self.selected.as_deref() == Some(id) {
-            return false;
-        }
+        account.native_notifications = account.native_notifications.saturating_add(1);
+        // WhatsApp decides whether a conversation warrants a notification. A selected
+        // account may contain other chats; window focus must not discard their events.
         account.pending_notifications = account.pending_notifications.saturating_add(1);
-        !self.preferences.do_not_disturb && !self.preferences.muted_accounts.contains(id)
+        account.notification_delivery = if self.preferences.do_not_disturb {
+            NotificationDelivery::DoNotDisturb
+        } else if self.preferences.muted_accounts.contains(id) {
+            NotificationDelivery::Muted
+        } else {
+            NotificationDelivery::Pending
+        };
+        account.notification_delivery == NotificationDelivery::Pending
     }
 
     pub fn diagnostics(&self) -> serde_json::Value {
@@ -114,9 +135,9 @@ mod tests {
         state.focused = true;
         state.acknowledge_selected();
         assert_eq!(state.total(), 0);
-        assert!(!state.notification("one"));
+        assert!(state.notification("one"));
         assert!(state.notification("two"));
-        assert_eq!(state.total(), 1);
+        assert_eq!(state.total(), 2);
     }
     #[test]
     fn muted_and_dnd_accounts_keep_badges_without_popups() {
@@ -127,6 +148,39 @@ mod tests {
         assert!(!state.notification("two"));
         assert_eq!(state.total(), 2);
         assert!(!state.notification("unknown"));
+    }
+    #[test]
+    fn notification_diagnostics_distinguish_receipt_from_suppression() {
+        let mut state = runtime();
+        state.focused = true;
+        assert!(state.notification("one"));
+        assert_eq!(state.accounts["one"].native_notifications, 1);
+        assert_eq!(state.accounts["one"].pending_notifications, 1);
+        assert_eq!(
+            state.accounts["one"].notification_delivery,
+            NotificationDelivery::Pending
+        );
+        state.focused = false;
+        state.preferences.muted_accounts.insert("one".into());
+        assert!(!state.notification("one"));
+        assert_eq!(
+            state.accounts["one"].notification_delivery,
+            NotificationDelivery::Muted
+        );
+        state.preferences.do_not_disturb = true;
+        assert!(!state.notification("one"));
+        assert_eq!(
+            state.accounts["one"].notification_delivery,
+            NotificationDelivery::DoNotDisturb
+        );
+        state.preferences = NotificationPreferences::default();
+        assert!(state.notification("one"));
+        assert_eq!(state.accounts["one"].native_notifications, 4);
+        assert_eq!(state.accounts["one"].pending_notifications, 4);
+        assert_eq!(
+            state.accounts["one"].notification_delivery,
+            NotificationDelivery::Pending
+        );
     }
     #[test]
     fn finish_after_failure_does_not_report_success() {

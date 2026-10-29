@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{webview::WebviewBuilder, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl};
-use webkit2gtk::{PermissionRequestExt, SettingsExt, WebContextExt, WebViewExt};
+use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
 
 struct UiState {
     runtime: PathBuf,
@@ -103,6 +103,34 @@ fn diagnostics(webview: tauri::Webview, app: tauri::AppHandle) -> Result<Value, 
     let runtime = events.runtime.lock().unwrap();
     Ok(runtime.diagnostics())
 }
+#[tauri::command]
+async fn test_notification(webview: tauri::Webview, app: tauri::AppHandle) -> Result<(), String> {
+    local(&webview)?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        gtk::glib::MainContext::default().spawn_local(async move {
+            let result = account_events::send_desktop_notification(&handle, "test", true).await;
+            let result = match result {
+                Ok(true) => Ok(()),
+                Ok(false) => {
+                    Err("A notification test is already pending. Try again shortly.".to_string())
+                }
+                Err(error) => Err(error.to_string()),
+            };
+            let _ = sender.send(result);
+        });
+    })
+    .map_err(|_| "Could not start the notification test".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|_| "The Linux notification service did not respond".to_string())?
+    })
+    .await
+    .map_err(|_| "The notification test failed".to_string())?
+}
+
 #[tauri::command]
 fn sync_accounts(
     webview: tauri::Webview,
@@ -218,18 +246,7 @@ fn sync_accounts(
             }
             account_events::attach(&w, &h, &account_id);
             w.connect_create(|_, _| None);
-            w.connect_permission_request(|w, req| {
-                let allowed = w
-                    .uri()
-                    .is_some_and(|s| s.starts_with("https://web.whatsapp.com/"))
-                    && req.is::<webkit2gtk::NotificationPermissionRequest>();
-                if allowed {
-                    req.allow();
-                } else {
-                    req.deny();
-                }
-                true
-            });
+            crate::account_permissions::attach(&w);
             let last = std::rc::Rc::new(std::cell::RefCell::new(Instant::now()));
             w.connect_event(move |_, event| {
                 if !matches!(
@@ -282,7 +299,8 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
             sync_accounts,
             account_snapshot,
             retry_account,
-            diagnostics
+            diagnostics,
+            test_notification
         ])
         .setup(move |app| {
             let window = tauri::window::WindowBuilder::new(app, "main")

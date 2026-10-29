@@ -72,9 +72,10 @@ jobs:
           python3 scripts/check-commit-messages.py
           black --check scripts tests
           python3 -m unittest discover -s tests -v
-      - name: Native account layout regression
+      - name: Native account and notification regressions
         run: |
-          cargo build --locked --example layout_smoke
+          cargo build --locked --example layout_smoke --example notifications_smoke
+          dbus-run-session -- timeout 30s target/debug/examples/notifications_smoke
           bash scripts/test-native-layout.sh
       - name: Audit dependencies
         run: |

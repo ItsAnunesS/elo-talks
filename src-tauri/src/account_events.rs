@@ -1,11 +1,14 @@
 //! Native adapters for page health, generic notifications and desktop counters.
-use crate::account_runtime::{AccountRuntime, PageState};
+use crate::{
+    account_runtime::{AccountRuntime, NotificationDelivery, PageState},
+    desktop_notifications::DesktopNotifications,
+};
 use dbus::{
     arg::{PropMap, Variant},
     channel::Sender,
 };
 use std::sync::{
-    atomic::{AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicU64, Ordering},
     mpsc, Arc, Mutex,
 };
 use tauri::{Emitter, Manager};
@@ -56,7 +59,7 @@ pub struct AccountEvents {
     pub runtime: Mutex<AccountRuntime>,
     badge_count: Arc<AtomicU64>,
     badge_wake: mpsc::SyncSender<()>,
-    notification_workers: Arc<AtomicUsize>,
+    desktop: DesktopNotifications,
 }
 
 impl Default for AccountEvents {
@@ -77,7 +80,7 @@ impl Default for AccountEvents {
             runtime: Mutex::new(AccountRuntime::default()),
             badge_count,
             badge_wake,
-            notification_workers: Arc::new(AtomicUsize::new(0)),
+            desktop: DesktopNotifications::default(),
         }
     }
 }
@@ -159,57 +162,51 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
         let allowed = events.runtime.lock().unwrap().notification(&account);
         publish(&handle);
         if allowed {
-            show_notification(&handle, &account, events.notification_workers.clone());
+            let handle = handle.clone();
+            let account = account.clone();
+            gtk::glib::MainContext::default().spawn_local(async move {
+                let result = send_desktop_notification(&handle, &account, false).await;
+                {
+                    let events = handle.state::<AccountEvents>();
+                    let mut runtime = events.runtime.lock().unwrap();
+                    if let Some(health) = runtime.accounts.get_mut(&account) {
+                        if result != Ok(false)
+                            && health.notification_delivery == NotificationDelivery::Pending
+                        {
+                            health.notification_delivery = if result.is_ok() {
+                                NotificationDelivery::Submitted
+                            } else {
+                                NotificationDelivery::Failed
+                            };
+                        }
+                    }
+                }
+                publish(&handle);
+            });
         }
         notification.close();
         true
     });
 }
 
-struct NotificationWorker(Arc<AtomicUsize>);
-impl Drop for NotificationWorker {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::Relaxed);
-    }
-}
-
-fn show_notification(app: &tauri::AppHandle, id: &str, workers: Arc<AtomicUsize>) {
-    // Bound waiting action handlers; bursts still update badges without spawning unbounded threads.
-    if workers
-        .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-            (count < 4).then_some(count + 1)
-        })
-        .is_err()
-    {
-        return;
-    }
+/// Called on GTK's main context; D-Bus work and click handling are asynchronous.
+pub async fn send_desktop_notification(
+    app: &tauri::AppHandle,
+    id: &str,
+    test: bool,
+) -> Result<bool, &'static str> {
     let handle = app.clone();
-    let account = id.to_owned();
-    std::thread::spawn(move || {
-        let _worker = NotificationWorker(workers);
-        if let Ok(notification) = notify_rust::Notification::new()
-            .appname("Elo Talks")
-            .summary("Elo Talks")
-            .body("You have a new message.")
-            .hint(notify_rust::Hint::DesktopEntry(
-                "dev.anuness.elotalks".into(),
-            ))
-            .timeout(8000)
-            .action("default", "Open account")
-            .show()
-        {
-            notification.wait_for_action(move |action| {
-                if action == "default" {
-                    let app = handle.clone();
-                    let _ = handle.run_on_main_thread(move || {
-                        if let Some(window) = app.get_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                        let _ = app.emit_to("main", "open-account", &account);
-                    });
-                }
-            });
-        }
-    });
+    app.state::<AccountEvents>()
+        .desktop
+        .show(id, test, move |account| {
+            if handle.get_webview(&format!("account-{account}")).is_none() {
+                return;
+            }
+            if let Some(window) = handle.get_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            let _ = handle.emit_to("main", "open-account", account);
+        })
+        .await
 }

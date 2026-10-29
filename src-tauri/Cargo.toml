@@ -27,7 +27,6 @@ libc = "0.2"
 fs2 = "0.4"
 secret-service = { version = "5", features = ["rt-async-io-crypto-rust"] }
 dbus = "0.9"
-notify-rust = "4"
 signal-hook = "0.3"
 
 [dev-dependencies]

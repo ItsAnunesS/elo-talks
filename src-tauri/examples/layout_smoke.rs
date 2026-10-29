@@ -2,9 +2,13 @@
 #[allow(dead_code)]
 #[path = "../src/account_events.rs"]
 mod account_events;
+#[path = "../src/account_permissions.rs"]
+mod account_permissions;
 #[allow(dead_code)]
 #[path = "../src/account_runtime.rs"]
 mod account_runtime;
+#[path = "../src/desktop_notifications.rs"]
+mod desktop_notifications;
 #[path = "../src/ui_layout.rs"]
 mod ui_layout;
 use gtk::prelude::*;
@@ -37,14 +41,17 @@ fn main() {
                     if index != 0 {
                         handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.insert(label.into(), account_runtime::AccountHealth::default());
                         account_events::attach(&webview, &handle, label);
+                        account_permissions::attach(&webview);
                     }
                     webview.load_html(
                         if index == 0 {
                             "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
+                        } else if index == 1 {
+                            "<body style='background:#243e38'>Synthetic notification source<script>if(Notification.permission === 'granted') new Notification('Synthetic private sender', {body:'Synthetic private message'});</script>"
                         } else {
-                            "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data</body>"
+                            "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data<script>document.title = Notification.permission;</script></body>"
                         },
-                        Some("about:blank"),
+                        Some(match index { 1 => "https://web.whatsapp.com/", 2 => "https://untrusted.example/", _ => "about:blank" }),
                     );
                     if index != 2 {
                         return;
@@ -59,6 +66,7 @@ fn main() {
                     let first_view = handle.get_webview("account-one").unwrap();
                     let second_view = handle.get_webview("account-two").unwrap();
                     let stage = Rc::new(Cell::new(0));
+                    let hidden_waits = Rc::new(Cell::new(0));
                     gtk::glib::timeout_add_local(Duration::from_millis(600), move || {
                         let check = |account: &gtk::Widget| {
                             let allocation = overlay.allocation();
@@ -75,22 +83,41 @@ fn main() {
                             0 => { assert!(!first.is_visible() && !second.is_visible()); ui_layout::set_account_visible(&first_view, true).unwrap(); }
                             1 => {
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::Ready);
+                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].native_notifications, 1, "WhatsApp notification permission must be initialized before the page checks it");
                                 let native_view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
                                 native_view.emit_by_name::<()>("web-process-terminated", &[&webkit2gtk::WebProcessTerminationReason::Crashed]);
                                 native_view.emit_by_name::<()>("load-changed", &[&webkit2gtk::LoadEvent::Finished]);
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::ProcessStopped);
                                 check(&first); assert!(first.is_visible()); ui_layout::set_account_visible(&first_view, false).unwrap(); ui_layout::set_account_visible(&second_view, true).unwrap(); }
-                            2 => { check(&second); assert!(second.is_visible()); assert!(!first.is_visible()); native.resize(900, 640); }
+                            2 => {
+                                assert_eq!(second.clone().downcast::<webkit2gtk::WebView>().unwrap().title().as_deref(), Some("default"), "Other origins must not inherit WhatsApp notification permission");
+                                check(&second); assert!(second.is_visible()); assert!(!first.is_visible()); native.resize(900, 640);
+                            }
                             3 => { check(&second); assert_eq!(overlay.allocated_width(), 900); native.resize(1400, 900); }
                             4 => {
                                 check(&second);
                                 assert_eq!(overlay.allocated_width(), 1400);
                                 ui_layout::set_account_visible(&second_view, false).unwrap();
+                                assert!(shell.is_visible());
+                                native.hide();
+                                let view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
+                                view.evaluate_javascript("setTimeout(() => new Notification('Synthetic background sender', {body:'Synthetic private body'}), 1000)", None, None, None::<&gtk::gio::Cancellable>, |_| {});
                             }
                             5 => {
+                                let received = handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].native_notifications;
+                                if received < 2 {
+                                    hidden_waits.set(hidden_waits.get() + 1);
+                                    assert!(hidden_waits.get() < 20, "Hidden account in hidden window must keep receiving native notification events");
+                                    return gtk::glib::ControlFlow::Continue;
+                                }
                                 assert!(!first.is_visible() && !second.is_visible());
+                                assert!(!native.is_visible());
+                                native.show();
+                            }
+                            6 => {
                                 assert!(shell.is_visible());
-                                println!("PASS: shell visible; two accounts bounded at (304,72); switching, shrink/grow, overview and fullscreen denial");
+                                assert!(!first.is_visible() && !second.is_visible());
+                                println!("PASS: shell bounds, account switching, fullscreen denial, initial notification permission and notification events from a hidden account/window");
                                 std::process::exit(0);
                             }
                             _ => unreachable!(),

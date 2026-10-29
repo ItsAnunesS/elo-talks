@@ -1,10 +1,12 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod account_events;
+mod account_permissions;
 mod account_runtime;
 mod auth;
 mod controller;
 mod crypto;
 mod desktop_integration;
+mod desktop_notifications;
 mod ipc;
 mod session_monitor;
 mod storage;

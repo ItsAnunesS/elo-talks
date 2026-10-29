@@ -63,3 +63,22 @@ Tauri/Wry's Linux GtkBox container does not apply positional bounds to child web
 The native GitHub Actions test failed with `bwrap: setting up uid map: Permission denied`. Ubuntu's user namespace restriction prevents the unprofiled fixture from starting its sandbox. CI now installs a temporary profile granting `userns` only to the exact `layout_smoke` executable. The script removes it on exit, including failure. No global sysctl or WebKit sandbox is disabled. The profile is not packaged in the AppImage.
 
 **This validates layout under a CI-specific permission, not default Ubuntu 24.04 compatibility.** Running without administrative configuration remains pending and requires validation or architecture changes before claiming certified support. See [Ubuntu user namespace restrictions](https://documentation.ubuntu.com/release-notes/24.04/#unprivileged-user-namespace-restrictions).
+
+## Native notification regression
+
+The synthetic WebKit layout test initializes notification permission for the WhatsApp
+origin before loading, receives a real `show-notification` event, and receives another
+from a timer while both the account and its window are hidden. It then restores the
+window and checks the account layout. This does not establish 30-minute real-account
+connectivity; that manual acceptance remains pending.
+
+`notifications_smoke` runs on an isolated D-Bus session with a fake desktop notification
+service. It checks fixed private payloads, more than four undismissed deliveries,
+per-account replacement, click routing, explicit test notifications, safe errors and
+recovery after the notification service loses and reacquires its bus name. It does not
+claim that a real compositor displayed a banner. The in-app Linux notification test
+lets the user verify that final step independently of WhatsApp settings.
+
+A generic direct D-Bus notification was accepted by GNOME on the developer's session,
+and the user confirmed seeing its banner. This verifies desktop display, not message
+receipt from a logged-in WhatsApp account in the updated build.
