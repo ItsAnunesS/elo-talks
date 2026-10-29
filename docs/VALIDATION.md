@@ -82,3 +82,11 @@ lets the user verify that final step independently of WhatsApp settings.
 A generic direct D-Bus notification was accepted by GNOME on the developer's session,
 and the user confirmed seeing its banner. This verifies desktop display, not message
 receipt from a logged-in WhatsApp account in the updated build.
+
+The pinned ZapZap source comparison, release hashes, user-reported v0.1.17 failure
+and real-account test matrix are recorded in
+[WhatsApp integration evaluation](WHATSAPP_INTEGRATION.md). ZapZap remains a source
+reference only, as requested. The native regression reproduced a missing
+Permissions API response (`prompt` despite `Notification.permission: granted`).
+It now checks the correction alongside origin and feature restrictions. Real
+WhatsApp delivery after this correction remains pending.

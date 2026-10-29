@@ -47,9 +47,9 @@ fn main() {
                         if index == 0 {
                             "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
                         } else if index == 1 {
-                            "<body style='background:#243e38'>Synthetic notification source<script>if(Notification.permission === 'granted') new Notification('Synthetic private sender', {body:'Synthetic private message'});</script>"
+                            "<body style='background:#243e38'>Synthetic notification source<script>Promise.all(['notifications','geolocation'].map(name => navigator.permissions.query({name}).then(result => result.state === 'granted' ? 'granted' : 'not-granted'))).then(states => document.title = states.join('|')); if(Notification.permission === 'granted') new Notification('Synthetic private sender', {body:'Synthetic private message'});</script>"
                         } else {
-                            "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data<script>document.title = Notification.permission;</script></body>"
+                            "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data<script>navigator.permissions.query({name:'notifications'}).then(result => document.title = Notification.permission + '|' + result.state);</script></body>"
                         },
                         Some(match index { 1 => "https://web.whatsapp.com/", 2 => "https://untrusted.example/", _ => "about:blank" }),
                     );
@@ -85,12 +85,15 @@ fn main() {
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::Ready);
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].native_notifications, 1, "WhatsApp notification permission must be initialized before the page checks it");
                                 let native_view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
+                                assert_eq!(native_view.title().as_deref(), Some("granted|not-granted"), "Permissions API must grant WhatsApp notifications without granting geolocation");
                                 native_view.emit_by_name::<()>("web-process-terminated", &[&webkit2gtk::WebProcessTerminationReason::Crashed]);
                                 native_view.emit_by_name::<()>("load-changed", &[&webkit2gtk::LoadEvent::Finished]);
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::ProcessStopped);
                                 check(&first); assert!(first.is_visible()); ui_layout::set_account_visible(&first_view, false).unwrap(); ui_layout::set_account_visible(&second_view, true).unwrap(); }
                             2 => {
-                                assert_eq!(second.clone().downcast::<webkit2gtk::WebView>().unwrap().title().as_deref(), Some("default"), "Other origins must not inherit WhatsApp notification permission");
+                                // WebKit masks a denied query as prompt before the origin
+                                // has requested notifications; neither API may grant access.
+                                assert_eq!(second.clone().downcast::<webkit2gtk::WebView>().unwrap().title().as_deref(), Some("default|prompt"), "Other origins must not inherit WhatsApp notification permission");
                                 check(&second); assert!(second.is_visible()); assert!(!first.is_visible()); native.resize(900, 640);
                             }
                             3 => { check(&second); assert_eq!(overlay.allocated_width(), 900); native.resize(1400, 900); }
@@ -117,7 +120,7 @@ fn main() {
                             6 => {
                                 assert!(shell.is_visible());
                                 assert!(!first.is_visible() && !second.is_visible());
-                                println!("PASS: shell bounds, account switching, fullscreen denial, initial notification permission and notification events from a hidden account/window");
+                                println!("PASS: shell bounds, account switching, fullscreen denial, consistent notification permissions with origin/feature restrictions and notification events from a hidden account/window");
                                 std::process::exit(0);
                             }
                             _ => unreachable!(),
