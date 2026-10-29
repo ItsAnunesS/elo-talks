@@ -41,12 +41,10 @@ fn main() {
                     webview.load_html(
                         if index == 0 {
                             "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
-                        } else if index == 1 {
-                            "<body style='background:#243e38'><div id='app'><header><div role='tab' title='Você'><img src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z/D/PwAG/gL+DHWJ3gAAAABJRU5ErkJggg=='></div></header></div><script>HTMLCanvasElement.prototype.getContext = () => { throw Error('Page-world canvas must not be used'); };</script>"
                         } else {
                             "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data</body>"
                         },
-                        Some(if index == 1 { "https://web.whatsapp.com/" } else { "about:blank" }),
+                        Some("about:blank"),
                     );
                     if index != 2 {
                         return;
@@ -61,8 +59,6 @@ fn main() {
                     let first_view = handle.get_webview("account-one").unwrap();
                     let second_view = handle.get_webview("account-two").unwrap();
                     let stage = Rc::new(Cell::new(0));
-                    let avatar_checked = Rc::new(Cell::new(false));
-                    let hidden_avatar_checked = Rc::new(Cell::new(false));
                     gtk::glib::timeout_add_local(Duration::from_millis(600), move || {
                         let check = |account: &gtk::Widget| {
                             let allocation = overlay.allocation();
@@ -80,13 +76,6 @@ fn main() {
                             1 => {
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::Ready);
                                 let native_view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
-                                let checked = avatar_checked.clone();
-                                native_view.call_async_javascript_function(concat!("return ", include_str!("../src/avatar-probe.js")), None, Some("dev.anuness.elotalks.avatar"), None, None::<&gtk::gio::Cancellable>, move |result| {
-                                    let pixels = result.unwrap().to_string();
-                                    assert_eq!(pixels.len(), 64 * 64 * 4 * 2);
-                                    assert_eq!(&pixels[..8], "ff00ffff");
-                                    checked.set(true);
-                                });
                                 native_view.emit_by_name::<()>("web-process-terminated", &[&webkit2gtk::WebProcessTerminationReason::Crashed]);
                                 native_view.emit_by_name::<()>("load-changed", &[&webkit2gtk::LoadEvent::Finished]);
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::ProcessStopped);
@@ -97,19 +86,10 @@ fn main() {
                                 check(&second);
                                 assert_eq!(overlay.allocated_width(), 1400);
                                 ui_layout::set_account_visible(&second_view, false).unwrap();
-                                let checked = hidden_avatar_checked.clone();
-                                first.clone().downcast::<webkit2gtk::WebView>().unwrap().call_async_javascript_function(concat!("return ", include_str!("../src/avatar-probe.js")), None, Some("dev.anuness.elotalks.avatar"), None, None::<&gtk::gio::Cancellable>, move |result| {
-                                    let pixels = result.unwrap().to_string();
-                                    assert_eq!(pixels.len(), 64 * 64 * 4 * 2, "Hidden account probe returned: {pixels}");
-                                    assert_eq!(&pixels[..8], "ff00ffff");
-                                    checked.set(true);
-                                });
                             }
                             5 => {
                                 assert!(!first.is_visible() && !second.is_visible());
                                 assert!(shell.is_visible());
-                                assert!(avatar_checked.get(), "Isolated-world avatar extraction did not complete");
-                                assert!(hidden_avatar_checked.get(), "Hidden account avatar extraction did not complete");
                                 println!("PASS: shell visible; two accounts bounded at (304,72); switching, shrink/grow, overview and fullscreen denial");
                                 std::process::exit(0);
                             }

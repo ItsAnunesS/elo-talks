@@ -23,30 +23,10 @@ pub enum PageState {
     SandboxUnavailable,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum AvatarStatus {
-    #[default]
-    Waiting,
-    Ready,
-    ControlNotFound,
-    NoPhoto,
-    Ambiguous,
-    ImageNotReady,
-    ImageTooLarge,
-    CanvasBlocked,
-    CanvasUnavailable,
-    ImageRequestFailed,
-    ImageSourceUnsupported,
-    WrongOrigin,
-    Unavailable,
-}
-
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountHealth {
     pub page: PageState,
-    pub avatar: AvatarStatus,
     pub pending_notifications: u32,
 }
 

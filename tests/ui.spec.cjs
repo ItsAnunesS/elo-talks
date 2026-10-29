@@ -262,36 +262,17 @@ const http = require("node:http"),
     await page.setViewportSize({ width: 900, height: 640 });
     await page.screenshot({ path: "/tmp/elo-status-badges.png" });
     await page.getByRole("button", { name: "Overview", exact: false }).click();
-    await page.evaluate(() => {
-      const originalSetItem = Storage.prototype.setItem;
-      Storage.prototype.setItem = () => {
-        throw new Error("Avatar storage is forbidden");
-      };
-      try {
-        window.testListeners["account-avatar"]({
-          payload: { id: "a", pixels: new Array(64 * 64 * 4).fill(200) },
-        });
-      } finally {
-        Storage.prototype.setItem = originalSetItem;
-      }
-    });
-    await page.locator('#cards [data-avatar-account="a"] img').waitFor();
+    assert.deepEqual(await page.locator("#cards .card-initials").allTextContents(), [
+      "PE",
+      "WO",
+      "<I",
+      "PR",
+    ]);
+    assert.equal(await page.locator("#cards .card-initials img").count(), 0);
     assert.equal(
       await page.locator('#account-list [data-account-id="a"] .notification-badge').textContent(),
       "3",
     );
-    assert.equal(await page.locator('[data-avatar-account="a"] img').count(), 1);
-    await page.evaluate(() =>
-      window.testListeners["account-avatar"]({
-        payload: { id: "b", pixels: "https://example.com/photo" },
-      }),
-    );
-    assert.equal(await page.locator('[data-avatar-account="b"] img').count(), 0);
-    await page.evaluate(() =>
-      window.testListeners["account-avatar"]({ payload: { id: "a", pixels: null } }),
-    );
-    assert.equal(await page.locator('[data-avatar-account="a"] img').count(), 0);
-    assert.equal(await page.locator('#cards [data-avatar-account="a"]').textContent(), "PE");
     await page.getByRole("button", { name: "Add workspace", exact: true }).click();
     await page.getByLabel("Workspace name", { exact: true }).fill("Company");
     await page.getByLabel("Workspace image", { exact: true }).setInputFiles({

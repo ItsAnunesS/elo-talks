@@ -8,7 +8,6 @@ import {
   createDestructiveAction,
 } from "./dom.js";
 import { invoke, request, listen, isDesktop } from "./bridge.js";
-import { syncAccountAvatars, receiveAccountAvatar } from "./account-avatar.js";
 import { updateAccountStatus } from "./account-status.js";
 import { renderNavigation, clearWorkspaceImages, revealChannel } from "./workspace-navigation.js";
 import { placementFields, workspaceDialogs } from "./workspace-dialogs.js";
@@ -98,7 +97,6 @@ function renderState() {
   getElement("workspace").hidden = !state.unlocked;
   getElement("version").textContent = `v${state.version || "0.1.0"}`;
   if (!state.unlocked) {
-    syncAccountAvatars([]);
     clearWorkspaceImages();
     getElement("lock-title").textContent = state.created
       ? "Welcome back."
@@ -139,7 +137,6 @@ function renderState() {
     addAccount,
   });
   updateAccountStatus(null, selected, state.organization, activeWorkspace);
-  syncAccountAvatars(state.accounts);
   getElement("page-title").textContent =
     state.accounts.find((a) => a.id === selected)?.name || "Overview";
   getElement("dashboard").hidden = !!selected;
@@ -645,7 +642,6 @@ for (const event of ["pointerdown", "keydown"])
   });
 async function initializeDesktop() {
   await Promise.all([
-    listen("account-avatar", (event) => receiveAccountAvatar(event.payload)),
     listen("account-state", (event) => updateAccountStatus(event.payload, selected)),
     listen("account-error", (event) => showToast(event.payload)),
     listen("open-account", async (event) => {

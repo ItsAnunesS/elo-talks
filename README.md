@@ -93,48 +93,10 @@ platform, page states, counters and vault state. It excludes message content, ac
 names/identifiers, credentials, cookies, filesystem paths and remote URLs. Nothing
 is uploaded automatically. TLS failures never create certificate exceptions.
 
-## Automatic account avatars
+## Account initials
 
-Elo Talks attempts to copy the image already rendered in WhatsApp's own profile
-control. It reads only narrowly identified self-profile controls, in an isolated
-WebKit script world, and sends fixed-size 64×64 RGBA pixels to the local interface.
-No remote page receives new Tauri commands, filesystem access or message handlers.
-The app does not call private WhatsApp APIs, inspect chats, click controls or bypass
-canvas/CORS restrictions. When the rendered self-photo taints the canvas, the probe
-can retry its existing URL through browser-enforced CORS. Only `pps.whatsapp.net`,
-`pps.whatsapp.com` and same-origin blob URLs are allowed. Recovery sends no cookies
-or referrer, rejects redirects, disables HTTP caching and aborts after five seconds.
-Only PNG/JPEG/WebP responses with matching file signatures, at most 512 KiB and
-4096 pixels per side are accepted. Results (including failures) are cached in memory
-for five minutes per photo source to limit requests. Source changes and logout
-invalidate the cache; a late result cannot restore a replaced photo.
-
-Avatars are retained only in UI-process memory, excluded from settings, diagnostics,
-logs and account-state snapshots. Navigations and web-process failures clear the
-avatar; login/logout and photo changes are checked every 15 seconds, with at most
-one outstanding probe per account. Closing the vault destroys the UI process.
-Missing, ambiguous, unreadable or unsupported profile controls fall back to initials.
-The selectors support recognized English/Portuguese profile controls and may need
-maintenance when WhatsApp changes its interface. Real-account compatibility remains
-subject to manual validation.
-
-The app does not write extracted photos to disk. WhatsApp's own image cache may
-still exist inside the encrypted profile, and memory can be swapped by the OS.
-No changes are made to TLS, sandboxing, authentication or encrypted storage.
-
-Avatar diagnostics include only a fixed status code: `ready`, `control-not-found`,
-`no-photo`, `ambiguous`, `image-not-ready`, `image-too-large`, `canvas-blocked`,
-`canvas-unavailable`, `image-request-failed`, `image-source-unsupported`,
-`wrong-origin`, `waiting` or `unavailable`. `canvas-blocked` means browser-origin
-protection prevented reading pixels; Elo Talks keeps initials instead of bypassing
-that protection. The self-profile entry recognizes exact `You`/`Você` and `Profile`/`Perfil`
-labels in `aria-label` or `title`, including tabs and nested labels in the navigation
-header. Referenced accessibility labels and explicit profile navigation markers
-are also supported; only short leaf labels outside chat content are read.
-Explicit self-photo alt text is also supported. Hidden responsive duplicates
-are ignored; generic image alt text and positional image fallbacks are not used. Contact
-headers, chat lists and dialogs are excluded. These compatibility rules are tested
-with synthetic layouts; the current live WhatsApp account still needs validation.
+Account cards display initials derived from the channel name. Elo Talks does not
+inspect WhatsApp profile controls, poll for profile photos or make avatar requests.
 
 ## Desktop icon refresh
 
@@ -168,9 +130,9 @@ empty before deletion, and at least one workspace remains. Background accounts s
 running; workspace badges sum native notification counters across their channels.
 Clicking a notification switches to the correct workspace and expands its category.
 
-Workspace images are separate from the memory-only WhatsApp avatars. User-selected
-PNG/JPEG/WebP files (up to 5 MB and 4096×4096) are cropped to 64×64 RGBA in the local
-interface. The controller accepts only exactly sized pixels and encodes a fresh PNG
+Workspace images are chosen by the user. PNG/JPEG/WebP files (up to 5 MB and
+4096×4096) are cropped to 64×64 RGBA in the local interface. The controller accepts
+only exactly sized pixels and encodes a fresh PNG
 as base64 inside the encrypted vault. Original image metadata, animation and file paths
 are not stored. SVG and remote image URLs are not accepted. Image payloads are loaded
 separately from status metadata to retain the existing 64 KiB IPC limit. This adds no

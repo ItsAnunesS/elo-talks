@@ -126,15 +126,10 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   }
   for (const account of accounts) {
     const card = createButton("", () => actions.selectAccount(account.id), "account-card");
-    const avatar = createElement(
-      "span",
-      "card-avatar account-avatar",
-      account.name.slice(0, 2).toUpperCase(),
-    );
-    avatar.dataset.avatarAccount = account.id;
+    const initials = createElement("span", "card-initials", account.name.slice(0, 2).toUpperCase());
     const title = createElement("strong", "channel-card-title");
     title.append(serviceIcon(), createElement("span", "", account.name));
-    card.append(avatar, title, createElement("small", "", "Open WhatsApp →"));
+    card.append(initials, title, createElement("small", "", "Open WhatsApp →"));
     getElement("cards").append(card);
   }
 }
