@@ -3,7 +3,7 @@
 mod ui_layout;
 use gtk::prelude::*;
 use std::{cell::Cell, rc::Rc, time::Duration};
-use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, WebviewUrl};
+use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, Manager, WebviewUrl};
 use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
 
 fn main() {
@@ -22,6 +22,7 @@ fn main() {
                     LogicalPosition::new(0., 0.),
                     LogicalSize::new(1200., 800.),
                 )?;
+                let handle = app.handle().clone();
                 view.with_webview(move |platform| {
                     let webview = platform.inner();
                     assert!(webview.context().is_some_and(|context| context.is_sandbox_enabled()), "WebKit sandbox must remain enabled in the layout test");
@@ -44,6 +45,8 @@ fn main() {
                     let first = children[1].clone();
                     let second = children[2].clone();
                     let native = overlay.toplevel().unwrap().downcast::<gtk::Window>().unwrap();
+                    let first_view = handle.get_webview("account-one").unwrap();
+                    let second_view = handle.get_webview("account-two").unwrap();
                     let stage = Rc::new(Cell::new(0));
                     gtk::glib::timeout_add_local(Duration::from_millis(600), move || {
                         let check = |account: &gtk::Widget| {
@@ -58,11 +61,11 @@ fn main() {
                             assert!(view.emit_by_name::<bool>("enter-fullscreen", &[]));
                         };
                         match stage.get() {
-                            0 => { assert!(!first.is_visible() && !second.is_visible()); first.show(); }
-                            1 => { check(&first); first.hide(); second.show(); }
-                            2 => { check(&second); assert!(!first.is_visible()); native.resize(900, 640); }
+                            0 => { assert!(!first.is_visible() && !second.is_visible()); ui_layout::set_account_visible(&first_view, true).unwrap(); }
+                            1 => { check(&first); assert!(first.is_visible()); ui_layout::set_account_visible(&first_view, false).unwrap(); ui_layout::set_account_visible(&second_view, true).unwrap(); }
+                            2 => { check(&second); assert!(second.is_visible()); assert!(!first.is_visible()); native.resize(900, 640); }
                             3 => { check(&second); assert_eq!(overlay.allocated_width(), 900); native.resize(1400, 900); }
-                            4 => { check(&second); assert_eq!(overlay.allocated_width(), 1400); second.hide(); }
+                            4 => { check(&second); assert_eq!(overlay.allocated_width(), 1400); ui_layout::set_account_visible(&second_view, false).unwrap(); }
                             5 => {
                                 assert!(!first.is_visible() && !second.is_visible());
                                 assert!(shell.is_visible());

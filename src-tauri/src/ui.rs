@@ -58,15 +58,10 @@ fn select_account(
     }
     for (label, v) in app.webviews() {
         if label.starts_with("account-") {
-            if id
+            let visible = id
                 .as_ref()
-                .is_some_and(|id| label == format!("account-{id}"))
-            {
-                v.show().map_err(|e| e.to_string())?;
-                v.set_focus().map_err(|e| e.to_string())?;
-            } else {
-                v.hide().map_err(|e| e.to_string())?;
-            }
+                .is_some_and(|id| label == format!("account-{id}"));
+            ui_layout::set_account_visible(&v, visible).map_err(|e| e.to_string())?;
         }
     }
     *state.selected.lock().unwrap() = id;

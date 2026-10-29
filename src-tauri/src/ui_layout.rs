@@ -49,3 +49,17 @@ pub fn attach(view: &webkit2gtk::WebView, account: bool) -> Result<()> {
     }
     Ok(())
 }
+
+// Wry uses show_all(), which intentionally skips our no_show_all account views.
+// Show the selected widget explicitly while keeping sibling accounts hidden.
+pub fn set_account_visible(view: &tauri::Webview, visible: bool) -> tauri::Result<()> {
+    view.with_webview(move |platform| {
+        let widget = platform.inner();
+        if visible {
+            widget.show();
+            widget.grab_focus();
+        } else {
+            widget.hide();
+        }
+    })
+}
