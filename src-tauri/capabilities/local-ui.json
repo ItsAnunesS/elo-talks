@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local-ui",
+  "description": "Somente a interface embarcada recebe APIs Tauri. WhatsApp não recebe capabilities.",
+  "local": true,
+  "webviews": ["main"],
+  "permissions": ["core:default"]
+}

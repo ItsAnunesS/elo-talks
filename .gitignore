@@ -1,0 +1,11 @@
+/target/
+/src-tauri/gen/
+/src-tauri/helpers/
+/dist/
+*.AppImage
+
+/target-check.log
+/target-*.log
+/tests/__pycache__/
+/target-audit.json
+/tests/test-results/

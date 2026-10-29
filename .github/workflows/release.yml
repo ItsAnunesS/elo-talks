@@ -1,0 +1,85 @@
+name: AppImage release
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libfido2-dev libdbus-1-dev patchelf libfuse2t64
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - name: Rust toolchain
+        run: rustup show
+      - name: Prepare pinned helper
+        run: bash scripts/prepare-helper.sh
+      - name: Version
+        run: python3 scripts/set-version.py "$GITHUB_RUN_NUMBER"
+      - name: Checks
+        run: |
+          cargo fmt --all --check
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+          node --check ui/app.js
+          python3 -m unittest discover -s tests -v
+      - name: Audit dependencies
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          # Only this locally corrected advisory is excepted; its source hash is tested above.
+          cargo audit --deny unsound --ignore RUSTSEC-2024-0429
+      - name: Build AppImage
+        run: |
+          cargo install tauri-cli --version 2.12.4 --locked
+          bash scripts/prepare-bundler.sh
+          cargo tauri build --bundles appimage -- --locked
+      - name: Inventory and checksums
+        run: |
+          mkdir -p dist
+          cp target/release/bundle/appimage/*.AppImage dist/
+          cargo metadata --locked --format-version 1 > dist/rust-dependencies.json
+          cp src-tauri/helpers/gocryptfs-modules.json dist/go-dependencies.json
+          cp src-tauri/helpers/gocryptfs-LICENSE dist/gocryptfs-LICENSE
+          dpkg-query -W > dist/build-system-packages.txt
+          python3 scripts/provenance.py
+          (cd dist && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: appimage-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: appimage-${{ github.sha }}
+          path: dist
+      - uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
+        with:
+          cosign-release: 'v2.6.1'
+      - name: Sign checksums and build provenance
+        run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+      - name: Publish without overwriting existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release.py

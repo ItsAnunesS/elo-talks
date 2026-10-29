@@ -1,0 +1,7 @@
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
+exclude = ["vendor/glib"]
+
+[patch.crates-io]
+glib = { path = "vendor/glib" }
