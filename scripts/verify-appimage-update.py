@@ -40,7 +40,9 @@ def verify(appimage):
     if int(fields["Length"]) != appimage.stat().st_size:
         raise ValueError("zsync length mismatch")
     # SHA-1 is part of zsync's format; SHA256SUMS + Sigstore remain separate.
-    if fields["SHA-1"] != hashlib.sha1(appimage.read_bytes()).hexdigest():
+    with appimage.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha1").hexdigest()
+    if fields["SHA-1"] != digest:
         raise ValueError("zsync digest does not match the finished AppImage")
     print(f"PASS: embedded GitHub update source and zsync match {appimage.name}")
 

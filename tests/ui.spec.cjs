@@ -94,6 +94,30 @@ const http = require("node:http"),
     await page.locator("#workspace:not([hidden])").waitFor();
     assert.equal(await page.locator("#account-list img").count(), 0);
     await page.screenshot({ path: "/tmp/elo-workspace.png" });
+    await page.evaluate(() => {
+      window.originalAccountIcon = document.querySelector("#account-icons button");
+      window.originalAccountCard = document.querySelector("#cards button");
+    });
+    await page.locator('#account-icons [data-account-id="a"]').click();
+    await page.locator('#account-icons [data-account-id="a"].selected').waitFor();
+    await page.locator('#account-icons [data-account-id="b"]').click();
+    await page.locator('#account-icons [data-account-id="b"].selected').waitFor();
+    assert.equal(
+      await page
+        .locator('#account-icons [data-account-id="a"]')
+        .evaluate((element) => element.classList.contains("selected")),
+      false,
+    );
+    assert.equal(
+      await page.evaluate(
+        () =>
+          window.originalAccountIcon === document.querySelector("#account-icons button") &&
+          window.originalAccountCard === document.querySelector("#cards button"),
+      ),
+      true,
+    );
+    await page.locator("#overview-button").click();
+    await page.locator("#dashboard:not([hidden])").waitFor();
     await page.getByRole("button", { name: "Add account", exact: true }).click();
     await page.getByLabel("Account name", { exact: true }).fill("Project");
     await page.getByRole("button", { name: "Connect account" }).click();

@@ -7,7 +7,7 @@ use gtk::prelude::*;
 use serde_json::Value;
 use std::{
     path::PathBuf,
-    sync::Mutex,
+    sync::{mpsc, Mutex},
     time::{Duration, Instant},
 };
 use tauri::{webview::WebviewBuilder, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl};
@@ -17,6 +17,7 @@ struct UiState {
     runtime: PathBuf,
     profile: PathBuf,
     selected: Mutex<Option<String>>,
+    activity: mpsc::SyncSender<()>,
 }
 fn local(webview: &tauri::Webview) -> Result<(), String> {
     if webview.label() != "main" {
@@ -98,7 +99,7 @@ fn sync_accounts(
         }
         let p = state.profile.join("accounts").join(id);
         storage::private_dir(&p).map_err(|e| e.to_string())?;
-        let runtime = state.runtime.clone();
+        let activity = state.activity.clone();
         let h = app.clone();
         let account_id = id.to_string();
         let builder =
@@ -228,13 +229,8 @@ fn sync_accounts(
                 }
                 if last.borrow().elapsed() > Duration::from_secs(1) {
                     *last.borrow_mut() = Instant::now();
-                    let _ = controller::rpc(
-                        &runtime,
-                        Request {
-                            op: "activity".into(),
-                            data: Value::Null,
-                        },
-                    );
+                    // Coalesce pending activity updates without blocking GTK input handling.
+                    let _ = activity.try_send(());
                 }
                 gtk::glib::Propagation::Proceed
             });
@@ -246,11 +242,25 @@ fn sync_accounts(
 }
 pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
     let rt = runtime.clone();
+    let (activity, activity_events) = mpsc::sync_channel(1);
+    let activity_runtime = runtime.clone();
+    std::thread::spawn(move || {
+        while activity_events.recv().is_ok() {
+            let _ = controller::rpc(
+                &activity_runtime,
+                Request {
+                    op: "activity".into(),
+                    data: Value::Null,
+                },
+            );
+        }
+    });
     tauri::Builder::default()
         .manage(UiState {
             runtime,
             profile: profile.clone(),
             selected: Mutex::new(None),
+            activity,
         })
         .invoke_handler(tauri::generate_handler![
             request,

@@ -3,8 +3,14 @@ import json
 import os
 import pathlib
 
+
+def sha256_file(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 artifacts = [
-    {"name": p.name, "digest": {"sha256": hashlib.sha256(p.read_bytes()).hexdigest()}}
+    {"name": p.name, "digest": {"sha256": sha256_file(p)}}
     for p in pathlib.Path("dist").glob("*.AppImage")
 ]
 statement = {

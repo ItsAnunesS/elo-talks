@@ -50,3 +50,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for language, formatting, and commit conv
 Each account has its own WebKit context and directory. Remote content receives no Tauri capabilities. Local requests are checked by origin and by a private socket validating the caller's UID and PID. There is no backend, telemetry, voice/video calling, or built-in updater.
 
 WhatsApp is a trademark of its owner. This project is not affiliated with WhatsApp or Meta.
+
+## Build and runtime performance
+
+CI caches the pinned Rust CLI binaries separately from compiled application dependencies. Cache keys include the toolchain, dependency manifests, and vendored source. Go build/module caches and npm downloads are also reused. AppImage outputs, signatures, vault data, and vulnerability results are never cached. Both Rust and Go vulnerability checks still run on every build.
+
+Packaging downloads have their own pristine cache: checksums are verified on every use, then fresh copies are staged for Tauri, which modifies linuxdeploy in place. Compressed AppImages are uploaded without redundant ZIP compression. The first run after a cache-key change remains a cold build; later runs can reuse that work.
+
+The measured baseline before these changes was approximately 14 minutes for the full GitHub workflow: 8m06s for tool installation and AppImage building, 1m54s for audit installation/execution, and 2m16s for checks. Local warm-cache checks took 0.20s to validate installed Rust tools and 0.13s to stage verified packaging tools. These are individual local measurements, not a promised CI duration.
+
+Account switching updates selection classes without rebuilding account buttons or cards. Native input activity uses one bounded background queue instead of synchronous vault RPC on the GTK thread. Inactive accounts stay connected for notifications. Cryptographic parameters, screen-lock monitoring, and sandbox enforcement are unchanged.

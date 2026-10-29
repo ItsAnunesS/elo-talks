@@ -91,11 +91,13 @@ function renderState() {
   for (const a of state.accounts) {
     const initial = a.name.slice(0, 2).toUpperCase();
     const icon = createButton(initial, () => selectAccount(a.id), "account-icon");
+    icon.dataset.accountId = a.id;
     icon.title = a.name;
     icon.setAttribute("aria-label", a.name);
     icon.classList.toggle("selected", selected === a.id);
     getElement("account-icons").append(icon);
     const row = createElement("div", "account-row");
+    row.dataset.accountId = a.id;
     row.classList.toggle("selected", selected === a.id);
     row.append(
       createButton(a.name, () => selectAccount(a.id), "account-name"),
@@ -118,7 +120,11 @@ async function selectAccount(id) {
     state.accounts.find((a) => a.id === id)?.name || "Overview";
   getElement("dashboard").hidden = !!id;
   getElement("overview-button").classList.toggle("active", !id);
-  renderState();
+  for (const container of ["account-icons", "account-list"]) {
+    for (const account of getElement(container).children) {
+      account.classList.toggle("selected", account.dataset.accountId === selected);
+    }
+  }
 }
 getElement("unlock-form").addEventListener("submit", async (e) => {
   e.preventDefault();
