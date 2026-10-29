@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="base" x1="70" y1="25" x2="433" y2="495" gradientUnits="userSpaceOnUse"><stop stop-color="#343148"/><stop offset=".52" stop-color="#1C1B2A"/><stop offset="1" stop-color="#10111B"/></linearGradient>
+    <linearGradient id="edge" x1="80" y1="10" x2="420" y2="500" gradientUnits="userSpaceOnUse"><stop stop-color="#79718F" stop-opacity=".7"/><stop offset=".48" stop-color="#393546" stop-opacity=".35"/><stop offset="1" stop-color="#615772" stop-opacity=".5"/></linearGradient>
+    <linearGradient id="silver" x1="225" y1="130" x2="374" y2="287" gradientUnits="userSpaceOnUse"><stop stop-color="#FFF9FF"/><stop offset="1" stop-color="#C6B9F3"/></linearGradient>
+    <linearGradient id="violet" x1="137" y1="240" x2="286" y2="388" gradientUnits="userSpaceOnUse"><stop stop-color="#C5B2FF"/><stop offset="1" stop-color="#8D6FE5"/></linearGradient>
+  </defs>
+  <rect x="9" y="9" width="494" height="494" rx="119" fill="url(#base)"/>
+  <rect x="10.5" y="10.5" width="491" height="491" rx="117.5" stroke="url(#edge)" stroke-width="3"/>
+  <!-- Two open, interlocking links: a connection with room to breathe. -->
+  <g stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M224 272a80 80 0 0 0 120.64 8.64l48-48a80 80 0 0 0-113.12-113.12L252 147" stroke="url(#silver)"/>
+    <path d="M288 240a80 80 0 0 0-120.64-8.64l-48 48a80 80 0 0 0 113.12 113.12L260 365" stroke="url(#violet)"/>
+  </g>
+</svg>

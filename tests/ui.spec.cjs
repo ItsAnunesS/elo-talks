@@ -3,13 +3,15 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 (async()=>{
  const root=path.resolve(__dirname,'../ui');
- const server=http.createServer((req,res)=>{const file=path.join(root,req.url==='/'?'index.html':req.url);if(!file.startsWith(root+path.sep)){res.writeHead(403).end();return;}try{res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));}catch{res.writeHead(404).end();}});
+ const server=http.createServer((req,res)=>{const file=path.join(root,req.url==='/'?'index.html':req.url);if(!file.startsWith(root+path.sep)){res.writeHead(403).end();return;}try{res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html');res.end(fs.readFileSync(file));}catch{res.writeHead(404).end();}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const browser=await chromium.launch({executablePath:process.env.CHROME_BIN,headless:true,chromiumSandbox:true});
  try{
   const page=await browser.newPage({viewport:{width:1200,height:800}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>{window.testRequests=[];window.testState=JSON.parse(localStorage.getItem("fixture")||"null")||{created:true,unlocked:false,pin:true,keys:[{id:'key-one',name:'Minha chave'}],accounts:[],idleMinutes:0,version:'0.1.0'};window.__TAURI__={core:{invoke:async(cmd,args)=>{window.testRequests.push({cmd,args});if(cmd==='request'){if(args.op==='status')return structuredClone(window.testState);if(args.op==='unlock')throw Error('Credencial incorreta');if(args.op==='account.add'){window.testState.accounts.push({id:'demo',name:args.data.name});return structuredClone(window.testState);}}return null;}},event:{listen:async()=>()=>{}}};});
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  await page.locator('.wordmark img').evaluate(img => img.decode());
+  assert.equal(await page.locator('.wordmark img').evaluate(img => img.naturalWidth),512);
   await page.getByRole('button',{name:'PIN',exact:true}).click();
   await page.getByLabel('Dígito 1',{exact:true}).fill('1');await page.keyboard.type('23456');
   assert.deepEqual(await page.locator('.pin-inputs input').evaluateAll(n=>n.map(n=>n.value)),['1','2','3','4','5','6']);
