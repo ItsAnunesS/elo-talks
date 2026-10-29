@@ -1,30 +1,41 @@
 // Read only the rendered self-profile control in an isolated WebKit script world.
 // No fetching, storage, WhatsApp internals, contact avatars or message access.
 (() => {
-  if (window.top !== window || location.origin !== "https://web.whatsapp.com") return "";
-  const selectors = [
-    '#app [data-testid="menu-bar-profile"] img',
-    '#app [data-testid="navbar"] [aria-label="Profile"] img',
-    '#app [data-testid="navbar"] [aria-label="Perfil"] img',
-    '#app [role="navigation"] [aria-label="Profile"] img',
-    '#app [role="navigation"] [aria-label="Perfil"] img',
+  if (window.top !== window || location.origin !== "https://web.whatsapp.com")
+    return "wrong-origin";
+  const profileControls = [
+    '#app [data-testid="menu-bar-profile"]',
+    '#app :is(header, nav, [role="navigation"], [data-testid="navbar"]) :is(button, [role="button"]):is([aria-label="Profile"], [aria-label="Perfil"])',
+    '#app :is([role="navigation"], [data-testid="navbar"]) :is([aria-label="Profile"], [aria-label="Perfil"])',
   ];
-  // Ambiguous layouts fail closed rather than accidentally selecting a contact.
-  const matches = new Set(
-    selectors.flatMap((selector) => [...document.querySelectorAll(selector)]),
-  );
-  if (matches.size !== 1) return "";
+  const excluded =
+    '#main, #side, #pane-side, [data-testid="conversation-panel-wrapper"], [role="dialog"], [role="listitem"], [role="row"]';
+  const visible = (element) => {
+    if (!element.getClientRects().length) return false;
+    for (let node = element; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.display === "none" || style.visibility !== "visible" || Number(style.opacity) === 0)
+        return false;
+    }
+    return true;
+  };
+  const matches = new Set();
+  let foundControl = false;
+  for (const selector of profileControls) {
+    for (const control of document.querySelectorAll(selector)) {
+      if (control.closest(excluded) || !visible(control)) continue;
+      foundControl = true;
+      for (const image of control.querySelectorAll("img")) {
+        if (!image.closest(excluded) && visible(image)) matches.add(image);
+      }
+    }
+  }
+  // Hidden responsive copies are ignored; multiple visible candidates remain ambiguous.
+  if (matches.size > 1) return "ambiguous";
+  if (!matches.size) return foundControl ? "no-photo" : "control-not-found";
   const image = [...matches][0];
-  if (
-    !image.complete ||
-    !image.naturalWidth ||
-    !image.naturalHeight ||
-    image.naturalWidth > 4096 ||
-    image.naturalHeight > 4096 ||
-    image.closest('#main, [data-testid="conversation-panel-wrapper"], [role="dialog"]') ||
-    image.getClientRects().length === 0
-  )
-    return "";
+  if (!image.complete || !image.naturalWidth || !image.naturalHeight) return "image-not-ready";
+  if (image.naturalWidth > 4096 || image.naturalHeight > 4096) return "image-too-large";
   try {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 64;
@@ -47,6 +58,6 @@
     ).join("");
   } catch {
     // Respect canvas origin protections; never fetch again or bypass CORS.
-    return "";
+    return "canvas-blocked";
   }
 })();

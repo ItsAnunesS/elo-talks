@@ -1,4 +1,8 @@
 //! Best-effort self-profile pixels. All state belongs to the disposable UI process.
+use crate::{
+    account_events::{self, AccountEvents},
+    account_runtime::AvatarStatus,
+};
 use gtk::{glib, prelude::*};
 use serde::Serialize;
 use std::{
@@ -6,7 +10,7 @@ use std::{
     rc::Rc,
     time::Duration,
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use webkit2gtk::WebViewExt;
 
 const PIXEL_BYTES: usize = 64 * 64 * 4;
@@ -26,6 +30,22 @@ fn decode_pixels(value: &str) -> Option<Vec<u8>> {
     hex::decode(value).ok()
 }
 
+fn avatar_status(value: &str) -> AvatarStatus {
+    if decode_pixels(value).is_some() {
+        return AvatarStatus::Ready;
+    }
+    match value {
+        "control-not-found" => AvatarStatus::ControlNotFound,
+        "no-photo" => AvatarStatus::NoPhoto,
+        "ambiguous" => AvatarStatus::Ambiguous,
+        "image-not-ready" => AvatarStatus::ImageNotReady,
+        "image-too-large" => AvatarStatus::ImageTooLarge,
+        "canvas-blocked" => AvatarStatus::CanvasBlocked,
+        "wrong-origin" => AvatarStatus::WrongOrigin,
+        _ => AvatarStatus::Unavailable,
+    }
+}
+
 struct Probe {
     busy: Cell<bool>,
     active: Cell<bool>,
@@ -36,10 +56,22 @@ struct Probe {
 impl Probe {
     fn clear(&self, app: &tauri::AppHandle, id: &str) {
         self.generation.set(self.generation.get().wrapping_add(1));
-        self.publish(app, id, String::new());
+        self.publish(app, id, String::new(), AvatarStatus::Waiting);
     }
 
-    fn publish(&self, app: &tauri::AppHandle, id: &str, pixels: String) {
+    fn publish(&self, app: &tauri::AppHandle, id: &str, pixels: String, status: AvatarStatus) {
+        let changed = {
+            let events = app.state::<AccountEvents>();
+            let mut runtime = events.runtime.lock().unwrap();
+            runtime.accounts.get_mut(id).is_some_and(|account| {
+                let changed = account.avatar != status;
+                account.avatar = status;
+                changed
+            })
+        };
+        if changed {
+            account_events::publish(app);
+        }
         if *self.previous.borrow() == pixels {
             return;
         }
@@ -88,12 +120,13 @@ impl Probe {
                     .ok()
                     .map(|value| value.to_string())
                     .unwrap_or_default();
-                let pixels = if decode_pixels(&pixels).is_some() {
+                let status = avatar_status(&pixels);
+                let pixels = if status == AvatarStatus::Ready {
                     pixels
                 } else {
                     String::new()
                 };
-                probe.publish(&handle, &account, pixels);
+                probe.publish(&handle, &account, pixels, status);
             },
         );
     }
@@ -164,5 +197,17 @@ mod tests {
         ] {
             assert!(decode_pixels(&invalid).is_none());
         }
+    }
+    #[test]
+    fn diagnostics_accept_only_known_status_codes() {
+        assert_eq!(avatar_status("canvas-blocked"), AvatarStatus::CanvasBlocked);
+        assert_eq!(
+            avatar_status("control-not-found"),
+            AvatarStatus::ControlNotFound
+        );
+        assert_eq!(
+            avatar_status("private URL or arbitrary page text"),
+            AvatarStatus::Unavailable
+        );
     }
 }

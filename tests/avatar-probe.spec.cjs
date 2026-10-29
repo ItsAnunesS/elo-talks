@@ -34,7 +34,7 @@ const probe = fs.readFileSync(path.join(__dirname, "../src-tauri/src/avatar-prob
       contact.src = photo;
       await contact.decode();
     }, photo);
-    assert.equal(await page.evaluate(probe), "", "Never fall back to a conversation photo");
+    assert.equal(await page.evaluate(probe), "no-photo", "Never fall back to a conversation photo");
     await page.evaluate(async (photo) => {
       const image = new Image();
       image.src = photo;
@@ -50,12 +50,53 @@ const probe = fs.readFileSync(path.join(__dirname, "../src-tauri/src/avatar-prob
     const pixels = await page.evaluate(probe);
     assert.equal(pixels.length, 64 * 64 * 4 * 2);
     assert.equal(pixels.slice(0, 8), "bb66ffff");
+    await page.evaluate(() => {
+      const copy = document.querySelector("nav button").cloneNode(true);
+      copy.style.display = "none";
+      document.querySelector("nav").append(copy);
+      const contactHeader = document.createElement("header");
+      contactHeader.append(document.querySelector("nav button").cloneNode(true));
+      document.querySelector("#main").append(contactHeader);
+    });
+    assert.equal(
+      await page.evaluate(probe),
+      pixels,
+      "Hidden duplicates and contact headers must be ignored",
+    );
+    await page.evaluate(() => {
+      const header = document.createElement("header");
+      header.id = "current-navigation";
+      const button = document.createElement("div");
+      button.setAttribute("role", "button");
+      button.setAttribute("aria-label", "Perfil");
+      button.append(document.querySelector("nav img").cloneNode(true));
+      header.append(button);
+      document.querySelector("#app").prepend(header);
+      document.querySelector("nav").style.display = "none";
+    });
+    assert.equal(
+      await page.evaluate(probe),
+      pixels,
+      "Header profile controls do not require navbar test IDs",
+    );
+    await page.evaluate(() => {
+      document.querySelector("#current-navigation").remove();
+      document.querySelector("nav").style.display = "";
+    });
     await page.evaluate(() =>
       document.querySelector("nav").append(document.querySelector("nav button").cloneNode(true)),
     );
-    assert.equal(await page.evaluate(probe), "", "Ambiguous profile controls must retain initials");
+    assert.equal(
+      await page.evaluate(probe),
+      "ambiguous",
+      "Ambiguous profile controls must retain initials",
+    );
     await page.evaluate(() => document.querySelector("nav").replaceChildren());
-    assert.equal(await page.evaluate(probe), "", "Logout/missing profile must clear the avatar");
+    assert.equal(
+      await page.evaluate(probe),
+      "control-not-found",
+      "Logout/missing profile must clear the avatar",
+    );
     await page.evaluate(async (photo) => {
       const button = document.createElement("button");
       button.setAttribute("aria-label", "Profile");
@@ -68,10 +109,14 @@ const probe = fs.readFileSync(path.join(__dirname, "../src-tauri/src/avatar-prob
         throw new DOMException("Tainted canvas", "SecurityError");
       };
     }, photo);
-    assert.equal(await page.evaluate(probe), "", "Canvas security errors must retain initials");
+    assert.equal(
+      await page.evaluate(probe),
+      "canvas-blocked",
+      "Canvas security errors must retain initials",
+    );
     assert.equal(requests, 1, "The probe must never request a photo URL");
     await page.goto("https://example.com/");
-    assert.equal(await page.evaluate(probe), "", "Other origins must not be inspected");
+    assert.equal(await page.evaluate(probe), "wrong-origin", "Other origins must not be inspected");
     console.log(
       "PASS: own-avatar pixels, missing/ambiguous profile, contact exclusion, origin restriction and no network/storage writes.",
     );
