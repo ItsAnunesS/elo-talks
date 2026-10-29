@@ -1,5 +1,6 @@
 import { getElement, errorMessage, createElement, createButton, createField } from "./dom.js";
 import { invoke, request, listen, isDesktop } from "./bridge.js";
+import { updateAccountStatus } from "./account-status.js";
 import { initializePinInputs } from "./pin-input.js";
 const digits = initializePinInputs(getElement("pin-inputs"));
 let state = { created: false, unlocked: false, pin: false, keys: [], accounts: [], idleMinutes: 0 };
@@ -49,7 +50,10 @@ document
 async function refreshState() {
   state = await request("status");
   renderState();
-  if (state.unlocked) await invoke("sync_accounts");
+  if (state.unlocked) {
+    await invoke("sync_accounts");
+    updateAccountStatus(await invoke("account_snapshot"), selected);
+  }
 }
 function renderState() {
   getElement("lock-screen").hidden = state.unlocked;
@@ -116,6 +120,7 @@ function renderState() {
 async function selectAccount(id) {
   await invoke("select_account", { id });
   selected = id;
+  updateAccountStatus(null, selected);
   getElement("page-title").textContent =
     state.accounts.find((a) => a.id === id)?.name || "Overview";
   getElement("dashboard").hidden = !!id;
@@ -257,10 +262,88 @@ async function editAccount(a) {
     () => request("account.rename", { id: a.id, name: name.value }),
   );
 }
+function notificationControls(parent) {
+  const section = createElement("section", "dialog-section");
+  section.append(createElement("h3", "", "Notifications"));
+  const checkbox = (label, checked) => {
+    const wrapper = createElement("label", "toggle-setting");
+    const input = createElement("input");
+    input.type = "checkbox";
+    input.checked = checked;
+    wrapper.append(input, document.createTextNode(label));
+    section.append(wrapper);
+    return input;
+  };
+  const preferences = state.notifications || { doNotDisturb: false, mutedAccounts: [] };
+  const dnd = checkbox("Do not disturb", preferences.doNotDisturb);
+  const accounts = state.accounts.map((account) => ({
+    id: account.id,
+    input: checkbox(`Mute ${account.name}`, preferences.mutedAccounts.includes(account.id)),
+  }));
+  section.append(
+    createElement(
+      "p",
+      "hint",
+      "Muting stops desktop popups. Badges count native notifications since last viewed, not exact WhatsApp unread messages. Enable notifications in WhatsApp to receive them. Counters reset when the vault closes.",
+    ),
+    createButton("Save notification settings", async () => {
+      await request("notifications", {
+        doNotDisturb: dnd.checked,
+        mutedAccounts: accounts
+          .filter((account) => account.input.checked)
+          .map((account) => account.id),
+      });
+      await refreshState();
+      showToast("Notification settings saved.");
+    }),
+  );
+  parent.append(section);
+}
+
+async function showDiagnostics() {
+  const report = await invoke("diagnostics");
+  // Only an explicit allowlist is displayed; never include controller error strings or account names.
+  const safe = {
+    ...report,
+    vault: state.error ? "Closure requires attention" : state.unlocked ? "Unlocked" : "Locked",
+  };
+  await openDialog(
+    "Safe diagnostics",
+    (parent) => {
+      parent.append(
+        createElement(
+          "p",
+          "hint",
+          "Local report only. No messages, cookies, credentials, account names, paths or remote URLs. Page loaded does not confirm WhatsApp sign-in.",
+        ),
+      );
+      const output = createElement("textarea", "diagnostics-output");
+      output.readOnly = true;
+      output.setAttribute("aria-label", "Diagnostic report");
+      output.value = JSON.stringify(safe, null, 2);
+      parent.append(
+        output,
+        createButton("Select report", () => {
+          output.focus();
+          output.select();
+        }),
+      );
+    },
+    null,
+  );
+}
+
 async function openSettings() {
   await openDialog(
     "Your vault, your rules",
     (p) => {
+      notificationControls(p);
+      p.append(
+        createButton("Safe diagnostics", async () => {
+          await closeDialog();
+          await showDiagnostics();
+        }),
+      );
       const timeout = createField(
         p,
         "Lock after inactivity (minutes; 0 = disabled)",
@@ -364,6 +447,20 @@ async function openSettings() {
     null,
   );
 }
+getElement("retry-account").addEventListener("click", async () => {
+  if (!selected) return;
+  const button = getElement("retry-account");
+  button.disabled = true;
+  try {
+    await invoke("retry_account", { id: selected });
+  } catch (error) {
+    showToast(errorMessage(error));
+  } finally {
+    setTimeout(() => {
+      button.disabled = false;
+    }, 1000);
+  }
+});
 getElement("add-account").addEventListener("click", () =>
   addAccount().catch((e) => showToast(errorMessage(e))),
 );
@@ -386,14 +483,20 @@ for (const event of ["pointerdown", "keydown"])
       request("activity").catch(() => {});
     }
   });
+async function initializeDesktop() {
+  await Promise.all([
+    listen("account-state", (event) => updateAccountStatus(event.payload, selected)),
+    listen("account-error", (event) => showToast(event.payload)),
+    listen("open-account", async (event) => {
+      if (getElement("dialog").open) await closeDialog();
+      await selectAccount(event.payload);
+    }),
+  ]);
+  await refreshState();
+}
 if (isDesktop) {
-  listen("account-error", (e) => showToast(e.payload));
-  listen("open-account", async (e) => {
-    if (getElement("dialog").open) await closeDialog();
-    await selectAccount(e.payload);
-  });
-  refreshState().catch((e) => {
-    getElement("unlock-error").textContent = errorMessage(e);
+  initializeDesktop().catch((error) => {
+    getElement("unlock-error").textContent = errorMessage(error);
   });
 } else {
   renderState();

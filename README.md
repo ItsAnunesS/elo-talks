@@ -62,3 +62,33 @@ Packaging downloads have their own pristine cache: checksums are verified on eve
 The measured baseline before these changes was approximately 14 minutes for the full GitHub workflow: 8m06s for tool installation and AppImage building, 1m54s for audit installation/execution, and 2m16s for checks. Local warm-cache checks took 0.20s to validate installed Rust tools and 0.13s to stage verified packaging tools. These are individual local measurements, not a promised CI duration.
 
 Account switching updates selection classes without rebuilding account buttons or cards. Native input activity uses one bounded background queue instead of synchronous vault RPC on the GTK thread. Inactive accounts stay connected for notifications. Cryptographic parameters, screen-lock monitoring, and sandbox enforcement are unchanged.
+
+## Account health, notifications and diagnostics
+
+Each account displays native WebKit page state and offers **Retry** without deleting
+its profile. Load failures, TLS failures, stopped web processes and an unavailable
+sandbox are separate states. A successful page load means the WhatsApp page is
+available, not that a QR code has been scanned or its messaging connection is healthy.
+Elo Talks does not inspect the WhatsApp DOM, page title, conversations or QR codes.
+
+Enable notifications in WhatsApp to receive native notification events. Account
+badges and the Overview total count those events since the account was last viewed
+in a focused window. Counts continue while another workspace is active or the window
+is hidden. They are not exact unread-message totals; WhatsApp can group or suppress
+notifications. Counters exist only in memory and reset when the vault closes.
+
+Settings offers global **Do not disturb** and per-account muting. These suppress
+new desktop popups while retaining counters. Preferences are saved inside the vault.
+Desktop notifications contain only a generic message, and clicking opens the account.
+At most four notification action handlers wait concurrently; extra events still
+update the badges. Already delivered desktop notifications are controlled by the OS.
+
+The window title includes the pending total. Compatible docks can also receive a
+Unity LauncherEntry numeric badge for the desktop entry. GNOME Shell does not
+universally support this protocol; dock extensions and AppImage manager naming can
+affect display. No extension is installed or security setting changed by the app.
+
+**Safe diagnostics** in Settings shows a local, selectable report with app version,
+platform, page states, counters and vault state. It excludes message content, account
+names/identifiers, credentials, cookies, filesystem paths and remote URLs. Nothing
+is uploaded automatically. TLS failures never create certificate exceptions.

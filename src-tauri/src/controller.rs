@@ -1,4 +1,5 @@
 use crate::{
+    account_runtime::NotificationPreferences,
     ipc::{receive_frame, send_frame, Request},
     storage,
     vault::Vault,
@@ -92,6 +93,7 @@ impl Controller {
                 libc::kill(-pg, libc::SIGKILL);
             }
             let _ = c.wait();
+            crate::account_events::clear_desktop_badge();
             // Unmount is authoritative: it must fail if another process still holds the mount.
         }
         Ok(())
@@ -117,6 +119,17 @@ impl Controller {
             Ok(vec![])
         }
     }
+    fn notification_preferences(&self) -> Result<NotificationPreferences> {
+        if self.vault.master.is_none() || self.lock_error.is_some() {
+            return Ok(NotificationPreferences::default());
+        }
+        let path = self.vault.mount.join("notifications.json");
+        if path.exists() {
+            storage::read(&path)
+        } else {
+            Ok(NotificationPreferences::default())
+        }
+    }
     fn status(&self) -> Result<Value> {
         let manifest = self.vault.manifest.as_ref();
         let keys = manifest
@@ -134,6 +147,7 @@ impl Controller {
             "pin": manifest.is_some_and(|vault| vault.pin.is_some()),
             "keys": keys,
             "accounts": self.accounts().unwrap_or_default(),
+            "notifications": self.notification_preferences()?,
             "idleMinutes": manifest.map(|vault| vault.idle_minutes).unwrap_or(0),
             "error": self.lock_error,
             "version": env!("CARGO_PKG_VERSION"),
@@ -230,6 +244,19 @@ impl Controller {
                             );
                         }
                         storage::write(&self.vault.mount.join("accounts.json"), &ordered)?;
+                    }
+                    "notifications" => {
+                        let preferences: NotificationPreferences =
+                            serde_json::from_value(d.clone())?;
+                        let accounts = self.accounts()?;
+                        ensure!(
+                            preferences
+                                .muted_accounts
+                                .iter()
+                                .all(|id| accounts.iter().any(|account| &account.id == id)),
+                            "Unknown account in notification settings"
+                        );
+                        storage::write(&self.vault.mount.join("notifications.json"), &preferences)?;
                     }
                     "password" => self.vault.password(
                         required_text(d, "password")?,
@@ -443,6 +470,7 @@ mod tests {
             "account.add",
             "account.remove",
             "settings",
+            "notifications",
             "pin",
             "key.add",
             "password",
@@ -488,5 +516,55 @@ mod tests {
             })
             .is_err());
         assert_eq!(c.accounts().unwrap()[1].id, list[1].id);
+    }
+    #[test]
+    fn notification_preferences_persist_and_reject_unknown_accounts() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        let mut vault = Vault::new(directory.path().into(), runtime.path()).unwrap();
+        vault.master = Some(crate::crypto::random());
+        let account = Account {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Synthetic".into(),
+        };
+        storage::write(&vault.mount.join("accounts.json"), &vec![account.clone()]).unwrap();
+        let mut controller = Controller {
+            vault,
+            child: None,
+            runtime: runtime.path().into(),
+            last_activity: Instant::now(),
+            retry_at: Instant::now(),
+            failures: 0,
+            lock_error: None,
+        };
+        controller
+            .handle(&Request {
+                op: "notifications".into(),
+                data: json!({"doNotDisturb": true, "mutedAccounts": [account.id]}),
+            })
+            .unwrap();
+        let saved: NotificationPreferences =
+            storage::read(&controller.vault.mount.join("notifications.json")).unwrap();
+        assert!(saved.do_not_disturb);
+        assert!(saved.muted_accounts.contains(&account.id));
+        assert!(controller
+            .handle(&Request {
+                op: "notifications".into(),
+                data: json!({"mutedAccounts": ["unknown"]})
+            })
+            .is_err());
+        assert!(
+            controller
+                .notification_preferences()
+                .unwrap()
+                .do_not_disturb
+        );
+        controller.vault.master = None;
+        assert!(
+            !controller
+                .notification_preferences()
+                .unwrap()
+                .do_not_disturb
+        );
     }
 }

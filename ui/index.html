@@ -118,7 +118,9 @@
         <div class="sidebar-section">
           <span>YOUR SPACE</span><span class="secure-badge">◈</span>
         </div>
-        <button class="overview active" id="overview-button">▦ <span>Overview</span></button>
+        <button class="overview active" id="overview-button">
+          ▦ <span>Overview</span><span id="overview-badge" class="notification-badge" hidden></span>
+        </button>
         <div class="sidebar-section accounts-heading">
           <span>WHATSAPP ACCOUNTS</span><span id="account-count">0</span>
         </div>
@@ -137,7 +139,10 @@
           <span class="breadcrumb">Your space</span><span class="slash">/</span
           ><strong id="page-title">Overview</strong>
         </div>
-        <span class="topbar-status"><i class="status-dot"></i> Vault open</span>
+        <div class="topbar-status">
+          <span id="account-page-status" role="status">Vault open</span
+          ><button id="retry-account" class="text-button" hidden>Retry</button>
+        </div>
       </header>
       <section class="dashboard" id="dashboard">
         <span class="eyebrow">EVERYTHING IN ITS PLACE</span>

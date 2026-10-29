@@ -1,4 +1,10 @@
 //! Synthetic native regression, run only in an isolated Xvfb desktop.
+#[allow(dead_code)]
+#[path = "../src/account_events.rs"]
+mod account_events;
+#[allow(dead_code)]
+#[path = "../src/account_runtime.rs"]
+mod account_runtime;
 #[path = "../src/ui_layout.rs"]
 mod ui_layout;
 use gtk::prelude::*;
@@ -8,6 +14,7 @@ use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
 
 fn main() {
     tauri::Builder::default()
+        .manage(account_events::AccountEvents::default())
         .setup(|app| {
             let window = tauri::window::WindowBuilder::new(app, "layout-test")
                 .title("Elo Talks — synthetic layout regression")
@@ -27,6 +34,10 @@ fn main() {
                     let webview = platform.inner();
                     assert!(webview.context().is_some_and(|context| context.is_sandbox_enabled()), "WebKit sandbox must remain enabled in the layout test");
                     ui_layout::attach(&webview, index != 0).unwrap();
+                    if index != 0 {
+                        handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.insert(label.into(), account_runtime::AccountHealth::default());
+                        account_events::attach(&webview, &handle, label);
+                    }
                     webview.load_html(
                         if index == 0 {
                             "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
@@ -62,7 +73,13 @@ fn main() {
                         };
                         match stage.get() {
                             0 => { assert!(!first.is_visible() && !second.is_visible()); ui_layout::set_account_visible(&first_view, true).unwrap(); }
-                            1 => { check(&first); assert!(first.is_visible()); ui_layout::set_account_visible(&first_view, false).unwrap(); ui_layout::set_account_visible(&second_view, true).unwrap(); }
+                            1 => {
+                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::Ready);
+                                let native_view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
+                                native_view.emit_by_name::<()>("web-process-terminated", &[&webkit2gtk::WebProcessTerminationReason::Crashed]);
+                                native_view.emit_by_name::<()>("load-changed", &[&webkit2gtk::LoadEvent::Finished]);
+                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::ProcessStopped);
+                                check(&first); assert!(first.is_visible()); ui_layout::set_account_visible(&first_view, false).unwrap(); ui_layout::set_account_visible(&second_view, true).unwrap(); }
                             2 => { check(&second); assert!(second.is_visible()); assert!(!first.is_visible()); native.resize(900, 640); }
                             3 => { check(&second); assert_eq!(overlay.allocated_width(), 900); native.resize(1400, 900); }
                             4 => { check(&second); assert_eq!(overlay.allocated_width(), 1400); ui_layout::set_account_visible(&second_view, false).unwrap(); }

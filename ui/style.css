@@ -420,6 +420,8 @@ p {
   color: #a89bca;
 }
 .overview {
+  display: flex;
+  align-items: center;
   margin: 0 12px;
   text-align: left;
   padding: 12px;
@@ -736,4 +738,97 @@ button.logo {
   border-radius: 0;
   box-shadow: none;
   filter: drop-shadow(0 12px 24px #0b081d55);
+}
+
+/* Notification counts remain visible alongside trusted account controls. */
+.account-icon,
+.overview {
+  position: relative;
+}
+.notification-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 12px;
+  background: #b3a1ff;
+  color: #171522;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.account-icon .notification-badge {
+  position: absolute;
+  right: -5px;
+  top: -5px;
+  border: 2px solid #14141d;
+}
+.overview .notification-badge {
+  margin-left: auto;
+}
+.account-row {
+  flex-wrap: wrap;
+}
+.account-health {
+  flex-basis: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #a5a8bd;
+  padding: 0 10px 6px;
+}
+.topbar-status {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 11px;
+}
+.toggle-setting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+.toggle-setting input {
+  width: auto;
+  margin: 0;
+}
+.diagnostics-output {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  background: #12131a;
+  color: #d8d9e4;
+  border: 1px solid #343544;
+  border-radius: 8px;
+  padding: 12px;
+  font-family: monospace;
+}
+
+.topbar > div:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar-status {
+  max-width: 55%;
+  flex-shrink: 0;
+}
+#account-page-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 950px) {
+  .topbar {
+    padding: 0 15px;
+  }
+  .topbar .breadcrumb,
+  .topbar .slash {
+    display: none;
+  }
 }

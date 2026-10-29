@@ -40,6 +40,14 @@ const http = require("node:http"),
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(() => {
       window.testRequests = [];
+      window.testListeners = {};
+      window.testAccountStatus = {
+        accounts: {
+          a: { page: "ready", pendingNotifications: 3 },
+          b: { page: "load-failed", pendingNotifications: 12 },
+        },
+        preferences: {},
+      };
       window.testState = JSON.parse(localStorage.getItem("fixture") || "null") || {
         created: true,
         unlocked: false,
@@ -53,8 +61,18 @@ const http = require("node:http"),
         core: {
           invoke: async (cmd, args) => {
             window.testRequests.push({ cmd, args });
+            if (cmd === "account_snapshot") return structuredClone(window.testAccountStatus);
+            if (cmd === "diagnostics")
+              return {
+                version: "0.1.0",
+                accounts: [{ page: "load-failed", pendingNotifications: 12 }],
+              };
             if (cmd === "request") {
               if (args.op === "status") return structuredClone(window.testState);
+              if (args.op === "notifications") {
+                window.testState.notifications = args.data;
+                return structuredClone(window.testState);
+              }
               if (args.op === "unlock") throw Error("Incorrect credential");
               if (args.op === "account.add") {
                 window.testState.accounts.push({ id: "demo", name: args.data.name });
@@ -64,7 +82,12 @@ const http = require("node:http"),
             return null;
           },
         },
-        event: { listen: async () => () => {} },
+        event: {
+          listen: async (name, handler) => {
+            window.testListeners[name] = handler;
+            return () => {};
+          },
+        },
       };
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
@@ -122,9 +145,49 @@ const http = require("node:http"),
     await page.getByLabel("Account name", { exact: true }).fill("Project");
     await page.getByRole("button", { name: "Connect account" }).click();
     await page.getByRole("button", { name: "Project", exact: true }).last().waitFor();
+    assert.equal(
+      await page.locator('#account-list [data-account-id="b"] .notification-badge').textContent(),
+      "12",
+    );
+    await page.locator('#account-icons [data-account-id="b"]').click();
+    await page.getByRole("status").filter({ hasText: "Could not load" }).waitFor();
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    assert.ok(
+      await page.evaluate(() =>
+        window.testRequests.some(
+          (request) => request.cmd === "retry_account" && request.args.id === "b",
+        ),
+      ),
+    );
+    await page.evaluate(() =>
+      window.testListeners["account-state"]({
+        payload: { accounts: { b: { page: "tls-failed", pendingNotifications: 101 } } },
+      }),
+    );
+    assert.equal(
+      await page.locator('#account-list [data-account-id="b"] .notification-badge').textContent(),
+      "99+",
+    );
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByLabel("Do not disturb", { exact: true }).check();
+    await page.getByLabel("Mute Work", { exact: true }).check();
+    await page.getByRole("button", { name: "Save notification settings" }).click();
+    await page.getByRole("status").filter({ hasText: "Notification settings saved" }).waitFor();
+    assert.deepEqual(await page.evaluate(() => window.testState.notifications), {
+      doNotDisturb: true,
+      mutedAccounts: ["b"],
+    });
+    await page.getByRole("button", { name: "Safe diagnostics", exact: true }).click();
+    const diagnosticReport = await page.getByLabel("Diagnostic report").inputValue();
+    assert.ok(diagnosticReport.includes("load-failed"));
+    assert.ok(!diagnosticReport.includes("Personal") && !diagnosticReport.includes("Work"));
+    await page.screenshot({ path: "/tmp/elo-diagnostics.png" });
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.setViewportSize({ width: 900, height: 640 });
+    await page.screenshot({ path: "/tmp/elo-status-badges.png" });
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: PIN, rejected credential, secret clearing, safe labels, adding account, dashboard.",
+      "PASS: credentials, safe labels, account switching, badges, retry, notification preferences and private diagnostics.",
     );
   } finally {
     await browser.close();
