@@ -115,6 +115,17 @@ The app does not write extracted photos to disk. WhatsApp's own image cache may
 still exist inside the encrypted profile, and memory can be swapped by the OS.
 No changes are made to TLS, sandboxing, authentication or encrypted storage.
 
+Avatar diagnostics include only a fixed status code: `ready`, `control-not-found`,
+`no-photo`, `ambiguous`, `image-not-ready`, `image-too-large`, `canvas-blocked`,
+`wrong-origin`, `waiting` or `unavailable`. `canvas-blocked` means browser-origin
+protection prevented reading pixels; Elo Talks keeps initials instead of bypassing
+that protection. The self-profile entry recognizes exact `You`/`Você` and `Profile`/`Perfil`
+labels in `aria-label` or `title`, including tabs and nested labels in the navigation
+header. Explicit self-photo alt text is also supported. Hidden responsive duplicates
+are ignored; generic image alt text and positional image fallbacks are not used. Contact
+headers, chat lists and dialogs are excluded. These compatibility rules are tested
+with synthetic layouts; the current live WhatsApp account still needs validation.
+
 ## Desktop icon refresh
 
 On each AppImage launch, Elo Talks refreshes matching launchers in the user's
@@ -130,12 +141,3 @@ and no desktop restart or cache-deletion command is needed. Unchanged launchers
 are not rewritten. An update manager can regenerate its launcher; opening the
 updated AppImage reapplies the icon automatically. Integration errors are nonfatal
 and retried on the next launch. This handles the application logo, not account photos.
-
-Avatar diagnostics include only a fixed status code: `ready`, `control-not-found`,
-`no-photo`, `ambiguous`, `image-not-ready`, `image-too-large`, `canvas-blocked`,
-`wrong-origin`, `waiting` or `unavailable`. `canvas-blocked` means browser-origin
-protection prevented reading pixels; Elo Talks keeps initials instead of bypassing
-that protection. Header-based Profile/Perfil controls are supported in addition to
-navigation-role controls, and hidden responsive duplicates are ignored. Contact
-headers, chat lists and dialogs are excluded. These compatibility rules are tested
-with synthetic layouts; the current live WhatsApp account still needs validation.

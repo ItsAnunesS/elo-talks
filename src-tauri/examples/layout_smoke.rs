@@ -42,7 +42,7 @@ fn main() {
                         if index == 0 {
                             "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
                         } else if index == 1 {
-                            "<body style='background:#243e38'><div id='app'><header><div role='button' aria-label='Perfil'><img src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z/D/PwAG/gL+DHWJ3gAAAABJRU5ErkJggg=='></div></header></div><script>HTMLCanvasElement.prototype.getContext = () => { throw Error('Page-world canvas must not be used'); };</script>"
+                            "<body style='background:#243e38'><div id='app'><header><div role='tab' title='Você'><img src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z/D/PwAG/gL+DHWJ3gAAAABJRU5ErkJggg=='></div></header></div><script>HTMLCanvasElement.prototype.getContext = () => { throw Error('Page-world canvas must not be used'); };</script>"
                         } else {
                             "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data</body>"
                         },

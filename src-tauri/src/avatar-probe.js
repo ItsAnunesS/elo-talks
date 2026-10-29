@@ -3,13 +3,22 @@
 (() => {
   if (window.top !== window || location.origin !== "https://web.whatsapp.com")
     return "wrong-origin";
+  const navigation =
+    '#app :is(header, nav, [role="navigation"], [role="tablist"], [data-testid="navbar"])';
+  // WhatsApp also labels its self-profile entry "You" / "Você".
+  // Match whole labels only, never user names, generic avatars or positional images.
+  const profileLabels = ["You", "Você", "Profile", "Perfil"];
+  const labeledProfile = profileLabels
+    .flatMap((label) => [`[aria-label="${label}"]`, `[title="${label}"]`])
+    .join(", ");
   const profileControls = [
     '#app [data-testid="menu-bar-profile"]',
-    '#app :is(header, nav, [role="navigation"], [data-testid="navbar"]) :is(button, [role="button"]):is([aria-label="Profile"], [aria-label="Perfil"])',
-    '#app :is([role="navigation"], [data-testid="navbar"]) :is([aria-label="Profile"], [aria-label="Perfil"])',
+    `${navigation} :is(${labeledProfile})`,
+    `${navigation} img:is([alt="Your profile picture"], [alt="Sua foto de perfil"])`,
   ];
+  const interactive = 'button, [role="button"], [role="tab"]';
   const excluded =
-    '#main, #side, #pane-side, [data-testid="conversation-panel-wrapper"], [role="dialog"], [role="listitem"], [role="row"]';
+    '#main, #side, #pane-side, [data-testid="conversation-panel-wrapper"], [role="dialog"], [role="listitem"], [role="row"], [role="listbox"], [role="menu"], [contenteditable="true"]';
   const visible = (element) => {
     if (!element.getClientRects().length) return false;
     for (let node = element; node; node = node.parentElement) {
@@ -22,10 +31,15 @@
   const matches = new Set();
   let foundControl = false;
   for (const selector of profileControls) {
-    for (const control of document.querySelectorAll(selector)) {
+    for (const marker of document.querySelectorAll(selector)) {
+      if (marker.closest(excluded) || !visible(marker)) continue;
+      // A tooltip label can be on a child of the button rather than the button itself.
+      const parentControl = marker.closest(interactive);
+      const control = parentControl?.closest(navigation) ? parentControl : marker;
       if (control.closest(excluded) || !visible(control)) continue;
       foundControl = true;
-      for (const image of control.querySelectorAll("img")) {
+      const images = control.matches("img") ? [control] : control.querySelectorAll("img");
+      for (const image of images) {
         if (!image.closest(excluded) && visible(image)) matches.add(image);
       }
     }

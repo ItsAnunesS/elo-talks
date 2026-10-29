@@ -83,6 +83,68 @@ const probe = fs.readFileSync(path.join(__dirname, "../src-tauri/src/avatar-prob
       document.querySelector("#current-navigation").remove();
       document.querySelector("nav").style.display = "";
     });
+    // The reported live tooltip is "Você"; labels can belong to tabs or nested spans.
+    for (const markup of [
+      '<header><button aria-label="Você"><img></button></header>',
+      '<header><div role="tab" title="Você"><img></div></header>',
+      '<div role="tablist"><button title="You"><img></button></div>',
+      '<header><div role="tab" aria-label="You"><img></div></header>',
+      '<header><button><span title="Você"></span><img></button></header>',
+      '<header><button><img alt="Your profile picture"></button></header>',
+      '<header><button><img alt="Sua foto de perfil"></button></header>',
+    ]) {
+      await page.evaluate(
+        async ({ markup, photo }) => {
+          document.querySelector("nav").style.display = "none";
+          const fixture = document.createElement("section");
+          fixture.id = "profile-variant";
+          fixture.innerHTML = markup;
+          document.querySelector("#app").prepend(fixture);
+          const image = fixture.querySelector("img");
+          image.src = photo;
+          await image.decode();
+          // Ensure nested labels have a rendered box without including a photo themselves.
+          for (const label of fixture.querySelectorAll("span")) label.textContent = "Você";
+        },
+        { markup, photo },
+      );
+      assert.equal(await page.evaluate(probe), pixels, `Recognize self-profile variant: ${markup}`);
+      await page.evaluate(() => document.querySelector("#profile-variant").remove());
+    }
+    for (const markup of [
+      '<div id="main"><header><button title="Você"><img></button></header></div>',
+      '<div id="side"><header><button aria-label="You"><img></button></header></div>',
+      '<header><div role="row"><button title="Você"><img></button></div></header>',
+      '<header><div role="listitem"><button title="You"><img></button></div></header>',
+      '<div role="dialog"><header><button title="Você"><img></button></header></div>',
+      '<header><div role="menu"><button title="Você"><img></button></div></header>',
+      '<section><button title="Você"><img></button></section>',
+      '<header><button title="You are invited"><img></button></header>',
+      '<header><button><img alt="Profile picture"></button></header>',
+      "<header><button><img></button></header>",
+    ]) {
+      await page.evaluate(
+        async ({ markup, photo }) => {
+          const fixture = document.createElement("section");
+          fixture.id = "profile-variant";
+          fixture.innerHTML = markup;
+          document.querySelector("#app").prepend(fixture);
+          const image = fixture.querySelector("img");
+          image.src = photo;
+          await image.decode();
+        },
+        { markup, photo },
+      );
+      assert.equal(
+        await page.evaluate(probe),
+        "control-not-found",
+        `Reject unsafe candidate: ${markup}`,
+      );
+      await page.evaluate(() => document.querySelector("#profile-variant").remove());
+    }
+    await page.evaluate(() => {
+      document.querySelector("nav").style.display = "";
+    });
     await page.evaluate(() =>
       document.querySelector("nav").append(document.querySelector("nav button").cloneNode(true)),
     );
