@@ -3,10 +3,10 @@ use crate::{
     ipc::{receive_frame, send_frame, Request},
     storage,
     vault::Vault,
+    workspaces::Catalog,
 };
 use anyhow::{anyhow, ensure, Context, Result};
 use fs2::FileExt;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     fs::{self, OpenOptions},
@@ -24,11 +24,6 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Account {
-    pub id: String,
-    pub name: String,
-}
 pub struct Controller {
     vault: Vault,
     child: Option<Child>,
@@ -107,17 +102,22 @@ impl Controller {
         self.spawn_ui()?;
         Ok(())
     }
-    fn accounts(&self) -> Result<Vec<Account>> {
+    fn accounts(&self) -> Result<Vec<crate::workspaces::Account>> {
         ensure!(
             self.vault.master.is_some() && self.lock_error.is_none(),
             "Vault locked"
         );
-        let path = self.vault.mount.join("accounts.json");
-        if path.exists() {
-            storage::read(&path)
-        } else {
-            Ok(vec![])
+        Ok(Catalog::load(&self.vault.mount)?.accounts)
+    }
+    fn initialize_catalog(&mut self) -> Result<()> {
+        if let Err(error) = Catalog::load(&self.vault.mount) {
+            if let Err(close_error) = self.vault.unmount() {
+                self.lock_error = Some(close_error.to_string());
+                return Err(anyhow!("Could not initialize workspaces; vault closure requires attention: {close_error}"));
+            }
+            return Err(error.context("Could not initialize workspaces; the vault was closed"));
         }
+        Ok(())
     }
     fn notification_preferences(&self) -> Result<NotificationPreferences> {
         if self.vault.master.is_none() || self.lock_error.is_some() {
@@ -141,12 +141,18 @@ impl Controller {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let catalog = if self.vault.master.is_some() && self.lock_error.is_none() {
+            Some(Catalog::load(&self.vault.mount)?)
+        } else {
+            None
+        };
         Ok(json!({
             "created": manifest.is_some(),
             "unlocked": self.vault.master.is_some() && self.lock_error.is_none(),
             "pin": manifest.is_some_and(|vault| vault.pin.is_some()),
             "keys": keys,
-            "accounts": self.accounts().unwrap_or_default(),
+            "accounts": catalog.as_ref().map(|c| &c.accounts).cloned().unwrap_or_default(),
+            "organization": catalog.as_ref().map(Catalog::metadata),
             "notifications": self.notification_preferences()?,
             "idleMinutes": manifest.map(|vault| vault.idle_minutes).unwrap_or(0),
             "error": self.lock_error,
@@ -188,6 +194,7 @@ impl Controller {
                         + Duration::from_secs((1u64 << self.failures.min(5)).min(30));
                 }
                 result?;
+                self.initialize_catalog()?;
                 self.failures = 0;
                 self.last_activity = Instant::now();
             }
@@ -198,52 +205,17 @@ impl Controller {
                     "Vault locked"
                 );
                 match r.op.as_str() {
-                    "account.add" => {
-                        let name = account_name(required_text(d, "name")?)?;
-                        let mut list = self.accounts()?;
-                        ensure!(list.len() < 20, "A maximum of twenty accounts is supported");
-                        list.push(Account {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            name,
-                        });
-                        storage::write(&self.vault.mount.join("accounts.json"), &list)?;
+                    "workspace.image" => {
+                        return Catalog::load(&self.vault.mount)?.image(required_text(d, "id")?);
                     }
-                    "account.rename" => {
-                        let mut list = self.accounts()?;
-                        let name = account_name(required_text(d, "name")?)?;
-                        list.iter_mut()
-                            .find(|a| a.id == d["id"])
-                            .context("Account not found")?
-                            .name = name;
-                        storage::write(&self.vault.mount.join("accounts.json"), &list)?;
-                    }
-                    "account.remove" => {
-                        let mut list = self.accounts()?;
-                        let id = required_text(d, "id")?;
-                        uuid::Uuid::parse_str(id)?;
-                        ensure!(list.iter().any(|a| a.id == id), "Account not found");
-                        list.retain(|a| a.id != id);
-                        storage::write(&self.vault.mount.join("accounts.json"), &list)?;
-                        /* Profile deletion happens only after every worker exits. */
-                    }
-                    "account.reorder" => {
-                        let list = self.accounts()?;
-                        let ids: Vec<String> = serde_json::from_value(d["ids"].clone())?;
-                        ensure!(ids.len() == list.len(), "Invalid account order");
-                        let mut ordered = Vec::new();
-                        for id in ids {
-                            ensure!(
-                                !ordered.iter().any(|a: &Account| a.id == id),
-                                "Duplicate account"
-                            );
-                            ordered.push(
-                                list.iter()
-                                    .find(|a| a.id == id)
-                                    .context("Account not found")?
-                                    .clone(),
-                            );
-                        }
-                        storage::write(&self.vault.mount.join("accounts.json"), &ordered)?;
+                    "account.add" | "account.rename" | "account.remove" | "account.reorder"
+                    | "account.move" | "account.update" | "workspace.add" | "workspace.update"
+                    | "workspace.remove" | "category.add" | "category.rename"
+                    | "category.remove" => {
+                        let mut catalog = Catalog::load(&self.vault.mount)?;
+                        catalog.apply(&r.op, d)?;
+                        catalog.save(&self.vault.mount)?;
+                        // Profile deletion still happens only after every worker exits.
                     }
                     "notifications" => {
                         let preferences: NotificationPreferences =
@@ -311,14 +283,6 @@ impl Controller {
         }
         Ok(())
     }
-}
-fn account_name(s: &str) -> Result<String> {
-    let s = s.trim();
-    ensure!(
-        !s.is_empty() && s.chars().count() <= 40 && !s.chars().any(char::is_control),
-        "Use a name between 1 and 40 characters"
-    );
-    Ok(s.into())
 }
 pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
     storage::private_dir(&runtime)?;
@@ -452,6 +416,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workspaces::Account;
     #[test]
     fn rejects_mutations_while_locked() {
         let dir = tempfile::tempdir().unwrap();
@@ -467,6 +432,15 @@ mod tests {
             lock_error: None,
         };
         for op in [
+            "workspace.add",
+            "workspace.image",
+            "workspace.update",
+            "workspace.remove",
+            "category.rename",
+            "category.remove",
+            "account.update",
+            "category.add",
+            "account.move",
             "account.add",
             "account.remove",
             "settings",
@@ -482,6 +456,25 @@ mod tests {
                 })
                 .is_err());
         }
+    }
+    #[test]
+    fn catalog_initialization_failure_drops_the_unlocked_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        let mut vault = Vault::new(dir.path().into(), runtime.path()).unwrap();
+        vault.master = Some(crate::crypto::random());
+        storage::write(&vault.mount.join("catalog.json"), &json!({"version": 999})).unwrap();
+        let mut controller = Controller {
+            vault,
+            child: None,
+            runtime: runtime.path().into(),
+            last_activity: Instant::now(),
+            retry_at: Instant::now(),
+            failures: 0,
+            lock_error: None,
+        };
+        assert!(controller.initialize_catalog().is_err());
+        assert!(controller.vault.master.is_none());
     }
     #[test]
     fn rejects_duplicate_account_order() {

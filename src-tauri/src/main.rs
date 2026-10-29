@@ -12,6 +12,7 @@ mod storage;
 mod ui;
 mod ui_layout;
 mod vault;
+mod workspaces;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 fn main() {

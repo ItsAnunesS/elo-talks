@@ -2,13 +2,28 @@ import { getElement, errorMessage, createElement, createButton, createField } fr
 import { invoke, request, listen, isDesktop } from "./bridge.js";
 import { syncAccountAvatars, receiveAccountAvatar } from "./account-avatar.js";
 import { updateAccountStatus } from "./account-status.js";
+import { renderNavigation, clearWorkspaceImages, revealChannel } from "./workspace-navigation.js";
+import { placementFields, workspaceDialogs } from "./workspace-dialogs.js";
 import { initializePinInputs } from "./pin-input.js";
 const digits = initializePinInputs(getElement("pin-inputs"));
 let state = { created: false, unlocked: false, pin: false, keys: [], accounts: [], idleMinutes: 0 };
 let method = "password",
   selected = null,
+  activeWorkspace = null,
   restoreSelected = null,
   dialogAction;
+const { editWorkspace, editCategory } = workspaceDialogs({
+  state: () => state,
+  active: () => activeWorkspace,
+  open: openDialog,
+  close: closeDialog,
+  refresh: refreshState,
+  created: (id) => {
+    activeWorkspace = id;
+    selected = null;
+    restoreSelected = null;
+  },
+});
 function showToast(text) {
   getElement("toast").textContent = text;
   getElement("toast").hidden = false;
@@ -62,6 +77,7 @@ function renderState() {
   getElement("version").textContent = `v${state.version || "0.1.0"}`;
   if (!state.unlocked) {
     syncAccountAvatars([]);
+    clearWorkspaceImages();
     getElement("lock-title").textContent = state.created
       ? "Welcome back."
       : "Your space starts here.";
@@ -90,54 +106,48 @@ function renderState() {
     }
     return;
   }
-  getElement("account-icons").replaceChildren();
-  getElement("account-list").replaceChildren();
-  getElement("cards").replaceChildren();
-  getElement("account-count").textContent = state.accounts.length;
-  for (const a of state.accounts) {
-    const initial = a.name.slice(0, 2).toUpperCase();
-    const icon = createButton("", () => selectAccount(a.id), "account-icon");
-    const avatar = createElement("span", "account-avatar", initial);
-    avatar.dataset.avatarAccount = a.id;
-    icon.append(avatar);
-    icon.dataset.accountId = a.id;
-    icon.title = a.name;
-    icon.setAttribute("aria-label", a.name);
-    icon.classList.toggle("selected", selected === a.id);
-    getElement("account-icons").append(icon);
-    const row = createElement("div", "account-row");
-    row.dataset.accountId = a.id;
-    row.classList.toggle("selected", selected === a.id);
-    row.append(
-      createButton(a.name, () => selectAccount(a.id), "account-name"),
-      createButton("⋯", () => editAccount(a), "account-menu"),
-    );
-    getElement("account-list").append(row);
-    const card = createButton("", () => selectAccount(a.id), "account-card");
-    const cardAvatar = createElement("span", "card-avatar account-avatar", initial);
-    cardAvatar.dataset.avatarAccount = a.id;
-    card.append(
-      cardAvatar,
-      createElement("strong", "", a.name),
-      createElement("small", "", "Open WhatsApp →"),
-    );
-    getElement("cards").append(card);
-  }
+  if (!state.organization.workspaces.some((w) => w.id === activeWorkspace))
+    activeWorkspace = state.organization.workspaces[0].id;
+  if (selected && !state.accounts.some((a) => a.id === selected)) selected = null;
+  renderNavigation(state, activeWorkspace, selected, {
+    selectWorkspace,
+    selectAccount,
+    editAccount,
+    editCategory,
+  });
+  updateAccountStatus(null, selected, state.organization, activeWorkspace);
   syncAccountAvatars(state.accounts);
+  getElement("page-title").textContent =
+    state.accounts.find((a) => a.id === selected)?.name || "Overview";
+  getElement("dashboard").hidden = !!selected;
+  getElement("overview-button").classList.toggle("active", !selected);
+}
+async function selectWorkspace(id) {
+  await invoke("select_account", { id: null });
+  activeWorkspace = id;
+  selected = null;
+  renderState();
+  await selectAccount(null);
 }
 async function selectAccount(id) {
+  if (id && !state.organization.placements[id]) throw Error("Channel not found.");
+  if (id && state.organization.placements[id]?.workspaceId !== activeWorkspace) {
+    activeWorkspace = state.organization.placements[id].workspaceId;
+    renderState();
+  }
   await invoke("select_account", { id });
   selected = id;
+  if (id) revealChannel(id);
   updateAccountStatus(null, selected);
   getElement("page-title").textContent =
     state.accounts.find((a) => a.id === id)?.name || "Overview";
   getElement("dashboard").hidden = !!id;
   getElement("overview-button").classList.toggle("active", !id);
-  for (const container of ["account-icons", "account-list"]) {
-    for (const account of getElement(container).children) {
-      account.classList.toggle("selected", account.dataset.accountId === selected);
-    }
-  }
+  document
+    .querySelectorAll("#account-list [data-account-id]")
+    .forEach((account) =>
+      account.classList.toggle("selected", account.dataset.accountId === selected),
+    );
 }
 getElement("unlock-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -182,8 +192,11 @@ async function closeDialog() {
   getElement("dialog-content")
     .querySelectorAll("input")
     .forEach((i) => (i.value = ""));
-  if (restoreSelected) await selectAccount(restoreSelected);
+  if (restoreSelected && state.accounts.some((a) => a.id === restoreSelected))
+    await selectAccount(restoreSelected);
   restoreSelected = null;
+  dialogAction = null;
+  getElement("dialog-content").replaceChildren();
 }
 getElement("dialog-close").addEventListener("click", () =>
   closeDialog().catch((e) => showToast(errorMessage(e))),
@@ -198,8 +211,8 @@ getElement("dialog-form").addEventListener("submit", async (e) => {
   getElement("dialog-submit").disabled = true;
   try {
     await dialogAction?.();
-    await closeDialog();
     await refreshState();
+    await closeDialog();
   } catch (err) {
     getElement("dialog-error").textContent = errorMessage(err);
   } finally {
@@ -207,7 +220,7 @@ getElement("dialog-form").addEventListener("submit", async (e) => {
   }
 });
 async function addAccount() {
-  let name;
+  let name, placement;
   await openDialog(
     "Add WhatsApp",
     (p) => {
@@ -217,27 +230,35 @@ async function addAccount() {
       name = createField(p, "Account name", "text", "", "E.g. Personal, Work…");
       name.maxLength = 40;
       name.required = true;
+      placement = placementFields(state, p, activeWorkspace);
     },
     async () => {
-      await request("account.add", { name: name.value });
+      await request("account.add", { name: name.value, ...placement() });
     },
     "Connect account →",
   );
 }
 async function editAccount(a) {
-  let name;
+  let name, placement;
   await openDialog(
     "Manage account",
     (p) => {
       name = createField(p, "Account name", "text", a.name);
       name.maxLength = 40;
       name.required = true;
+      const current = state.organization.placements[a.id];
+      placement = placementFields(state, p, current.workspaceId, current.categoryId);
       const actions = createElement("div", "dialog-actions");
       const move = async (delta) => {
         const ids = state.accounts.map((a) => a.id);
+        const siblings = ids.filter((id) => {
+          const p = state.organization.placements[id];
+          return p.workspaceId === current.workspaceId && p.categoryId === current.categoryId;
+        });
+        const target = siblings[siblings.indexOf(a.id) + delta];
+        if (!target) return;
         const i = ids.indexOf(a.id),
-          j = i + delta;
-        if (j < 0 || j >= ids.length) return;
+          j = ids.indexOf(target);
         [ids[i], ids[j]] = [ids[j], ids[i]];
         await request("account.reorder", { ids });
         await refreshState();
@@ -267,7 +288,7 @@ async function editAccount(a) {
         ),
       );
     },
-    () => request("account.rename", { id: a.id, name: name.value }),
+    () => request("account.update", { id: a.id, name: name.value, ...placement() }),
   );
 }
 function notificationControls(parent) {
@@ -469,6 +490,17 @@ getElement("retry-account").addEventListener("click", async () => {
     }, 1000);
   }
 });
+getElement("add-workspace").addEventListener("click", () =>
+  editWorkspace().catch((e) => showToast(errorMessage(e))),
+);
+getElement("manage-workspace").addEventListener("click", () =>
+  editWorkspace(state.organization.workspaces.find((w) => w.id === activeWorkspace)).catch((e) =>
+    showToast(errorMessage(e)),
+  ),
+);
+getElement("add-category").addEventListener("click", () =>
+  editCategory().catch((e) => showToast(errorMessage(e))),
+);
 getElement("add-account").addEventListener("click", () =>
   addAccount().catch((e) => showToast(errorMessage(e))),
 );

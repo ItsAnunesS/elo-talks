@@ -141,3 +141,34 @@ and no desktop restart or cache-deletion command is needed. Unchanged launchers
 are not rewritten. An update manager can regenerate its launcher; opening the
 updated AppImage reapplies the icon automatically. Integration errors are nonfatal
 and retried on the next launch. This handles the application logo, not account photos.
+
+## Workspaces and channels
+
+The left rail switches between workspaces. Each workspace has channels at its root
+and optional collapsible categories. WhatsApp is the only supported channel service;
+its icon precedes channel names. Existing accounts migrate into **My workspace** on
+first unlock, keeping account IDs and profile directories unchanged. Moving a channel
+changes its organization only and does not require scanning the QR code again.
+
+Use **Add workspace** on the rail, the workspace name to manage it, **+** beside
+Channels to connect WhatsApp, and **Add category** to create a group. The channel menu
+supports renaming, changing workspace/category, ordering within its group, and removal.
+Deleting a category moves its channels to the workspace root. A workspace must be
+empty before deletion, and at least one workspace remains. Background accounts stay
+running; workspace badges sum native notification counters across their channels.
+Clicking a notification switches to the correct workspace and expands its category.
+
+Workspace images are separate from the memory-only WhatsApp avatars. User-selected
+PNG/JPEG/WebP files (up to 5 MB and 4096×4096) are cropped to 64×64 RGBA in the local
+interface. The controller accepts only exactly sized pixels and encodes a fresh PNG
+as base64 inside the encrypted vault. Original image metadata, animation and file paths
+are not stored. SVG and remote image URLs are not accepted. Image payloads are loaded
+separately from status metadata to retain the existing 64 KiB IPC limit. This adds no
+remote-webview permissions or dependencies.
+
+Organization is atomically saved in `catalog.json` inside the vault (up to 20 workspaces,
+40 categories and 20 accounts). The legacy `accounts.json` is retained for recovery but
+is no longer used once the catalog exists; older app versions do not understand this
+catalog, so downgrading is not supported. Categories and channel assignments persist;
+category collapse state is kept in memory. Synthetic migration, persistence and browser
+flows are tested; real-account and clean-system certification remains separate.

@@ -856,3 +856,147 @@ button.logo {
   border-radius: inherit;
   pointer-events: none;
 }
+
+/* Workspace navigation keeps the native account viewport at its existing bounds. */
+#workspace-icons {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  width: 76px;
+  padding: 0 15px;
+  flex-shrink: 1;
+}
+.rail > .logo,
+.rail-add,
+.rail-bottom {
+  flex-shrink: 0;
+}
+.rail-bottom {
+  padding-top: 18px;
+}
+.workspace-avatar,
+.workspace-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+.workspace-avatar {
+  border-radius: 14px;
+  overflow: hidden;
+}
+.workspace-image {
+  object-fit: cover;
+}
+.workspace-image-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  margin-top: 12px;
+}
+#manage-workspace {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  font-weight: 600;
+  color: var(--text);
+  gap: 8px;
+  text-align: left;
+}
+#workspace-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.accounts-heading {
+  align-items: center;
+  padding-top: 18px;
+}
+#account-count {
+  margin-left: 5px;
+}
+#add-account {
+  font-size: 22px;
+  padding: 0 4px;
+}
+#account-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.sidebar-tip {
+  display: none;
+}
+.sidebar-brand,
+.sidebar-section,
+.overview,
+.vault-state {
+  flex-shrink: 0;
+}
+.add-category {
+  text-align: left;
+  padding: 16px 20px;
+  flex-shrink: 0;
+}
+.category-heading {
+  display: flex;
+  align-items: center;
+  padding: 12px 12px 3px;
+  color: var(--muted);
+}
+.category-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+}
+.category-heading > .account-menu {
+  color: var(--muted);
+}
+.empty-category {
+  font-size: 11px;
+  padding: 0 25px;
+}
+.account-row > .account-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.channel-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.service-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+.channel-card-title {
+  display: flex !important;
+  gap: 8px;
+  align-items: center;
+}
+.workspace-icon {
+  padding: 0;
+}
+#manage-workspace {
+  font-size: 14px;
+}
+.channel-card-title > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#dashboard-title {
+  overflow-wrap: anywhere;
+}

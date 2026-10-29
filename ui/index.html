@@ -99,13 +99,18 @@
       </section>
     </main>
     <main id="workspace" hidden>
-      <nav class="rail" aria-label="Accounts">
+      <nav class="rail" aria-label="Workspaces">
         <button class="logo home-button" title="Home" aria-label="Home">
           <img src="assets/elo-mark.svg" alt="" />
         </button>
         <div class="rail-divider"></div>
-        <div id="account-icons"></div>
-        <button id="add-account" class="rail-add" title="Add account" aria-label="Add account">
+        <div id="workspace-icons"></div>
+        <button
+          id="add-workspace"
+          class="rail-add"
+          title="Add workspace"
+          aria-label="Add workspace"
+        >
           +
         </button>
         <div class="rail-bottom">
@@ -116,15 +121,19 @@
       <aside class="sidebar">
         <div class="sidebar-brand">elo<span>talks</span><span class="edition">DESKTOP</span></div>
         <div class="sidebar-section">
-          <span>YOUR SPACE</span><span class="secure-badge">◈</span>
+          <button id="manage-workspace" title="Manage workspace" aria-label="Manage workspace">
+            <span id="workspace-name">My workspace</span><span>⌄</span>
+          </button>
         </div>
         <button class="overview active" id="overview-button">
           ▦ <span>Overview</span><span id="overview-badge" class="notification-badge" hidden></span>
         </button>
         <div class="sidebar-section accounts-heading">
-          <span>WHATSAPP ACCOUNTS</span><span id="account-count">0</span>
+          <span>CHANNELS <span id="account-count">0</span></span
+          ><button id="add-account" title="Add channel" aria-label="Add channel">+</button>
         </div>
         <div id="account-list"></div>
+        <button id="add-category" class="text-button add-category">+ Add category</button>
         <div class="sidebar-tip">
           <span>◈</span><strong>A private space.</strong>
           <p>Your sessions stay in the vault, protected on this computer.</p>
@@ -136,8 +145,8 @@
       </aside>
       <header class="topbar">
         <div>
-          <span class="breadcrumb">Your space</span><span class="slash">/</span
-          ><strong id="page-title">Overview</strong>
+          <span class="breadcrumb" id="workspace-breadcrumb">My workspace</span
+          ><span class="slash">/</span><strong id="page-title">Overview</strong>
         </div>
         <div class="topbar-status">
           <span id="account-page-status" role="status">Vault open</span
@@ -146,8 +155,8 @@
       </header>
       <section class="dashboard" id="dashboard">
         <span class="eyebrow">EVERYTHING IN ITS PLACE</span>
-        <h1>Your conversations start here.</h1>
-        <p class="lead">Work, personal life, and projects. Each account in its own space.</p>
+        <h1 id="dashboard-title">My workspace</h1>
+        <p class="lead">One workspace for each part of your day. Organize channels your way.</p>
         <div id="cards" class="cards"></div>
         <button class="add-card" id="add-account-card">
           <span>+</span><strong>Connect an account</strong
