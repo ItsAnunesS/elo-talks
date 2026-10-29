@@ -1,5 +1,6 @@
 import { getElement, errorMessage, createElement, createButton, createField } from "./dom.js";
 import { invoke, request, listen, isDesktop } from "./bridge.js";
+import { syncAccountAvatars, receiveAccountAvatar } from "./account-avatar.js";
 import { updateAccountStatus } from "./account-status.js";
 import { initializePinInputs } from "./pin-input.js";
 const digits = initializePinInputs(getElement("pin-inputs"));
@@ -60,6 +61,7 @@ function renderState() {
   getElement("workspace").hidden = !state.unlocked;
   getElement("version").textContent = `v${state.version || "0.1.0"}`;
   if (!state.unlocked) {
+    syncAccountAvatars([]);
     getElement("lock-title").textContent = state.created
       ? "Welcome back."
       : "Your space starts here.";
@@ -94,7 +96,10 @@ function renderState() {
   getElement("account-count").textContent = state.accounts.length;
   for (const a of state.accounts) {
     const initial = a.name.slice(0, 2).toUpperCase();
-    const icon = createButton(initial, () => selectAccount(a.id), "account-icon");
+    const icon = createButton("", () => selectAccount(a.id), "account-icon");
+    const avatar = createElement("span", "account-avatar", initial);
+    avatar.dataset.avatarAccount = a.id;
+    icon.append(avatar);
     icon.dataset.accountId = a.id;
     icon.title = a.name;
     icon.setAttribute("aria-label", a.name);
@@ -109,13 +114,16 @@ function renderState() {
     );
     getElement("account-list").append(row);
     const card = createButton("", () => selectAccount(a.id), "account-card");
+    const cardAvatar = createElement("span", "card-avatar account-avatar", initial);
+    cardAvatar.dataset.avatarAccount = a.id;
     card.append(
-      createElement("span", "card-avatar", initial),
+      cardAvatar,
       createElement("strong", "", a.name),
       createElement("small", "", "Open WhatsApp →"),
     );
     getElement("cards").append(card);
   }
+  syncAccountAvatars(state.accounts);
 }
 async function selectAccount(id) {
   await invoke("select_account", { id });
@@ -485,6 +493,7 @@ for (const event of ["pointerdown", "keydown"])
   });
 async function initializeDesktop() {
   await Promise.all([
+    listen("account-avatar", (event) => receiveAccountAvatar(event.payload)),
     listen("account-state", (event) => updateAccountStatus(event.payload, selected)),
     listen("account-error", (event) => showToast(event.payload)),
     listen("open-account", async (event) => {

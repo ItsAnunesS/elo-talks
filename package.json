@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "format": "prettier --write ui tests/*.cjs package.json .prettierrc.json",
-    "format:check": "prettier --check ui tests/*.cjs package.json .prettierrc.json"
+    "format": "prettier --write ui tests/*.cjs src-tauri/src/avatar-probe.js package.json .prettierrc.json",
+    "format:check": "prettier --check ui tests/*.cjs src-tauri/src/avatar-probe.js package.json .prettierrc.json"
   },
   "devDependencies": {
     "prettier": "3.6.2"

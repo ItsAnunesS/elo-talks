@@ -69,7 +69,7 @@ Each account displays native WebKit page state and offers **Retry** without dele
 its profile. Load failures, TLS failures, stopped web processes and an unavailable
 sandbox are separate states. A successful page load means the WhatsApp page is
 available, not that a QR code has been scanned or its messaging connection is healthy.
-Elo Talks does not inspect the WhatsApp DOM, page title, conversations or QR codes.
+Health detection does not inspect the WhatsApp DOM, page title, conversations or QR codes.
 
 Enable notifications in WhatsApp to receive native notification events. Account
 badges and the Overview total count those events since the account was last viewed
@@ -92,3 +92,25 @@ affect display. No extension is installed or security setting changed by the app
 platform, page states, counters and vault state. It excludes message content, account
 names/identifiers, credentials, cookies, filesystem paths and remote URLs. Nothing
 is uploaded automatically. TLS failures never create certificate exceptions.
+
+## Automatic account avatars
+
+Elo Talks attempts to copy the image already rendered in WhatsApp's own profile
+control. It reads only narrowly identified self-profile controls, in an isolated
+WebKit script world, and sends fixed-size 64×64 RGBA pixels to the local interface.
+No remote page receives new Tauri commands, filesystem access or message handlers.
+The app does not call private WhatsApp APIs, download photo URLs, inspect chats,
+click controls or bypass canvas/CORS restrictions.
+
+Avatars are retained only in UI-process memory, excluded from settings, diagnostics,
+logs and account-state snapshots. Navigations and web-process failures clear the
+avatar; login/logout and photo changes are checked every 15 seconds, with at most
+one outstanding probe per account. Closing the vault destroys the UI process.
+Missing, ambiguous, unreadable or unsupported profile controls fall back to initials.
+The selectors support recognized English/Portuguese profile controls and may need
+maintenance when WhatsApp changes its interface. Real-account compatibility remains
+subject to manual validation.
+
+The app does not write extracted photos to disk. WhatsApp's own image cache may
+still exist inside the encrypted profile, and memory can be swapped by the OS.
+No changes are made to TLS, sandboxing, authentication or encrypted storage.

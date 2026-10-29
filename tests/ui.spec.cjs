@@ -185,6 +185,39 @@ const http = require("node:http"),
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await page.setViewportSize({ width: 900, height: 640 });
     await page.screenshot({ path: "/tmp/elo-status-badges.png" });
+    await page.evaluate(() => {
+      const originalSetItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = () => {
+        throw new Error("Avatar storage is forbidden");
+      };
+      try {
+        window.testListeners["account-avatar"]({
+          payload: { id: "a", pixels: new Array(64 * 64 * 4).fill(200) },
+        });
+      } finally {
+        Storage.prototype.setItem = originalSetItem;
+      }
+    });
+    await page.locator('#account-icons [data-account-id="a"] img').waitFor();
+    assert.equal(
+      await page.locator('#account-icons [data-account-id="a"] .notification-badge').textContent(),
+      "3",
+    );
+    assert.equal(await page.locator('[data-avatar-account="a"] img').count(), 2);
+    await page.evaluate(() =>
+      window.testListeners["account-avatar"]({
+        payload: { id: "b", pixels: "https://example.com/photo" },
+      }),
+    );
+    assert.equal(await page.locator('[data-avatar-account="b"] img').count(), 0);
+    await page.evaluate(() =>
+      window.testListeners["account-avatar"]({ payload: { id: "a", pixels: null } }),
+    );
+    assert.equal(await page.locator('[data-avatar-account="a"] img').count(), 0);
+    assert.equal(
+      await page.locator('#account-icons [data-account-id="a"] .account-avatar').textContent(),
+      "PE",
+    );
     assert.deepEqual(errors, []);
     console.log(
       "PASS: credentials, safe labels, account switching, badges, retry, notification preferences and private diagnostics.",

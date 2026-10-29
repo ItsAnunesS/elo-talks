@@ -203,7 +203,6 @@ fn sync_accounts(
                 let _ = h.emit_to("main", "account-error", error.to_string());
                 return;
             }
-            account_events::attach(&w, &h, &account_id);
             if !w.context().is_some_and(|c| c.is_sandbox_enabled()) {
                 account_events::page(&h, &account_id, PageState::SandboxUnavailable);
                 let _ = h.emit_to(
@@ -217,6 +216,8 @@ fn sync_accounts(
                 settings.set_enable_developer_extras(false);
                 settings.set_enable_page_cache(false);
             }
+            crate::account_avatar::attach(&w, &h, &account_id);
+            account_events::attach(&w, &h, &account_id);
             w.connect_create(|_, _| None);
             w.connect_permission_request(|w, req| {
                 let allowed = w
