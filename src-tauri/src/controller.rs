@@ -86,6 +86,7 @@ impl Controller {
             .arg(&self.runtime)
             .arg(&profile)
             .process_group(0);
+        cmd.env("WEBKIT_FORCE_SANDBOX", "1");
         cmd.env("XDG_CACHE_HOME", profile.join("cache"))
             .env("XDG_DATA_HOME", profile.join("data"));
         // No crash dumps, WebKit debugging, or user-provided sandbox bypasses.
@@ -367,7 +368,9 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
             .flatten()
             .is_some()
         {
-            c.lock()?;
+            c.stop()?;
+            c.vault.unmount()?;
+            return Err(anyhow!("A interface encerrou inesperadamente. O cofre foi fechado. Abra o aplicativo novamente após verificar o erro; não haverá reinicialização automática."));
         }
         if let Ok((mut socket, _)) = listener.accept() {
             socket.set_read_timeout(Some(Duration::from_secs(2)))?;

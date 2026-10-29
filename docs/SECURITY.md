@@ -49,3 +49,9 @@ Não há certificação de segurança nem promessa de bibliotecas sem falhas. Co
 A auditoria também informa dependências sem manutenção (`proc-macro-error`, `zbus_names`, `zvariant`, `zvariant_derive`). Esses avisos permanecem visíveis e representam dívida de manutenção; não são apresentados como bibliotecas comprovadamente livres de falhas.
 
 O helper é compilado a partir de gocryptfs 2.6.1 (revisão fixa) com atualizações explícitas de `x/crypto`, `x/sys` e `x/term`. Seus testes de criptografia, conteúdo e nomes são executados antes de empacotar. `govulncheck` analisa o programa com as mesmas build tags; a análise registra um aviso de OpenPGP no módulo x/crypto, mas o programa não importa nem alcança esse pacote. Não há exceção de auditoria Go. As versões e checksums das ferramentas de empacotamento também são fixados; se um download mutável mudar, o build deve falhar até revisão.
+
+## Sandbox na AppImage
+
+WebKitGTK 4.1 precisa de ativação explícita. O controlador define `WEBKIT_FORCE_SANDBOX=1`, remove o bypass de sandbox e a webview remota só navega após confirmar que o contexto está protegido. O pacote inclui bubblewrap e xdg-dbus-proxy. `scripts/bwrap.sh` adapta os caminhos relativos produzidos por linuxdeploy, preserva namespaces e seccomp e monta somente para leitura o bundle e `/usr` (bibliotecas do sistema que o sandbox WebKit normalmente expõe). Não monta o diretório pessoal nem o cofre por esse adaptador.
+
+Uma falha inesperada da interface encerra a aplicação e fecha o cofre; não há reinicialização automática. O helper do cofre recebe sinal de término se o controlador morrer. Falhas na desmontagem continuam sendo reportadas como erro.

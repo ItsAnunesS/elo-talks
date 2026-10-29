@@ -34,7 +34,7 @@ Com o binário de testes compilado e o helper empacotado, executar o teste `vaul
 ## Evidências desta implementação (2026-10-29)
 
 - Compilação em container Ubuntu 24.04 com Rust 1.99.1 e Tauri 2.12.5.
-- 8 testes Rust e 6 testes Python aprovados; Clippy aprovado para o app.
+- 8 testes Rust e 8 testes Python aprovados; Clippy aprovado para o app.
 - Teste FUSE real aprovado no Fedora do desenvolvedor: criação, escrita, ausência do marcador em texto puro, senha errada, reabertura e restauração. Executado via serviço temporário do usuário porque o runner de comandos impõe NoNewPrivs.
 - Testes de interface em Chromium: PIN, erro de autenticação, limpeza dos campos, nomes potencialmente maliciosos tratados como texto e adição de conta. Esses testes usam um backend simulado e não validam WebKit/WhatsApp.
 - Auditoria Rust sem vulnerabilidades conhecidas reportadas; correção local verificável para RUSTSEC-2024-0429. Quatro avisos de manutenção permanecem documentados em SECURITY.md.
@@ -44,3 +44,11 @@ O Fedora do desenvolvedor não é uma instalação limpa. Os testes acima não s
 
 - Inicialização nativa da AppImage confirmada no Fedora, com dados temporários; não foram usadas contas reais.
 - Testes criptográficos upstream do helper aprovados após atualizar dependências Go; govulncheck sem vulnerabilidades alcançáveis.
+
+## Correções durante o teste do sandbox
+
+A primeira inicialização usava o padrão do WebKitGTK 4.1, que não habilita sandbox. Ao torná-lo obrigatório, o teste revelou auxiliares ausentes e caminhos relativos incompatíveis com o namespace. `bwrap`, `xdg-dbus-proxy` e um adaptador de caminhos são agora empacotados. O adaptador preserva filtros seccomp e namespaces e restaura as bibliotecas de `/usr` e adiciona o diretório do aplicativo, ambos em modo somente leitura.
+
+Uma falha da interface não reinicia mais janelas: encerra os processos, fecha o cofre e termina o app. Os testes posteriores são executados em desktop virtual separado do GNOME do usuário.
+
+- Interface nativa renderizada e capturada em Xvfb dentro de container, com sandbox WebKit obrigatório e renderização Mesa por software. Captura local em `dist/native-test/native.png`. O teste não abriu janelas no GNOME.

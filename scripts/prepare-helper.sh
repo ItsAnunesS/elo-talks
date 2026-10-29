@@ -18,3 +18,12 @@ cp "$source_dir/LICENSE" "$root/src-tauri/helpers/gocryptfs-LICENSE"
 (cd "$source_dir" && go list -m -json all) > "$root/src-tauri/helpers/gocryptfs-modules.json"
 
 (cd "$source_dir" && CGO_ENABLED=0 go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -tags without_openssl .)
+
+# WebKit's sandbox launch paths are rewritten relative to AppDir/usr by linuxdeploy.
+# Ship both helpers rather than asking users to install them.
+for helper in bwrap xdg-dbus-proxy; do
+  cp "/usr/bin/$helper" "$root/src-tauri/helpers/$helper-x86_64-unknown-linux-gnu"
+done
+
+cp "$root/src-tauri/helpers/bwrap-x86_64-unknown-linux-gnu" "$root/src-tauri/helpers/bwrap-real-x86_64-unknown-linux-gnu"
+cp "$root/scripts/bwrap.sh" "$root/src-tauri/helpers/bwrap-x86_64-unknown-linux-gnu"

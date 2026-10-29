@@ -105,6 +105,14 @@ impl Vault {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .process_group(0);
+        unsafe {
+            c.pre_exec(|| {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
         let mut child = c.spawn().context("Não foi possível iniciar o cofre")?;
         let pass = Zeroizing::new(format!("{}\n", hex::encode(master)));
         if let Err(e) = child.stdin.take().unwrap().write_all(pass.as_bytes()) {

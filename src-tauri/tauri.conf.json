@@ -32,7 +32,10 @@
       }
     },
     "externalBin": [
-      "helpers/gocryptfs"
+      "helpers/gocryptfs",
+      "helpers/bwrap",
+      "helpers/xdg-dbus-proxy",
+      "helpers/bwrap-real"
     ]
   }
 }
