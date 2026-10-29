@@ -68,6 +68,14 @@ const http = require("node:http"),
                 accounts: [{ page: "load-failed", pendingNotifications: 12 }],
               };
             if (cmd === "request") {
+              if (args.op === window.testFailOperation) {
+                window.testFailOperation = null;
+                throw Error("Synthetic save failure");
+              }
+              if (args.op === window.testHoldOperation)
+                await new Promise((resolve) => {
+                  window.testReleaseRequest = resolve;
+                });
               if (args.op === "status") return structuredClone(window.testState);
               if (args.op === "notifications") {
                 window.testState.notifications = args.data;
@@ -144,6 +152,7 @@ const http = require("node:http"),
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.locator(".wordmark img").evaluate((img) => img.decode());
+    await page.screenshot({ path: "/tmp/elo-unlock-premium.png" });
     assert.equal(await page.locator(".wordmark img").evaluate((img) => img.naturalWidth), 512);
     await page.getByRole("button", { name: "PIN", exact: true }).click();
     await page.getByLabel("Digit 1", { exact: true }).fill("1");
@@ -205,7 +214,9 @@ const http = require("node:http"),
     await page.locator("#dashboard:not([hidden])").waitFor();
     await page.getByRole("button", { name: "Add channel", exact: true }).click();
     await page.getByLabel("Account name", { exact: true }).fill("Project");
+    await page.screenshot({ path: "/tmp/elo-add-channel-premium.png" });
     await page.getByRole("button", { name: "Connect account" }).click();
+    await page.locator('#account-list [data-account-id="account-3"].selected').waitFor();
     await page.getByRole("button", { name: "Project", exact: true }).last().waitFor();
     assert.equal(
       await page.locator('#account-list [data-account-id="b"] .notification-badge').textContent(),
@@ -231,6 +242,8 @@ const http = require("node:http"),
       "99+",
     );
     await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.screenshot({ path: "/tmp/elo-settings-premium.png" });
+    await page.getByRole("tab", { name: "Notifications", exact: true }).click();
     await page.getByLabel("Do not disturb", { exact: true }).check();
     await page.getByLabel("Mute Work", { exact: true }).check();
     await page.getByRole("button", { name: "Save notification settings" }).click();
@@ -239,6 +252,7 @@ const http = require("node:http"),
       doNotDisturb: true,
       mutedAccounts: ["b"],
     });
+    await page.getByRole("tab", { name: "General", exact: true }).click();
     await page.getByRole("button", { name: "Safe diagnostics", exact: true }).click();
     const diagnosticReport = await page.getByLabel("Diagnostic report").inputValue();
     assert.ok(diagnosticReport.includes("load-failed"));
@@ -372,6 +386,96 @@ const http = require("node:http"),
     await page.reload();
     await page.getByRole("button", { name: "Company", exact: true }).click();
     assert.equal(await page.locator("#account-list .account-row").count(), 2);
+    // Search crosses workspace boundaries and restores the chosen native account.
+    await page.getByRole("button", { name: "Find a channel", exact: true }).click();
+    assert.equal(
+      await page
+        .getByLabel("Search channels")
+        .evaluate((input) => input === document.activeElement),
+      true,
+    );
+    await page.getByLabel("Search channels").fill("Business");
+    assert.equal(await page.locator(".switcher-result").count(), 1);
+    await page.screenshot({ path: "/tmp/elo-search-premium.png" });
+    await page.getByLabel("Search channels").press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await page.locator('#account-list [data-account-id="account-4"].selected').waitFor();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("tab", { name: "Security", exact: true }).click();
+    await page.getByLabel("Current master password", { exact: true }).fill("synthetic-only-secret");
+    await page.getByLabel("Current master password", { exact: true }).press("Enter");
+    assert.equal(await page.locator("#dialog").evaluate((dialog) => dialog.open), true);
+    await page.getByRole("tab", { name: "General", exact: true }).click();
+    await page.getByRole("tab", { name: "Security", exact: true }).click();
+    assert.equal(
+      await page.getByLabel("Current master password", { exact: true }).inputValue(),
+      "",
+    );
+    await page.screenshot({ path: "/tmp/elo-security-premium.png" });
+    await page.keyboard.press("Escape");
+    await page.locator("#dialog").waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "Manage Business BR", exact: true }).click();
+    await page.getByRole("button", { name: "Remove this account", exact: true }).click();
+    await page.getByRole("button", { name: "Confirm remove this account", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Keep it", exact: true }).click();
+    assert.equal(
+      await page.evaluate(
+        () => window.testRequests.filter((r) => r.args?.op === "account.remove").length,
+      ),
+      0,
+    );
+    await page.getByLabel("Account name", { exact: true }).fill("Business renamed");
+    await page.evaluate(() => {
+      window.testFailOperation = "account.update";
+    });
+    await page.locator("#dialog-submit").click();
+    await page.locator("#dialog-error").filter({ hasText: "Synthetic save failure" }).waitFor();
+    assert.equal(
+      await page.getByLabel("Account name", { exact: true }).inputValue(),
+      "Business renamed",
+    );
+    assert.equal(await page.locator("#dialog-submit").isEnabled(), true);
+    await page.locator("#dialog-submit").click();
+    await page.getByRole("button", { name: "Business renamed", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Overview", exact: false }).click();
+    for (const width of [900, 1200, 1600]) {
+      await page.setViewportSize({ width, height: 800 });
+      assert.deepEqual(
+        await page.evaluate(() => ({
+          sidebar: document.querySelector(".sidebar").getBoundingClientRect().right,
+          header: document.querySelector(".topbar").getBoundingClientRect().bottom,
+          overflow: document.documentElement.scrollWidth > innerWidth,
+        })),
+        { sidebar: 304, header: 72, overflow: false },
+      );
+      await page.screenshot({ path: `/tmp/elo-premium-${width}.png` });
+    }
+    await page.setViewportSize({ width: 900, height: 640 });
+    await page.getByRole("button", { name: "Add workspace", exact: true }).click();
+    await page.getByLabel("Workspace name", { exact: true }).fill("Pending workspace");
+    await page.evaluate(() => {
+      window.testHoldOperation = "workspace.add";
+    });
+    await page.locator("#dialog-submit").click();
+    await page.getByRole("button", { name: "Saving…", exact: true }).waitFor();
+    assert.equal(await page.locator("#dialog-cancel").isDisabled(), true);
+    await page.evaluate(() =>
+      document
+        .querySelector("#dialog-form")
+        .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
+    assert.equal(
+      await page.evaluate(
+        () => window.testRequests.filter((r) => r.args?.op === "workspace.add").length,
+      ),
+      1,
+    );
+    await page.evaluate(() => {
+      window.testHoldOperation = null;
+      window.testReleaseRequest();
+    });
+    await page.locator("#empty-workspace:not([hidden])").waitFor();
+    await page.screenshot({ path: "/tmp/elo-empty-premium.png" });
     assert.deepEqual(errors, []);
     console.log(
       "PASS: credentials, safe labels, account switching, workspaces, raster uploads, category moves, notification badges and private diagnostics.",

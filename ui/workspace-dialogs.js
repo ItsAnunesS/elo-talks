@@ -1,4 +1,10 @@
-import { createButton, createElement, createField, getElement } from "./dom.js";
+import {
+  createButton,
+  createElement,
+  createField,
+  getElement,
+  createDestructiveAction,
+} from "./dom.js";
 import { request } from "./bridge.js";
 import { workspaceImagePixels } from "./workspace-image.js";
 
@@ -72,11 +78,13 @@ export function workspaceDialogs({ state, active, open, close, refresh, created 
           ),
         );
         let sequence = 0;
+        let removeImage;
         upload.addEventListener("change", () => {
           const captured = ++sequence;
           imageTask = workspaceImagePixels(upload.files[0]).then((result) => {
             if (captured !== sequence || !preview.isConnected) return;
             pixels = result.pixels;
+            removeImage.hidden = false;
             preview.src = result.preview;
             preview.hidden = false;
             getElement("dialog-error").textContent = "";
@@ -86,31 +94,36 @@ export function workspaceDialogs({ state, active, open, close, refresh, created 
               getElement("dialog-error").textContent = error.message;
           });
         });
-        parent.append(
-          createButton("Remove image", () => {
+        removeImage = createButton(
+          "Remove image",
+          () => {
             sequence++;
             imageTask = Promise.resolve();
             pixels = null;
             upload.value = "";
             preview.removeAttribute("src");
             preview.hidden = true;
-          }),
+            removeImage.hidden = true;
+          },
+          "text-button",
         );
+        removeImage.hidden = !workspace?.imageRevision;
+        parent.append(removeImage);
         if (workspace) {
           const occupied = Object.values(state().organization.placements).some(
             (p) => p.workspaceId === workspace.id,
           );
-          const remove = createButton(
+          const remove = createDestructiveAction(
             "Delete workspace",
+            `Delete “${workspace.name}”? Its custom image and empty categories will be removed.`,
             async () => {
-              if (!confirm(`Delete workspace ${workspace.name}?`)) return;
               await request("workspace.remove", { id: workspace.id });
               await close();
               await refresh();
             },
-            "secondary danger",
           );
-          remove.disabled = occupied || state().organization.workspaces.length === 1;
+          remove.querySelector("button").disabled =
+            occupied || state().organization.workspaces.length === 1;
           parent.append(
             createElement(
               "p",

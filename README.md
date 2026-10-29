@@ -172,3 +172,24 @@ is no longer used once the catalog exists; older app versions do not understand 
 catalog, so downgrading is not supported. Categories and channel assignments persist;
 category collapse state is kept in memory. Synthetic migration, persistence and browser
 flows are tested; real-account and clean-system certification remains separate.
+
+
+## Desktop navigation and dialogs
+
+**Find a channel** searches channel, workspace and category names locally, without
+network requests. Use the arrow keys and Enter in the search dialog. Ctrl/Cmd+K
+opens it while focus is in the Elo Talks interface; WhatsApp's own webview keeps
+its keyboard behavior. Newly created channels open automatically for sign-in.
+Categories also offer an Add channel action with their location already selected.
+
+Settings are grouped into General, Notifications and Security. Dialogs keep actions
+visible while content scrolls, retain input after save errors, and prevent duplicate
+submissions. Destructive account/workspace actions require an inline confirmation.
+Password fields clear when leaving the Security tab or closing the dialog. Success
+feedback stays inside the active dialog; other notices use the sidebar so a native
+WhatsApp webview cannot cover them. A loaded page is not presented as proof of login.
+
+The UI uses local vector icons, system fonts and reduced-motion support; no new
+runtime dependencies, remote assets, content permissions or vault changes are required.
+Browser regressions cover 900/1200/1600px windows, keyboard search, form errors,
+confirmations, pending saves and the fixed 304×72 native account viewport offsets.

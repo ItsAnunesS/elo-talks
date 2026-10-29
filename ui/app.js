@@ -1,17 +1,32 @@
-import { getElement, errorMessage, createElement, createButton, createField } from "./dom.js";
+import {
+  getElement,
+  errorMessage,
+  createElement,
+  createButton,
+  createField,
+  createTabs,
+  createDestructiveAction,
+} from "./dom.js";
 import { invoke, request, listen, isDesktop } from "./bridge.js";
 import { syncAccountAvatars, receiveAccountAvatar } from "./account-avatar.js";
 import { updateAccountStatus } from "./account-status.js";
 import { renderNavigation, clearWorkspaceImages, revealChannel } from "./workspace-navigation.js";
 import { placementFields, workspaceDialogs } from "./workspace-dialogs.js";
+import { hydrateIcons } from "./icons.js";
+import { openChannelSearch } from "./channel-search.js";
 import { initializePinInputs } from "./pin-input.js";
+hydrateIcons();
 const digits = initializePinInputs(getElement("pin-inputs"));
 let state = { created: false, unlocked: false, pin: false, keys: [], accounts: [], idleMinutes: 0 };
 let method = "password",
   selected = null,
   activeWorkspace = null,
   restoreSelected = null,
-  dialogAction;
+  dialogAction,
+  dialogFocus,
+  dialogSubmitting = false,
+  dialogOpening = false,
+  toastTimer;
 const { editWorkspace, editCategory } = workspaceDialogs({
   state: () => state,
   active: () => activeWorkspace,
@@ -25,12 +40,18 @@ const { editWorkspace, editCategory } = workspaceDialogs({
   },
 });
 function showToast(text) {
-  getElement("toast").textContent = text;
-  getElement("toast").hidden = false;
-  setTimeout(() => {
-    getElement("toast").hidden = true;
-  }, 5000);
+  clearTimeout(toastTimer);
+  const inDialog = getElement("dialog").open;
+  const output = getElement(inDialog ? "dialog-feedback" : "toast");
+  getElement(inDialog ? "toast" : "dialog-feedback").hidden = true;
+  output.textContent = text;
+  output.hidden = false;
+  if (!inDialog)
+    toastTimer = setTimeout(() => {
+      output.hidden = true;
+    }, 5000);
 }
+window.addEventListener("ui-error", (event) => showToast(event.detail));
 function clearSecrets() {
   getElement("secret").value = "";
   getElement("confirm-secret").value = "";
@@ -72,6 +93,7 @@ async function refreshState() {
   }
 }
 function renderState() {
+  document.body.dataset.unlocked = String(state.unlocked);
   getElement("lock-screen").hidden = state.unlocked;
   getElement("workspace").hidden = !state.unlocked;
   getElement("version").textContent = `v${state.version || "0.1.0"}`;
@@ -114,6 +136,7 @@ function renderState() {
     selectAccount,
     editAccount,
     editCategory,
+    addAccount,
   });
   updateAccountStatus(null, selected, state.organization, activeWorkspace);
   syncAccountAvatars(state.accounts);
@@ -176,39 +199,72 @@ getElement("retry-lock").addEventListener("click", () =>
   request("lock").catch((e) => showToast(errorMessage(e))),
 );
 async function openDialog(title, build, action, submit = "Save") {
-  restoreSelected = selected;
-  await invoke("select_account", { id: null });
-  getElement("dialog-title").textContent = title;
-  getElement("dialog-content").replaceChildren();
-  getElement("dialog-error").textContent = "";
-  getElement("dialog-submit").textContent = submit;
-  getElement("dialog-submit").hidden = !action;
-  dialogAction = action;
-  build(getElement("dialog-content"));
-  getElement("dialog").showModal();
+  if (dialogOpening || getElement("dialog").open) return;
+  dialogOpening = true;
+  try {
+    restoreSelected = selected;
+    dialogFocus = document.activeElement;
+    await invoke("select_account", { id: null });
+    getElement("dialog-title").textContent = title;
+    getElement("dialog-content").replaceChildren();
+    getElement("dialog-error").textContent = "";
+    getElement("dialog-submit").textContent = submit;
+    getElement("dialog-submit").hidden = !action;
+    getElement("dialog-cancel").textContent = action ? "Cancel" : "Done";
+    dialogAction = action;
+    getElement("dialog-feedback").hidden = true;
+    build(getElement("dialog-content"));
+    getElement("dialog").showModal();
+    getElement("dialog-content")
+      .querySelector("input:not([type=file]), [role=tab], button")
+      ?.focus();
+  } finally {
+    dialogOpening = false;
+  }
 }
+
 async function closeDialog() {
+  const target = restoreSelected;
+  restoreSelected = null;
+  dialogAction = null;
+  getElement("dialog-feedback").hidden = true;
   getElement("dialog").close();
   getElement("dialog-content")
     .querySelectorAll("input")
-    .forEach((i) => (i.value = ""));
-  if (restoreSelected && state.accounts.some((a) => a.id === restoreSelected))
-    await selectAccount(restoreSelected);
-  restoreSelected = null;
-  dialogAction = null;
+    .forEach((input) => {
+      input.value = "";
+    });
   getElement("dialog-content").replaceChildren();
+  if (target && state.accounts.some((a) => a.id === target)) await selectAccount(target);
+  else if (dialogFocus?.isConnected) dialogFocus.focus();
+  else getElement("overview-button").focus();
+  dialogFocus = null;
 }
-getElement("dialog-close").addEventListener("click", () =>
-  closeDialog().catch((e) => showToast(errorMessage(e))),
-);
-getElement("dialog").addEventListener("cancel", (e) => {
-  e.preventDefault();
-  closeDialog();
+const dismissDialog = () => {
+  if (!dialogSubmitting && !getElement("dialog").querySelector('[aria-busy="true"]'))
+    closeDialog().catch((error) => showToast(errorMessage(error)));
+};
+getElement("dialog-close").addEventListener("click", dismissDialog);
+getElement("dialog-cancel").addEventListener("click", dismissDialog);
+getElement("dialog").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  dismissDialog();
 });
 getElement("dialog-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (!dialogAction || dialogSubmitting || getElement("dialog").querySelector('[aria-busy="true"]'))
+    return;
+  dialogSubmitting = true;
+  getElement("dialog-feedback").hidden = true;
   getElement("dialog-error").textContent = "";
-  getElement("dialog-submit").disabled = true;
+  const submit = getElement("dialog-submit");
+  const label = submit.textContent;
+  submit.textContent = "Saving…";
+  const controls = Array.from(getElement("dialog-form").querySelectorAll("button, input, select"));
+  const enabled = controls.filter((control) => !control.disabled);
+  enabled.forEach((control) => {
+    control.disabled = true;
+  });
   try {
     await dialogAction?.();
     await refreshState();
@@ -216,26 +272,38 @@ getElement("dialog-form").addEventListener("submit", async (e) => {
   } catch (err) {
     getElement("dialog-error").textContent = errorMessage(err);
   } finally {
-    getElement("dialog-submit").disabled = false;
+    enabled.forEach((control) => {
+      control.disabled = false;
+    });
+    submit.textContent = label;
+    dialogSubmitting = false;
   }
 });
-async function addAccount() {
+async function addAccount(categoryId = null) {
   let name, placement;
   await openDialog(
     "Add WhatsApp",
     (p) => {
       p.append(
-        createElement("p", "", "Give this account a name. Then scan the QR code with your phone."),
+        createElement(
+          "p",
+          "",
+          "Choose a name and a place for this channel. Next, scan the QR code in WhatsApp to connect.",
+        ),
       );
       name = createField(p, "Account name", "text", "", "E.g. Personal, Work…");
       name.maxLength = 40;
       name.required = true;
-      placement = placementFields(state, p, activeWorkspace);
+      placement = placementFields(state, p, activeWorkspace, categoryId);
     },
     async () => {
-      await request("account.add", { name: name.value, ...placement() });
+      const result = await request("account.add", { name: name.value, ...placement() });
+      restoreSelected =
+        result.accounts.find(
+          (account) => !state.accounts.some((existing) => existing.id === account.id),
+        )?.id || null;
     },
-    "Connect account →",
+    "Connect account",
   );
 }
 async function editAccount(a) {
@@ -277,14 +345,16 @@ async function editAccount(a) {
         ),
       );
       p.append(
-        createButton(
+        createDestructiveAction(
           "Remove this account",
+          `Remove “${a.name}” and its local session? This does not delete your WhatsApp account.`,
           async () => {
-            if (!confirm(`Remove account ${a.name} from this computer?`)) return;
-            restoreSelected = null;
             await request("account.remove", { id: a.id });
+            restoreSelected = null;
+            selected = selected === a.id ? null : selected;
+            await refreshState();
+            await closeDialog();
           },
-          "secondary danger",
         ),
       );
     },
@@ -364,29 +434,59 @@ async function showDiagnostics() {
 
 async function openSettings() {
   await openDialog(
-    "Your vault, your rules",
+    "Settings",
     (p) => {
-      notificationControls(p);
-      p.append(
-        createButton("Safe diagnostics", async () => {
-          await closeDialog();
-          await showDiagnostics();
-        }),
+      const [general, notifications, security] = createTabs(p, [
+        "General",
+        "Notifications",
+        "Security",
+      ]);
+      notificationControls(notifications);
+      general.append(
+        createElement("h3", "", "On this device"),
+        createElement(
+          "p",
+          "",
+          "Your workspaces and sessions are stored inside your encrypted vault.",
+        ),
       );
       const timeout = createField(
-        p,
-        "Lock after inactivity (minutes; 0 = disabled)",
+        general,
+        "Lock after inactivity (minutes)",
         "number",
         String(state.idleMinutes),
       );
       timeout.min = 0;
       timeout.max = 1440;
-      p.append(
+      general.append(
+        createElement(
+          "p",
+          "hint",
+          "Set to 0 to turn off the inactivity timer. Locking your screen still locks the vault.",
+        ),
         createButton("Save lock timeout", async () => {
+          if (!timeout.reportValidity()) return;
           await request("settings", { idleMinutes: Number(timeout.value) });
+          await refreshState();
           showToast("Lock timeout updated.");
         }),
       );
+      const support = createElement("section", "dialog-section");
+      support.append(
+        createElement("h3", "", "Troubleshooting"),
+        createElement(
+          "p",
+          "",
+          "Check connection and app status without sharing messages or account details.",
+        ),
+      );
+      support.append(
+        createButton("Safe diagnostics", async () => {
+          await closeDialog();
+          await showDiagnostics();
+        }),
+      );
+      general.append(support);
       const sec = createElement("section", "dialog-section");
       sec.append(
         createElement("h3", "", "Unlock methods"),
@@ -427,7 +527,7 @@ async function openSettings() {
           showToast("Password updated.");
         }),
       );
-      p.append(sec);
+      security.append(sec);
       const keys = createElement("section", "dialog-section");
       keys.append(
         createElement("h3", "", "Security keys"),
@@ -471,11 +571,31 @@ async function openSettings() {
         );
         keys.append(row);
       }
-      p.append(keys);
+      security.append(keys);
     },
     null,
   );
 }
+async function findChannel() {
+  await openChannelSearch(state, openDialog, async (id) => {
+    restoreSelected = id;
+    await closeDialog();
+  });
+}
+getElement("find-channel").addEventListener("click", () =>
+  findChannel().catch((error) => showToast(errorMessage(error))),
+);
+document.addEventListener("keydown", (event) => {
+  if (
+    state.unlocked &&
+    !getElement("dialog").open &&
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === "k"
+  ) {
+    event.preventDefault();
+    findChannel().catch((error) => showToast(errorMessage(error)));
+  }
+});
 getElement("retry-account").addEventListener("click", async () => {
   if (!selected) return;
   const button = getElement("retry-account");

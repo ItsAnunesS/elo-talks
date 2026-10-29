@@ -1,4 +1,5 @@
 import { createButton, createElement, getElement } from "./dom.js";
+import { icon } from "./icons.js";
 import { request } from "./bridge.js";
 
 const images = new Map();
@@ -66,6 +67,9 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   getElement("dashboard-title").textContent = workspace.name;
   const accounts = state.accounts.filter((a) => placements[a.id]?.workspaceId === workspaceId);
   getElement("account-count").textContent = accounts.length;
+  getElement("empty-workspace").hidden = accounts.length > 0;
+  getElement("workspace-summary").textContent =
+    `${accounts.length} ${accounts.length === 1 ? "channel" : "channels"} · ${workspace.categories.length} ${workspace.categories.length === 1 ? "category" : "categories"}`;
   getElement("account-list").replaceChildren();
   getElement("cards").replaceChildren();
   const appendChannels = (parent, categoryId) => {
@@ -107,10 +111,16 @@ export function renderNavigation(state, workspaceId, selected, actions) {
     toggle.append(caret, createElement("span", "channel-label", category.name));
     const edit = createButton("⋯", () => actions.editCategory(category), "account-menu");
     edit.setAttribute("aria-label", `Manage category ${category.name}`);
-    heading.append(toggle, edit);
+    const add = createButton("", () => actions.addAccount(category.id), "account-menu");
+    add.append(icon("plus"));
+    add.title = `Add channel to ${category.name}`;
+    add.setAttribute("aria-label", add.title);
+    heading.append(toggle, add, edit);
     appendChannels(channels, category.id);
     if (!channels.childElementCount)
-      channels.append(createElement("p", "empty-category", "No channels yet"));
+      channels.append(
+        createButton("Add a channel", () => actions.addAccount(category.id), "empty-category"),
+      );
     section.append(heading, channels);
     getElement("account-list").append(section);
   }

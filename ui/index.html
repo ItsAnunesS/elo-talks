@@ -30,8 +30,8 @@
       </section>
       <section class="unlock-panel">
         <div class="unlock-card">
-          <div class="lock-icon">◈</div>
-          <span class="eyebrow" id="lock-eyebrow">YOUR PERSONAL VAULT</span>
+          <div class="lock-icon" data-icon="lock"></div>
+          <span class="eyebrow" id="lock-eyebrow">ELO TALKS</span>
           <h2 id="lock-title">Welcome back.</h2>
           <p id="lock-description">Unlock your space to continue the conversation.</p>
           <div class="methods" id="methods">
@@ -110,37 +110,53 @@
           class="rail-add"
           title="Add workspace"
           aria-label="Add workspace"
-        >
-          +
-        </button>
+          data-icon="plus"
+        ></button>
         <div class="rail-bottom">
-          <button id="settings-button" title="Settings" aria-label="Settings">⚙</button
-          ><button id="lock-button" title="Lock vault" aria-label="Lock vault">◈</button>
+          <button
+            id="settings-button"
+            title="Settings"
+            aria-label="Settings"
+            data-icon="settings"
+          ></button
+          ><button
+            id="lock-button"
+            title="Lock vault"
+            aria-label="Lock vault"
+            data-icon="lock"
+          ></button>
         </div>
       </nav>
       <aside class="sidebar">
-        <div class="sidebar-brand">elo<span>talks</span><span class="edition">DESKTOP</span></div>
+        <div class="sidebar-brand">elo<span>talks</span></div>
         <div class="sidebar-section">
           <button id="manage-workspace" title="Manage workspace" aria-label="Manage workspace">
-            <span id="workspace-name">My workspace</span><span>⌄</span>
+            <span id="workspace-name">My workspace</span><span data-icon="chevron"></span>
           </button>
         </div>
+        <button id="find-channel" class="find-channel">
+          <span data-icon="search"></span><span>Find a channel</span>
+        </button>
         <button class="overview active" id="overview-button">
-          ▦ <span>Overview</span><span id="overview-badge" class="notification-badge" hidden></span>
+          <span data-icon="grid"></span><span>Overview</span
+          ><span id="overview-badge" class="notification-badge" hidden></span>
         </button>
         <div class="sidebar-section accounts-heading">
           <span>CHANNELS <span id="account-count">0</span></span
-          ><button id="add-account" title="Add channel" aria-label="Add channel">+</button>
+          ><button
+            id="add-account"
+            title="Add channel"
+            aria-label="Add channel"
+            data-icon="plus"
+          ></button>
         </div>
         <div id="account-list"></div>
-        <button id="add-category" class="text-button add-category">+ Add category</button>
-        <div class="sidebar-tip">
-          <span>◈</span><strong>A private space.</strong>
-          <p>Your sessions stay in the vault, protected on this computer.</p>
-        </div>
+        <button id="add-category" class="text-button add-category">
+          <span data-icon="folder"></span>Add category
+        </button>
         <div class="vault-state">
           <i class="status-dot"></i>
-          <div><strong>Vault unlocked</strong><small>Ready to chat</small></div>
+          <div><strong>Vault unlocked</strong><small>Sessions protected on this device</small></div>
         </div>
       </aside>
       <header class="topbar">
@@ -154,32 +170,52 @@
         </div>
       </header>
       <section class="dashboard" id="dashboard">
-        <span class="eyebrow">EVERYTHING IN ITS PLACE</span>
-        <h1 id="dashboard-title">My workspace</h1>
-        <p class="lead">One workspace for each part of your day. Organize channels your way.</p>
+        <div class="workspace-heading">
+          <span class="eyebrow">WORKSPACE</span>
+          <h1 id="dashboard-title">My workspace</h1>
+          <p class="lead" id="workspace-summary">Your channels, together.</p>
+        </div>
+        <div class="section-heading">
+          <h2>Your channels</h2>
+          <span class="hint">WhatsApp Web</span>
+        </div>
         <div id="cards" class="cards"></div>
+        <div id="empty-workspace" class="empty-workspace" hidden>
+          <span class="empty-icon" data-icon="grid"></span>
+          <h2>A space for your conversations.</h2>
+          <p>
+            Add your first WhatsApp channel. Give it a name, then scan the QR code with your phone.
+          </p>
+        </div>
         <button class="add-card" id="add-account-card">
-          <span>+</span><strong>Connect an account</strong
-          ><small>Scan the WhatsApp QR code to get started.</small><b>Add WhatsApp →</b>
+          <span class="add-card-icon" data-icon="plus"></span>
+          <span
+            ><strong>Add WhatsApp</strong
+            ><small>Connect another account to this workspace</small></span
+          >
+          <span data-icon="arrow"></span>
         </button>
         <div class="dashboard-note">
-          <span>◈</span>
-          <p>
-            <strong>You control when your space is open.</strong><br />Locking your screen closes
-            your accounts and locks the vault.
-          </p>
+          <span data-icon="shield"></span>
+          <p>Separate sessions. One encrypted vault. Only on this device.</p>
         </div>
       </section>
     </main>
-    <dialog id="dialog">
+    <dialog id="dialog" aria-labelledby="dialog-title">
       <form id="dialog-form">
         <div class="dialog-heading">
           <h2 id="dialog-title"></h2>
-          <button type="button" id="dialog-close" aria-label="Close">×</button>
+          <button type="button" id="dialog-close" aria-label="Close" data-icon="close"></button>
         </div>
         <div id="dialog-content"></div>
-        <p class="form-error" id="dialog-error" role="alert"></p>
-        <button type="submit" class="primary" id="dialog-submit">Save</button>
+        <div class="dialog-footer">
+          <p id="dialog-feedback" class="dialog-feedback" role="status" hidden></p>
+          <p class="form-error" id="dialog-error" role="alert" aria-live="polite"></p>
+          <div class="dialog-footer-actions">
+            <button type="button" id="dialog-cancel" class="secondary">Cancel</button
+            ><button type="submit" class="primary" id="dialog-submit">Save</button>
+          </div>
+        </div>
       </form>
     </dialog>
     <div class="toast" id="toast" hidden role="status"></div>

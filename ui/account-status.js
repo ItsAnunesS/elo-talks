@@ -48,13 +48,17 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
     }
     status.textContent = labels[health?.page] || "Opening account…";
     status.title = status.textContent;
+    status.hidden = health?.page === "ready";
+    element.querySelector(".account-name").title = status.textContent;
   }
   const total = totals.get(activeWorkspace) || 0;
   getElement("overview-badge").hidden = total === 0;
   getElement("overview-badge").textContent = total > 99 ? "99+" : String(total);
   const health = snapshot.accounts[selected];
   getElement("account-page-status").textContent = selected
-    ? labels[health?.page] || "Opening account…"
+    ? health?.page === "ready"
+      ? "WhatsApp Web"
+      : labels[health?.page] || "Opening account…"
     : "Vault open";
   getElement("retry-account").hidden = !selected || health?.page === "sandbox-unavailable";
 }
