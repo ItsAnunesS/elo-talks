@@ -1,30 +1,30 @@
 # Elo Talks
 
-App desktop Linux em Tauri 2 para múltiplas contas do WhatsApp Web, com perfis persistentes dentro de um cofre criptografado.
+A Linux desktop application built with Tauri 2 for multiple WhatsApp Web accounts, with persistent profiles stored in an encrypted local vault.
 
-**Estado: implementação inicial em validação.** Não use a existência de uma AppImage como certificação de segurança ou de compatibilidade. Os critérios pendentes estão em [docs/VALIDATION.md](docs/VALIDATION.md).
+**Status: initial implementation under validation.** An AppImage build does not certify security or platform compatibility. See [validation requirements](docs/VALIDATION.md) for outstanding acceptance criteria.
 
-## Uso
+## Usage
 
-Baixe a AppImage em Releases, verifique a assinatura e os checksums conforme [docs/SECURITY.md](docs/SECURITY.md), torne o arquivo executável e abra-o. O alvo inicial é Fedora 44 e Ubuntu 24.04 x86_64, sem instalação adicional de pacotes.
+Download the AppImage from Releases, verify its signature and checksums using [SECURITY.md](docs/SECURITY.md), make it executable, and open it. The target platforms are Fedora 44 and Ubuntu 24.04 x86_64 without additional package installation. Clean-system certification remains pending.
 
-Na primeira abertura, crie uma senha de pelo menos 12 caracteres. Adicione as contas e escaneie cada QR code pelo celular. O app mantém contas separadas e oferece configurações de PIN local, chave física compatível e timeout de bloqueio. A senha principal continua sendo a alternativa de recuperação. Sem ela e sem outro método cadastrado, não há recuperação do cofre.
+On first launch, create a master password with at least 12 characters. Add accounts and scan each QR code with your phone. Accounts are isolated, with optional device PIN, compatible hardware key, and idle timeout. The master password remains a recovery alternative. Without it or another enrolled method, the vault cannot be recovered.
 
-Fechar a janela mantém o app na bandeja. Bloquear o desktop ou suspender fecha as sessões e o cofre. Se o ambiente não oferecer uma bandeja utilizável, a janela deve continuar acessível. Exporte anexos somente para locais onde queira manter uma cópia fora do cofre.
+Closing the window keeps the application in the tray when a supported tray is available. Otherwise, the window stays accessible. Screen lock and suspend close account sessions and the vault. Export attachments only to locations where you intend to keep a copy outside the vault.
 
-A inicialização automática registra o caminho original da AppImage. Mantenha o arquivo nesse local; ao substituí-lo por outra versão, abra a nova AppImage uma vez para atualizar o registro. O arquivo de autostart fica em `~/.config/autostart/dev.anuness.elotalks.desktop` e pode ser desativado pelas configurações do desktop. O registro do identificador anterior é removido ao abrir a nova versão.
+Autostart records the original AppImage path. Keep the file at that location; after replacing or moving it, launch the new AppImage once to refresh the entry. The autostart file is `~/.config/autostart/dev.anuness.elotalks.desktop`; desktop settings can disable it. Launching the new version removes the previous application ID's entry.
 
-## Atualizações pelo gerenciador de AppImages
+## Updates through AppImage managers
 
-As novas AppImages incluem a fonte de atualização padrão `gh-releases-zsync`, apontando para a release estável mais recente de `ItsAnunesS/elo-talks`. Gear Lever e outros gerenciadores compatíveis podem descobrir as versões sem preencher URLs manualmente. Cada release publica a AppImage e seu `.AppImage.zsync` correspondente, ambos cobertos por `SHA256SUMS` e pela assinatura Sigstore dessa lista.
+New AppImages include standard `gh-releases-zsync` metadata pointing to the latest stable release of `ItsAnunesS/elo-talks`. Gear Lever and compatible managers can discover updates without manually configured URLs. Every release publishes an AppImage and its matching `.AppImage.zsync`, both covered by `SHA256SUMS` and the Sigstore signature of that manifest.
 
-Se a versão instalada ainda não contém esses metadados, substitua-a uma vez pela nova AppImage e recarregue os metadados no Gear Lever. Mantenha a fonte padrão, sem uma substituição manual configurada. Encerre o Elo Talks pela opção **Sair** antes de substituir o arquivo; fechar apenas a janela pode mantê-lo na bandeja. As contas continuam no cofre separado do executável.
+If the installed version lacks this metadata, replace it once with a new AppImage and reload its metadata in Gear Lever. Use the default source without a manual override. Choose **Quit** before replacing the executable; closing the window may leave the application in the tray. Account data stays in the vault, separate from the executable.
 
-A descoberta de atualizações usa o mecanismo do gerenciador, sem um atualizador dentro do Elo Talks. O reconhecimento de `.zsync` não implica verificação automática de Sigstore pelo gerenciador; a verificação da assinatura continua descrita em [SECURITY.md](docs/SECURITY.md).
+Updates are managed externally; Elo Talks has no built-in updater. Recognition of `.zsync` does not imply that a manager verifies Sigstore automatically. Signature verification is documented in [SECURITY.md](docs/SECURITY.md).
 
-## Desenvolvimento
+## Development
 
-Ferramentas necessárias **somente para desenvolver**: Rust conforme `rust-toolchain.toml`, Go 1.26.10, compilador C, pkg-config, WebKitGTK 4.1, GTK3, libfido2, libdbus, AppIndicator, binutils e zsync. A interface é HTML/CSS/JavaScript local, sem npm nem scripts remotos.
+Build-only dependencies: Rust from `rust-toolchain.toml`, Go 1.26.10, a C compiler, pkg-config, WebKitGTK 4.1, GTK3, libfido2, libdbus, AppIndicator, binutils, and zsync. The frontend uses local HTML, CSS, and JavaScript without runtime npm dependencies or remote scripts.
 
 ```sh
 bash scripts/prepare-helper.sh
@@ -36,15 +36,17 @@ bash scripts/prepare-bundler.sh
 bash scripts/build-appimage.sh
 ```
 
-Para execução de desenvolvimento, compile o app com `cargo build`, copie o helper para o diretório configurado e execute `target/debug/elo-talks` numa sessão gráfica Linux. O controlador precisa de logind e FUSE; não desative sandbox para contornar incompatibilidades.
+For development, build with `cargo build`, place the helper in the configured location, and run `target/debug/elo-talks` in a graphical Linux session. The controller requires logind and FUSE. Never disable the sandbox to bypass platform incompatibilities.
 
-## Estrutura
+See [CONTRIBUTING.md](CONTRIBUTING.md) for language, formatting, and commit conventions.
 
-- `ui/`: interface local, lista de contas, desbloqueio e configurações.
-- `src-tauri/src/`: controlador, cofre, envelopes de chaves, autenticação, monitor da sessão e WebKit.
-- `vendor/glib/`: backport documentado de uma correção de segurança upstream.
-- `.github/workflows/release.yml`: versão `0.1.<run_number>`, testes, auditoria, AppImage e release por push em `release`.
+## Structure
 
-Cada conta usa um contexto WebKit e diretório próprios. O conteúdo remoto não recebe capabilities Tauri. As requisições locais passam por validação de origem e por um socket privado com conferência de UID/PID. Não há backend, telemetria, chamadas de voz/vídeo ou atualizador interno nesta versão.
+- `ui/`: local interface, account list, authentication, and settings.
+- `src-tauri/src/`: controller, vault, key envelopes, authentication, session monitor, and WebKit integration.
+- `vendor/glib/`: documented upstream security backport.
+- `.github/workflows/release.yml`: tests, audit, AppImage build, and version `0.1.<run_number>` on each push to `release`.
 
-WhatsApp é uma marca de seu proprietário. Este projeto não é afiliado ao WhatsApp ou à Meta.
+Each account has its own WebKit context and directory. Remote content receives no Tauri capabilities. Local requests are checked by origin and by a private socket validating the caller's UID and PID. There is no backend, telemetry, voice/video calling, or built-in updater.
+
+WhatsApp is a trademark of its owner. This project is not affiliated with WhatsApp or Meta.

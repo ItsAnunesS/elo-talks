@@ -20,11 +20,11 @@ pub fn random() -> Zeroizing<Vec<u8>> {
     b
 }
 fn derive(secret: &[u8], salt: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
-    let p = Params::new(65536, 3, 1, Some(32)).map_err(|_| anyhow!("Parâmetros inválidos"))?;
+    let p = Params::new(65536, 3, 1, Some(32)).map_err(|_| anyhow!("Invalid parameters"))?;
     let mut key = Zeroizing::new(vec![0; 32]);
     Argon2::new(Algorithm::Argon2id, Version::V0x13, p)
         .hash_password_into(secret, salt, &mut key)
-        .map_err(|_| anyhow!("Falha ao derivar chave"))?;
+        .map_err(|_| anyhow!("Failed to derive key"))?;
     Ok(key)
 }
 pub fn wrap(master: &[u8], secret: &[u8], context: &str) -> Result<Envelope> {
@@ -32,7 +32,7 @@ pub fn wrap(master: &[u8], secret: &[u8], context: &str) -> Result<Envelope> {
     let mut nonce = [0; 12];
     OsRng.fill_bytes(&mut nonce);
     let key = derive(secret, &salt)?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| anyhow!("Chave inválida"))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| anyhow!("Invalid key"))?;
     let ciphertext = cipher
         .encrypt(
             Nonce::from_slice(&nonce),
@@ -41,7 +41,7 @@ pub fn wrap(master: &[u8], secret: &[u8], context: &str) -> Result<Envelope> {
                 aad: context.as_bytes(),
             },
         )
-        .map_err(|_| anyhow!("Falha ao proteger chave"))?;
+        .map_err(|_| anyhow!("Failed to protect key"))?;
     Ok(Envelope {
         salt: hex::encode(&*salt),
         nonce: hex::encode(nonce),
@@ -53,10 +53,10 @@ pub fn unwrap(e: &Envelope, secret: &[u8], context: &str) -> Result<Zeroizing<Ve
     let nonce = hex::decode(&e.nonce)?;
     ensure!(
         salt.len() == 32 && nonce.len() == 12 && e.ciphertext.len() == 96,
-        "Cofre inválido"
+        "Invalid vault"
     );
     let key = derive(secret, &salt)?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| anyhow!("Chave inválida"))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| anyhow!("Invalid key"))?;
     let plain = cipher
         .decrypt(
             Nonce::from_slice(&nonce),
@@ -65,8 +65,8 @@ pub fn unwrap(e: &Envelope, secret: &[u8], context: &str) -> Result<Zeroizing<Ve
                 aad: context.as_bytes(),
             },
         )
-        .map_err(|_| anyhow!("Credencial incorreta ou cofre alterado"))?;
-    ensure!(plain.len() == 32, "Chave inválida");
+        .map_err(|_| anyhow!("Incorrect credential or modified vault"))?;
+    ensure!(plain.len() == 32, "Invalid key");
     Ok(Zeroizing::new(plain))
 }
 #[cfg(test)]
@@ -79,7 +79,9 @@ mod tests {
         assert_eq!(*unwrap(&e, b"long password", "vault:password").unwrap(), *m);
         assert!(unwrap(&e, b"wrong", "vault:password").is_err());
         assert!(unwrap(&e, b"long password", "vault:pin").is_err());
-        e.ciphertext.replace_range(..2, "ff");
+        let mut corrupted = hex::decode(&e.ciphertext).unwrap();
+        corrupted[0] ^= 1;
+        e.ciphertext = hex::encode(corrupted);
         assert!(unwrap(&e, b"long password", "vault:password").is_err());
     }
 }

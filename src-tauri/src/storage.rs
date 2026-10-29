@@ -11,14 +11,14 @@ pub fn private_dir(p: &Path) -> Result<()> {
     fs::create_dir_all(p)?;
     ensure!(
         !fs::symlink_metadata(p)?.file_type().is_symlink(),
-        "Diretório não pode ser um link"
+        "Directory must not be a symbolic link"
     );
     fs::set_permissions(p, fs::Permissions::from_mode(0o700))?;
     Ok(())
 }
 pub fn read<T: DeserializeOwned>(p: &Path) -> Result<T> {
     let bytes = fs::read(p)?;
-    ensure!(bytes.len() < 1024 * 1024, "Arquivo excede o limite");
+    ensure!(bytes.len() < 1024 * 1024, "File exceeds the size limit");
     Ok(serde_json::from_slice(&bytes)?)
 }
 pub fn write<T: Serialize>(p: &Path, value: &T) -> Result<()> {

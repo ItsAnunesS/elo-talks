@@ -20,11 +20,11 @@ struct UiState {
 }
 fn local(webview: &tauri::Webview) -> Result<(), String> {
     if webview.label() != "main" {
-        return Err("Origem não autorizada".into());
+        return Err("Unauthorized origin".into());
     }
-    let u = webview.url().map_err(|_| "Origem inválida")?;
+    let u = webview.url().map_err(|_| "Invalid origin")?;
     if u.scheme() != "tauri" && !(u.scheme() == "http" && u.host_str() == Some("tauri.localhost")) {
-        return Err("Origem não autorizada".into());
+        return Err("Unauthorized origin".into());
     }
     Ok(())
 }
@@ -39,7 +39,7 @@ async fn request(
     let runtime = state.runtime.clone();
     tauri::async_runtime::spawn_blocking(move || controller::rpc(&runtime, Request { op, data }))
         .await
-        .map_err(|_| "Falha na operação".to_string())?
+        .map_err(|_| "Operation failed".to_string())?
         .map_err(|e| e.to_string())
 }
 #[tauri::command]
@@ -52,7 +52,7 @@ fn select_account(
     local(&webview)?;
     if let Some(id) = &id {
         if app.get_webview(&format!("account-{id}")).is_none() {
-            return Err("Conta inexistente".into());
+            return Err("Account not found".into());
         }
     }
     for (label, v) in app.webviews() {
@@ -89,9 +89,9 @@ fn sync_accounts(
     if status["unlocked"] != true {
         return Ok(());
     }
-    for a in status["accounts"].as_array().ok_or("Contas inválidas")? {
-        let id = a["id"].as_str().ok_or("Conta inválida")?;
-        uuid::Uuid::parse_str(id).map_err(|_| "Conta inválida")?;
+    for a in status["accounts"].as_array().ok_or("Invalid accounts")? {
+        let id = a["id"].as_str().ok_or("Invalid account")?;
+        uuid::Uuid::parse_str(id).map_err(|_| "Invalid account")?;
         let label = format!("account-{id}");
         if app.get_webview(&label).is_some() {
             continue;
@@ -108,13 +108,13 @@ fn sync_accounts(
                 .on_download(|_, event| match event {
                     tauri::webview::DownloadEvent::Requested { destination, .. } => {
                         let dialog = gtk::FileChooserDialog::new(
-                            Some("Exportar arquivo — a cópia ficará fora do cofre"),
+                            Some("Export file — the copy will be outside the vault"),
                             None::<&gtk::Window>,
                             gtk::FileChooserAction::Save,
                         );
                         dialog.add_buttons(&[
-                            ("Cancelar", gtk::ResponseType::Cancel),
-                            ("Exportar", gtk::ResponseType::Accept),
+                            ("Cancel", gtk::ResponseType::Cancel),
+                            ("Export", gtk::ResponseType::Accept),
                         ]);
                         dialog.set_do_overwrite_confirmation(true);
                         if let Some(name) = destination.file_name().and_then(|n| n.to_str()) {
@@ -139,7 +139,7 @@ fn sync_accounts(
                     url.as_str() == "about:blank"
                         || (url.scheme() == "https" && url.host_str() == Some("web.whatsapp.com"))
                 });
-        let window = app.get_window("main").ok_or("Janela indisponível")?;
+        let window = app.get_window("main").ok_or("Window unavailable")?;
         let size = window
             .inner_size()
             .map_err(|e| e.to_string())?
@@ -162,7 +162,7 @@ fn sync_accounts(
                 let _ = h.emit_to(
                     "main",
                     "account-error",
-                    "O sandbox do WebKit não está disponível. Esta conta não foi carregada.",
+                    "The WebKit sandbox is unavailable. This account was not loaded.",
                 );
                 return;
             }
@@ -193,8 +193,8 @@ fn sync_accounts(
                     if let Ok(n) = notify_rust::Notification::new()
                         .appname("Elo Talks")
                         .summary("Elo Talks")
-                        .body("Você recebeu uma nova mensagem.")
-                        .action("default", "Abrir conta")
+                        .body("You have a new message.")
+                        .action("default", "Open account")
                         .show()
                     {
                         n.wait_for_action(move |action| {
@@ -283,10 +283,10 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
                 }
             })?;
             let open =
-                tauri::menu::MenuItem::with_id(app, "open", "Abrir Elo Talks", true, None::<&str>)?;
+                tauri::menu::MenuItem::with_id(app, "open", "Open Elo Talks", true, None::<&str>)?;
             let lock =
-                tauri::menu::MenuItem::with_id(app, "lock", "Bloquear cofre", true, None::<&str>)?;
-            let quit = tauri::menu::MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
+                tauri::menu::MenuItem::with_id(app, "lock", "Lock vault", true, None::<&str>)?;
+            let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&open, &lock, &quit])?;
             let rt2 = rt.clone();
             let tray = tauri::tray::TrayIconBuilder::new()

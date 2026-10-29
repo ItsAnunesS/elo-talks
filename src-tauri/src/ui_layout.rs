@@ -12,7 +12,7 @@ pub fn attach(view: &webkit2gtk::WebView, account: bool) -> Result<()> {
     let parent = view
         .parent()
         .and_then(|p| p.downcast::<gtk::Box>().ok())
-        .ok_or_else(|| anyhow!("Contêiner GTK indisponível"))?;
+        .ok_or_else(|| anyhow!("GTK container unavailable"))?;
     let overlay = if let Some(overlay) = parent
         .children()
         .into_iter()

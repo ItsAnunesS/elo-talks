@@ -44,37 +44,41 @@ pub struct Controller {
     failures: u32,
     lock_error: Option<String>,
 }
-fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
-    v.get(k)
+fn required_text<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
+    value
+        .get(field)
         .and_then(Value::as_str)
-        .context("Campo obrigatório ausente")
+        .context("Required field missing")
 }
 pub fn rpc(runtime: &Path, request: Request) -> Result<Value> {
     let mut socket = UnixStream::connect(runtime.join("control.sock"))?;
     socket.set_read_timeout(Some(Duration::from_secs(90)))?;
-    send(&mut socket, &Zeroizing::new(serde_json::to_vec(&request)?))?;
-    let reply: Value = serde_json::from_slice(&receive(&mut socket)?)?;
+    send_frame(&mut socket, &Zeroizing::new(serde_json::to_vec(&request)?))?;
+    let reply: Value = serde_json::from_slice(&receive_frame(&mut socket)?)?;
     if let Some(e) = reply.get("error").and_then(Value::as_str) {
         return Err(anyhow!(e.to_string()));
     }
     Ok(reply["result"].clone())
 }
-fn send(s: &mut UnixStream, bytes: &[u8]) -> Result<()> {
-    s.write_all(&(bytes.len() as u32).to_be_bytes())?;
-    s.write_all(bytes)?;
+fn send_frame(socket: &mut UnixStream, bytes: &[u8]) -> Result<()> {
+    socket.write_all(&(bytes.len() as u32).to_be_bytes())?;
+    socket.write_all(bytes)?;
     Ok(())
 }
-fn receive(s: &mut UnixStream) -> Result<Zeroizing<Vec<u8>>> {
-    let mut n = [0; 4];
-    s.read_exact(&mut n)?;
-    let len = u32::from_be_bytes(n) as usize;
-    ensure!(len <= 65536, "Requisição muito grande");
-    let mut b = Zeroizing::new(vec![0; len]);
-    s.read_exact(&mut b)?;
-    Ok(b)
+const MAX_RPC_FRAME_BYTES: usize = 64 * 1024;
+
+fn receive_frame(socket: &mut UnixStream) -> Result<Zeroizing<Vec<u8>>> {
+    let mut header = [0; 4];
+    socket.read_exact(&mut header)?;
+    let length = u32::from_be_bytes(header) as usize;
+    ensure!(length <= MAX_RPC_FRAME_BYTES, "Request too large");
+    let mut payload = Zeroizing::new(vec![0; length]);
+    socket.read_exact(&mut payload)?;
+    Ok(payload)
 }
+
 impl Controller {
-    fn spawn(&mut self) -> Result<()> {
+    fn spawn_ui(&mut self) -> Result<()> {
         let profile = if self.vault.master.is_some() && self.lock_error.is_none() {
             self.vault.mount.clone()
         } else {
@@ -107,7 +111,7 @@ impl Controller {
         self.child = Some(cmd.spawn()?);
         Ok(())
     }
-    fn stop(&mut self) -> Result<()> {
+    fn stop_ui(&mut self) -> Result<()> {
         if let Some(mut c) = self.child.take() {
             let pg = c.id() as i32;
             unsafe {
@@ -126,18 +130,18 @@ impl Controller {
         Ok(())
     }
     fn lock(&mut self) -> Result<()> {
-        self.stop()?;
+        self.stop_ui()?;
         match self.vault.unmount() {
             Ok(()) => self.lock_error = None,
             Err(e) => self.lock_error = Some(e.to_string()),
         }
-        self.spawn()?;
+        self.spawn_ui()?;
         Ok(())
     }
     fn accounts(&self) -> Result<Vec<Account>> {
         ensure!(
             self.vault.master.is_some() && self.lock_error.is_none(),
-            "Cofre bloqueado"
+            "Vault locked"
         );
         let path = self.vault.mount.join("accounts.json");
         if path.exists() {
@@ -147,11 +151,28 @@ impl Controller {
         }
     }
     fn status(&self) -> Result<Value> {
-        let m = &self.vault.manifest;
-        Ok(
-            json!({"created":m.is_some(), "unlocked":self.vault.master.is_some() && self.lock_error.is_none(), "pin":m.as_ref().is_some_and(|m|m.pin.is_some()), "keys":m.as_ref().map(|m|m.keys.iter().map(|k|json!({"id":k.id,"name":k.name})).collect::<Vec<_>>()).unwrap_or_default(), "accounts":self.accounts().unwrap_or_default(), "idleMinutes":m.as_ref().map(|m|m.idle_minutes).unwrap_or(0), "error":self.lock_error, "version":env!("CARGO_PKG_VERSION")}),
-        )
+        let manifest = self.vault.manifest.as_ref();
+        let keys = manifest
+            .map(|vault| {
+                vault
+                    .keys
+                    .iter()
+                    .map(|key| json!({"id": key.id, "name": key.name}))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Ok(json!({
+            "created": manifest.is_some(),
+            "unlocked": self.vault.master.is_some() && self.lock_error.is_none(),
+            "pin": manifest.is_some_and(|vault| vault.pin.is_some()),
+            "keys": keys,
+            "accounts": self.accounts().unwrap_or_default(),
+            "idleMinutes": manifest.map(|vault| vault.idle_minutes).unwrap_or(0),
+            "error": self.lock_error,
+            "version": env!("CARGO_PKG_VERSION"),
+        }))
     }
+
     fn handle(&mut self, r: &Request) -> Result<Value> {
         let d = &r.data;
         match r.op.as_str() {
@@ -161,21 +182,21 @@ impl Controller {
                 return Ok(Value::Null);
             }
             "create" | "unlock" => {
-                ensure!(crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed), "Sessão Linux bloqueada ou monitor de segurança indisponível. Desbloqueie a sessão e tente novamente.");
+                ensure!(crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed), "Linux session locked or security monitor unavailable. Unlock the session and retry.");
                 ensure!(
                     self.lock_error.is_none(),
-                    "Resolva a falha de desmontagem antes de continuar"
+                    "Resolve the unmount failure before continuing"
                 );
                 ensure!(
                     Instant::now() >= self.retry_at,
-                    "Aguarde alguns segundos antes de tentar novamente"
+                    "Wait a few seconds before trying again"
                 );
-                let secret = Zeroizing::new(text(d, "secret")?.to_string());
+                let secret = Zeroizing::new(required_text(d, "secret")?.to_string());
                 let result = if r.op == "create" {
                     self.vault.create(&secret)
                 } else {
                     self.vault.unlock(
-                        text(d, "method")?,
+                        required_text(d, "method")?,
                         &secret,
                         d["keyId"].as_str().unwrap_or(""),
                     )
@@ -193,13 +214,13 @@ impl Controller {
             _ => {
                 ensure!(
                     self.vault.master.is_some() && self.lock_error.is_none(),
-                    "Cofre bloqueado"
+                    "Vault locked"
                 );
                 match r.op.as_str() {
                     "account.add" => {
-                        let name = account_name(text(d, "name")?)?;
+                        let name = account_name(required_text(d, "name")?)?;
                         let mut list = self.accounts()?;
-                        ensure!(list.len() < 20, "Limite de vinte contas");
+                        ensure!(list.len() < 20, "A maximum of twenty accounts is supported");
                         list.push(Account {
                             id: uuid::Uuid::new_v4().to_string(),
                             name,
@@ -208,18 +229,18 @@ impl Controller {
                     }
                     "account.rename" => {
                         let mut list = self.accounts()?;
-                        let name = account_name(text(d, "name")?)?;
+                        let name = account_name(required_text(d, "name")?)?;
                         list.iter_mut()
                             .find(|a| a.id == d["id"])
-                            .context("Conta inexistente")?
+                            .context("Account not found")?
                             .name = name;
                         storage::write(&self.vault.mount.join("accounts.json"), &list)?;
                     }
                     "account.remove" => {
                         let mut list = self.accounts()?;
-                        let id = text(d, "id")?;
+                        let id = required_text(d, "id")?;
                         uuid::Uuid::parse_str(id)?;
-                        ensure!(list.iter().any(|a| a.id == id), "Conta inexistente");
+                        ensure!(list.iter().any(|a| a.id == id), "Account not found");
                         list.retain(|a| a.id != id);
                         storage::write(&self.vault.mount.join("accounts.json"), &list)?;
                         /* Profile deletion happens only after every worker exits. */
@@ -227,33 +248,36 @@ impl Controller {
                     "account.reorder" => {
                         let list = self.accounts()?;
                         let ids: Vec<String> = serde_json::from_value(d["ids"].clone())?;
-                        ensure!(ids.len() == list.len(), "Ordem inválida");
+                        ensure!(ids.len() == list.len(), "Invalid account order");
                         let mut ordered = Vec::new();
                         for id in ids {
                             ensure!(
                                 !ordered.iter().any(|a: &Account| a.id == id),
-                                "Conta repetida"
+                                "Duplicate account"
                             );
                             ordered.push(
                                 list.iter()
                                     .find(|a| a.id == id)
-                                    .context("Conta inexistente")?
+                                    .context("Account not found")?
                                     .clone(),
                             );
                         }
                         storage::write(&self.vault.mount.join("accounts.json"), &ordered)?;
                     }
-                    "password" => self
+                    "password" => self.vault.password(
+                        required_text(d, "password")?,
+                        required_text(d, "newPassword")?,
+                    )?,
+                    "pin" => self
                         .vault
-                        .password(text(d, "password")?, text(d, "newPassword")?)?,
-                    "pin" => self.vault.set_pin(text(d, "password")?, text(d, "pin")?)?,
+                        .set_pin(required_text(d, "password")?, required_text(d, "pin")?)?,
                     "key.add" => self.vault.add_key(
-                        text(d, "password")?,
-                        text(d, "pin")?,
-                        text(d, "name")?,
+                        required_text(d, "password")?,
+                        required_text(d, "pin")?,
+                        required_text(d, "name")?,
                     )?,
                     "key.remove" => {
-                        self.vault.verify_password(text(d, "password")?)?;
+                        self.vault.verify_password(required_text(d, "password")?)?;
                         self.vault
                             .manifest
                             .as_mut()
@@ -263,18 +287,18 @@ impl Controller {
                         self.vault.save()?;
                     }
                     "settings" => {
-                        let minutes = d["idleMinutes"].as_u64().context("Tempo inválido")?;
-                        ensure!(minutes <= 1440, "Tempo inválido");
+                        let minutes = d["idleMinutes"].as_u64().context("Invalid timeout")?;
+                        ensure!(minutes <= 1440, "Invalid timeout");
                         self.vault.manifest.as_mut().unwrap().idle_minutes = minutes as u32;
                         self.vault.save()?;
                     }
-                    _ => return Err(anyhow!("Operação não permitida")),
+                    _ => return Err(anyhow!("Operation not allowed")),
                 }
             }
         }
         self.status()
     }
-    fn prune(&self) -> Result<()> {
+    fn prune_deleted_profiles(&self) -> Result<()> {
         let ids = self
             .accounts()?
             .into_iter()
@@ -298,7 +322,7 @@ fn account_name(s: &str) -> Result<String> {
     let s = s.trim();
     ensure!(
         !s.is_empty() && s.chars().count() <= 40 && !s.chars().any(char::is_control),
-        "Use um nome entre 1 e 40 caracteres"
+        "Use a name between 1 and 40 characters"
     );
     Ok(s.into())
 }
@@ -342,10 +366,10 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
     }
     let lock = Arc::new(AtomicBool::new(false));
     crate::session_monitor::start(lock.clone(), shutdown.clone());
-    c.spawn()?;
+    c.spawn_ui()?;
     loop {
         if shutdown.load(Ordering::Relaxed) {
-            c.stop()?;
+            c.stop_ui()?;
             c.vault.unmount()?;
             break;
         }
@@ -368,9 +392,9 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
             .flatten()
             .is_some()
         {
-            c.stop()?;
+            c.stop_ui()?;
             c.vault.unmount()?;
-            return Err(anyhow!("A interface encerrou inesperadamente. O cofre foi fechado. Abra o aplicativo novamente após verificar o erro; não haverá reinicialização automática."));
+            return Err(anyhow!("The interface exited unexpectedly. The vault was closed. Check the error before reopening the application; it will not restart automatically."));
         }
         if let Ok((mut socket, _)) = listener.accept() {
             socket.set_read_timeout(Some(Duration::from_secs(2)))?;
@@ -392,7 +416,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
             {
                 continue;
             }
-            let result = receive(&mut socket)
+            let result = receive_frame(&mut socket)
                 .and_then(|bytes| Ok(serde_json::from_slice::<Request>(&bytes)?));
             if let Ok(mut r) = result {
                 if matches!(r.op.as_str(), "create" | "unlock")
@@ -406,17 +430,17 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                     Ok(v) => json!({"result":v}),
                     Err(e) => json!({"error":e.to_string()}),
                 };
-                let _ = send(&mut socket, &serde_json::to_vec(&response)?);
+                let _ = send_frame(&mut socket, &serde_json::to_vec(&response)?);
                 if success {
                     match r.op.as_str() {
                         "create" | "unlock" | "account.remove" => {
-                            c.stop()?;
-                            c.prune()?;
-                            c.spawn()?;
+                            c.stop_ui()?;
+                            c.prune_deleted_profiles()?;
+                            c.spawn_ui()?;
                         }
                         "lock" => c.lock()?,
                         "quit" => {
-                            c.stop()?;
+                            c.stop_ui()?;
                             c.vault.unmount()?;
                             break;
                         }
@@ -512,6 +536,6 @@ mod tests {
     fn rejects_oversize_rpc_before_allocating() {
         let (mut a, mut b) = UnixStream::pair().unwrap();
         a.write_all(&u32::MAX.to_be_bytes()).unwrap();
-        assert!(receive(&mut b).is_err());
+        assert!(receive_frame(&mut b).is_err());
     }
 }

@@ -13,10 +13,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libfido2-dev libdbus-1-dev patchelf libfuse2t64 zsync apparmor bubblewrap xdg-dbus-proxy xvfb xauth libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libfido2-dev libdbus-1-dev patchelf libfuse2t64 zsync black apparmor bubblewrap xdg-dbus-proxy xvfb xauth libgl1-mesa-dri libegl-mesa0 libglx-mesa0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.26.10'
@@ -32,7 +33,11 @@ jobs:
           cargo fmt --all --check
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run format:check
           node --check ui/app.js
+          python3 scripts/check-commit-messages.py
+          black --check scripts tests
           python3 -m unittest discover -s tests -v
       - name: Native account layout regression
         run: |
@@ -74,6 +79,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: appimage-${{ github.sha }}

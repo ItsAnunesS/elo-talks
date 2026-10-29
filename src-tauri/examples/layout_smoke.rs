@@ -28,9 +28,9 @@ fn main() {
                     ui_layout::attach(&webview, index != 0).unwrap();
                     webview.load_html(
                         if index == 0 {
-                            "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — conta de teste</header><aside style='width:304px'>Contas<br>Configurações<br>Bloquear cofre</aside>"
+                            "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
                         } else {
-                            "<body style='background:#243e38;color:white;font:32px sans-serif'>Área de conversa sintética — sem dados pessoais</body>"
+                            "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data</body>"
                         },
                         Some("about:blank"),
                     );

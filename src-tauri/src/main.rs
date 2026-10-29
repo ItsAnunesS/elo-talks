@@ -31,17 +31,17 @@ fn run() -> Result<()> {
     }
     if args.get(1).is_some_and(|s| s == "--ui") {
         return ui::run(
-            PathBuf::from(args.get(2).context("Runtime ausente")?),
-            PathBuf::from(args.get(3).context("Perfil ausente")?),
+            PathBuf::from(args.get(2).context("Missing runtime directory")?),
+            PathBuf::from(args.get(3).context("Missing profile")?),
         );
     }
-    let home = PathBuf::from(std::env::var_os("HOME").context("HOME indisponível")?);
+    let home = PathBuf::from(std::env::var_os("HOME").context("HOME unavailable")?);
     let data = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".local/share"))
         .join("elo-talks");
     let runtime = PathBuf::from(
-        std::env::var_os("XDG_RUNTIME_DIR").context("Sessão Linux sem diretório de runtime")?,
+        std::env::var_os("XDG_RUNTIME_DIR").context("Linux session has no runtime directory")?,
     )
     .join("elo-talks");
     // Register the original AppImage path, not the transient mount path.

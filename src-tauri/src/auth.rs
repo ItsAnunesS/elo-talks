@@ -31,7 +31,7 @@ pub fn hardware_native(
     salt: &[u8],
     pin: &str,
 ) -> Result<(String, Zeroizing<Vec<u8>>)> {
-    ensure!(salt.len() == 32, "Chave inválida");
+    ensure!(salt.len() == 32, "Invalid key");
     let mut cred = if enroll {
         vec![0; 2048]
     } else {
@@ -54,38 +54,38 @@ pub fn hardware_native(
             out.as_mut_ptr(),
         )
     };
-    ensure!(code == 0, "Não foi possível usar a chave (código {code}). Conecte somente uma chave FIDO2 compatível, informe seu PIN e toque nela.");
+    ensure!(code == 0, "Could not use the security key (code {code}). Connect only one compatible FIDO2 key, enter its PIN, and touch it.");
     cred.truncate(len);
     Ok((hex::encode(cred), out))
 }
 pub fn keyring(vault: &str, create: bool) -> Result<Zeroizing<Vec<u8>>> {
     let service = SecretService::connect(EncryptionType::Dh)
-        .map_err(|_| anyhow!("Chaveiro seguro indisponível. Use sua senha."))?;
+        .map_err(|_| anyhow!("Secure keyring unavailable. Use your password."))?;
     let collection = service.get_default_collection()?;
     ensure!(
         !collection.is_locked()?,
-        "Desbloqueie o chaveiro do Linux ou use sua senha."
+        "Unlock the Linux keyring or use your password."
     );
     // Never use a transient session collection.
     ensure!(
         !collection.collection_path.as_str().ends_with("/session"),
-        "Chaveiro persistente indisponível"
+        "Persistent keyring unavailable"
     );
     // Keep the keyring namespace stable across app ID changes so existing PINs work.
     let attrs = HashMap::from([("application", "com.elotalks.desktop"), ("vault", vault)]);
     let items = collection.search_items(attrs.clone())?;
     if let Some(item) = items.first() {
         let s = Zeroizing::new(item.get_secret()?);
-        ensure!(s.len() == 32, "Segredo local inválido");
+        ensure!(s.len() == 32, "Invalid local secret");
         return Ok(s);
     }
     ensure!(
         create,
-        "PIN não disponível neste computador. Use sua senha."
+        "PIN unavailable on this computer. Use your password."
     );
     let s = crypto::random();
     collection.create_item(
-        "Elo Talks — PIN deste computador",
+        "Elo Talks — PIN for this computer",
         attrs,
         &s,
         false,
@@ -96,7 +96,7 @@ pub fn keyring(vault: &str, create: bool) -> Result<Zeroizing<Vec<u8>>> {
 pub fn pin_secret(vault: &str, pin: &str, create: bool) -> Result<Zeroizing<Vec<u8>>> {
     ensure!(
         pin.len() == 6 && pin.bytes().all(|c| c.is_ascii_digit()),
-        "O PIN precisa ter seis dígitos"
+        "The PIN must contain six digits"
     );
     let mut s = keyring(vault, create)?;
     s.extend_from_slice(pin.as_bytes());
@@ -145,7 +145,9 @@ pub fn hardware(
         {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(anyhow!("Operação da chave cancelada para proteger o cofre"));
+            return Err(anyhow!(
+                "Security key operation canceled to protect the vault"
+            ));
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -156,7 +158,7 @@ pub fn hardware(
         .unwrap()
         .take(16384)
         .read_to_string(&mut output)?;
-    let result: (String,String) = serde_json::from_str(&output).map_err(|_|anyhow!("Não foi possível usar a chave. Conecte uma única chave compatível, confira o PIN e toque nela."))?;
+    let result: (String,String) = serde_json::from_str(&output).map_err(|_|anyhow!("Could not use the security key. Connect one compatible key, check its PIN, and touch it."))?;
     let secret = Zeroizing::new(hex::decode(&result.1)?);
     Ok((result.0, secret))
 }

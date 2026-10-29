@@ -43,7 +43,7 @@ impl Vault {
             None
         };
         if let Some(m) = &manifest {
-            ensure!(m.schema == 1, "Version du coffre incompatible");
+            ensure!(m.schema == 1, "Unsupported vault version");
             uuid::Uuid::parse_str(&m.id)?;
         }
         let exe = std::env::current_exe()?;
@@ -78,17 +78,19 @@ impl Vault {
     pub fn save(&self) -> Result<()> {
         storage::write(
             &self.base.join("vault.json"),
-            self.manifest.as_ref().context("Cofre não criado")?,
+            self.manifest
+                .as_ref()
+                .context("Vault has not been created")?,
         )
     }
     fn command(&self, master: &[u8], init: bool) -> Result<Child> {
         ensure!(
             self.helper.is_file(),
-            "Componente do cofre ausente no pacote"
+            "Vault helper missing from the bundle"
         );
         ensure!(
             Path::new("/dev/fuse").exists(),
-            "Este sistema não oferece FUSE para abrir o cofre"
+            "FUSE is unavailable on this system"
         );
         let mut c = Command::new(&self.helper);
         c.args(["-q", "-passfile", "/dev/stdin"]);
@@ -113,7 +115,7 @@ impl Vault {
                 Ok(())
             });
         }
-        let mut child = c.spawn().context("Não foi possível iniciar o cofre")?;
+        let mut child = c.spawn().context("Could not start the vault")?;
         let pass = Zeroizing::new(format!("{}\n", hex::encode(master)));
         if let Err(e) = child.stdin.take().unwrap().write_all(pass.as_bytes()) {
             let _ = child.kill();
@@ -123,11 +125,11 @@ impl Vault {
         Ok(child)
     }
     pub fn create(&mut self, password: &str) -> Result<()> {
-        ensure!(self.manifest.is_none(), "O cofre já existe");
+        ensure!(self.manifest.is_none(), "The vault already exists");
         validate_password(password)?;
         ensure!(
             !self.base.join("cipher").exists(),
-            "Inicialização anterior incompleta. Preserve a pasta cipher antes de tentar novamente."
+            "Previous initialization is incomplete. Preserve the cipher directory before retrying."
         );
         storage::private_dir(&self.base.join("cipher"))?;
         let master = crypto::random();
@@ -145,13 +147,13 @@ impl Vault {
         self.save()?;
         ensure!(
             self.command(&master, true)?.wait()?.success(),
-            "Falha ao inicializar cofre. Nenhum perfil foi criado."
+            "Failed to initialize the vault. No profile was created."
         );
         self.mount_key(master)
     }
     pub fn unlock(&mut self, method: &str, secret: &str, key_id: &str) -> Result<()> {
-        ensure!(self.master.is_none(), "Cofre já aberto");
-        let m = self.manifest.as_ref().context("Crie o cofre primeiro")?;
+        ensure!(self.master.is_none(), "Vault already open");
+        let m = self.manifest.as_ref().context("Create the vault first")?;
         let (envelope, material, context) = match method {
             "password" => (
                 &m.password,
@@ -159,7 +161,7 @@ impl Vault {
                 format!("{}:password", m.id),
             ),
             "pin" => (
-                m.pin.as_ref().context("PIN não configurado")?,
+                m.pin.as_ref().context("PIN not configured")?,
                 auth::pin_secret(&m.id, secret, false)?,
                 format!("{}:pin", m.id),
             ),
@@ -168,32 +170,32 @@ impl Vault {
                     .keys
                     .iter()
                     .find(|k| k.id == key_id)
-                    .context("Chave não cadastrada")?;
+                    .context("Security key not registered")?;
                 (
                     &k.envelope,
                     auth::hardware(false, &k.credential, &hex::decode(&k.salt)?, secret)?.1,
                     format!("{}:key:{}", m.id, k.id),
                 )
             }
-            _ => return Err(anyhow!("Método inválido")),
+            _ => return Err(anyhow!("Invalid method")),
         };
         self.mount_key(crypto::unwrap(envelope, &material, &context)?)
     }
     fn mount_key(&mut self, master: Zeroizing<Vec<u8>>) -> Result<()> {
         ensure!(
             !self.mounted(),
-            "Montagem residual detectada; encerre a instância anterior antes de abrir o cofre"
+            "Residual mount detected; close the previous instance before opening the vault"
         );
         let mut child = self.command(&master, false)?;
         let start = Instant::now();
         while !self.mounted() {
             if child.try_wait()?.is_some() {
-                return Err(anyhow!("Não foi possível montar o cofre neste sistema"));
+                return Err(anyhow!("Could not mount the vault on this system"));
             }
             if start.elapsed() > Duration::from_secs(15) {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(anyhow!("Tempo de montagem excedido"));
+                return Err(anyhow!("Vault mount timed out"));
             }
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -209,10 +211,10 @@ impl Vault {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
-                .context("Não foi possível desmontar o cofre")?;
+                .context("Could not unmount the vault")?;
             ensure!(
                 status.success() && !self.mounted(),
-                "Cofre ainda montado. Feche os processos que o utilizam e tente novamente."
+                "Vault is still mounted. Close the processes using it and retry."
             );
         }
         if let Some(mut child) = self.fuse.take() {
@@ -226,14 +228,17 @@ impl Vault {
         self.verify_password(old)?;
         let m = self.manifest.as_mut().unwrap();
         m.password = crypto::wrap(
-            self.master.as_ref().context("Cofre bloqueado")?,
+            self.master.as_ref().context("Vault locked")?,
             new.as_bytes(),
             &format!("{}:password", m.id),
         )?;
         self.save()
     }
     pub fn verify_password(&self, password: &str) -> Result<()> {
-        let m = self.manifest.as_ref().context("Cofre não criado")?;
+        let m = self
+            .manifest
+            .as_ref()
+            .context("Vault has not been created")?;
         crypto::unwrap(
             &m.password,
             password.as_bytes(),
@@ -243,7 +248,7 @@ impl Vault {
     }
     pub fn set_pin(&mut self, password: &str, pin: &str) -> Result<()> {
         self.verify_password(password)?;
-        let master = self.master.as_ref().context("Cofre bloqueado")?;
+        let master = self.master.as_ref().context("Vault locked")?;
         let m = self.manifest.as_mut().unwrap();
         m.pin = if pin.is_empty() {
             None
@@ -258,10 +263,13 @@ impl Vault {
     }
     pub fn add_key(&mut self, password: &str, pin: &str, name: &str) -> Result<()> {
         self.verify_password(password)?;
-        ensure!(!name.trim().is_empty() && name.len() <= 80, "Nome inválido");
-        let master = self.master.as_ref().context("Cofre bloqueado")?;
+        ensure!(!name.trim().is_empty() && name.len() <= 80, "Invalid name");
+        let master = self.master.as_ref().context("Vault locked")?;
         let m = self.manifest.as_mut().unwrap();
-        ensure!(m.keys.len() < 8, "Limite de oito chaves");
+        ensure!(
+            m.keys.len() < 8,
+            "A maximum of eight security keys is supported"
+        );
         let id = uuid::Uuid::new_v4().to_string();
         let salt = crypto::random();
         let (credential, material) = auth::hardware(true, "", &salt, pin)?;
@@ -279,7 +287,7 @@ impl Vault {
 fn validate_password(p: &str) -> Result<()> {
     ensure!(
         p.chars().count() >= 12 && p.len() <= 1024,
-        "Use uma senha de pelo menos 12 caracteres"
+        "Use a password with at least 12 characters"
     );
     Ok(())
 }

@@ -3,7 +3,7 @@ name = "elo-talks"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Contas de comunicação em um cofre local"
+description = "Communication accounts in a local vault"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

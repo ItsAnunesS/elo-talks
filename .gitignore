@@ -10,3 +10,6 @@
 /tests/__pycache__/
 /target-audit.json
 /tests/test-results/
+
+/node_modules/
+/scripts/__pycache__/

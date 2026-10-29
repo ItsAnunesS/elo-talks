@@ -74,7 +74,7 @@ fn monitor(lock: &AtomicBool, shutdown: &AtomicBool) -> Result<(), Box<dyn std::
                 (
                     "sleep",
                     "Elo Talks",
-                    "Fechar o cofre antes de suspender",
+                    "Close the vault before suspending",
                     "delay",
                 ),
             )?;
