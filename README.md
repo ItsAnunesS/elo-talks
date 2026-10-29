@@ -51,6 +51,8 @@ Each account has its own WebKit context and directory. Remote content receives n
 
 WhatsApp is a trademark of its owner. This project is not affiliated with WhatsApp or Meta.
 
+Release credentials and recovery are documented in [RELEASING.md](docs/RELEASING.md).
+
 ## Build and runtime performance
 
 CI caches the pinned Rust CLI binaries separately from compiled application dependencies. Cache keys include the toolchain, dependency manifests, and vendored source. Go build/module caches and npm downloads are also reused. AppImage outputs, signatures, vault data, and vulnerability results are never cached. Both Rust and Go vulnerability checks still run on every build.

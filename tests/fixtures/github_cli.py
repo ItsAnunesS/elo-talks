@@ -42,6 +42,10 @@ if arguments[0] == "api":
             print("HTTP 404: Not Found", file=sys.stderr)
             sys.exit(1)
 elif arguments[:2] == ["release", "create"]:
+    if state.get("creation_denied"):
+        print("HTTP 403: Resource not accessible by integration", file=sys.stderr)
+        state_path.write_text(json.dumps(state))
+        sys.exit(1)
     state["releases"].append(
         {
             "tag_name": arguments[2],

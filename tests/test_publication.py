@@ -11,7 +11,12 @@ FAKE = (ROOT / "tests/fixtures/github_cli.py").read_text()
 
 class PublicationTests(unittest.TestCase):
     def run_release(
-        self, releases, number, comparison="identical", lookup_denied=False
+        self,
+        releases,
+        number,
+        comparison="identical",
+        lookup_denied=False,
+        creation_denied=False,
     ):
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d)
@@ -25,6 +30,7 @@ class PublicationTests(unittest.TestCase):
                 "calls": [],
                 "comparison": comparison,
                 "lookup_denied": lookup_denied,
+                "creation_denied": creation_denied,
             }
             (p / "state.json").write_text(json.dumps(state))
             env = {
@@ -88,3 +94,16 @@ class PublicationTests(unittest.TestCase):
         result, state = self.run_release([], 1, comparison="ahead")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(state["latest"], "v0.1.1")
+
+    def test_creation_permission_failure_preserves_source_and_assets(self):
+        result, state = self.run_release(
+            [], 3, comparison="ahead", creation_denied=True
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("RELEASE_TOKEN", result.stderr)
+        self.assertIn("Workflows: write", result.stderr)
+        mutations = [call for call in state["calls"] if call[0] == "release"]
+        self.assertEqual(len(mutations), 1)
+        self.assertEqual(mutations[0][:3], ["release", "create", "v0.1.3"])
+        self.assertEqual(mutations[0][mutations[0].index("--target") + 1], "abc123")
+        self.assertEqual(state["releases"], [])

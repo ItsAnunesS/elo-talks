@@ -15,9 +15,11 @@ def github_cli(*arguments):
         detail = result.stderr.strip() or result.stdout.strip()
         raise SystemExit(
             f"GitHub request failed: {detail}\n"
-            "Publication requires contents:write. A removed commit or a historical "
-            "workflow change may also require permissions unavailable to GITHUB_TOKEN. "
-            "Use a build from the current release history; do not change its target SHA."
+            "Publication requires Contents: write. For historical commits with workflow "
+            "changes, configure the RELEASE_TOKEN Actions secret with a fine-grained "
+            "token restricted to this repository and Contents: write plus Workflows: "
+            "write. GITHUB_TOKEN cannot receive Workflows: write. "
+            "See docs/RELEASING.md. The source SHA and published assets were not changed."
         )
     return result.stdout
 
