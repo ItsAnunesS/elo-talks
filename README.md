@@ -99,8 +99,15 @@ Elo Talks attempts to copy the image already rendered in WhatsApp's own profile
 control. It reads only narrowly identified self-profile controls, in an isolated
 WebKit script world, and sends fixed-size 64×64 RGBA pixels to the local interface.
 No remote page receives new Tauri commands, filesystem access or message handlers.
-The app does not call private WhatsApp APIs, download photo URLs, inspect chats,
-click controls or bypass canvas/CORS restrictions.
+The app does not call private WhatsApp APIs, inspect chats, click controls or bypass
+canvas/CORS restrictions. When the rendered self-photo taints the canvas, the probe
+can retry its existing URL through browser-enforced CORS. Only `pps.whatsapp.net`,
+`pps.whatsapp.com` and same-origin blob URLs are allowed. Recovery sends no cookies
+or referrer, rejects redirects, disables HTTP caching and aborts after five seconds.
+Only PNG/JPEG/WebP responses with matching file signatures, at most 512 KiB and
+4096 pixels per side are accepted. Results (including failures) are cached in memory
+for five minutes per photo source to limit requests. Source changes and logout
+invalidate the cache; a late result cannot restore a replaced photo.
 
 Avatars are retained only in UI-process memory, excluded from settings, diagnostics,
 logs and account-state snapshots. Navigations and web-process failures clear the
@@ -117,11 +124,14 @@ No changes are made to TLS, sandboxing, authentication or encrypted storage.
 
 Avatar diagnostics include only a fixed status code: `ready`, `control-not-found`,
 `no-photo`, `ambiguous`, `image-not-ready`, `image-too-large`, `canvas-blocked`,
+`canvas-unavailable`, `image-request-failed`, `image-source-unsupported`,
 `wrong-origin`, `waiting` or `unavailable`. `canvas-blocked` means browser-origin
 protection prevented reading pixels; Elo Talks keeps initials instead of bypassing
 that protection. The self-profile entry recognizes exact `You`/`Você` and `Profile`/`Perfil`
 labels in `aria-label` or `title`, including tabs and nested labels in the navigation
-header. Explicit self-photo alt text is also supported. Hidden responsive duplicates
+header. Referenced accessibility labels and explicit profile navigation markers
+are also supported; only short leaf labels outside chat content are read.
+Explicit self-photo alt text is also supported. Hidden responsive duplicates
 are ignored; generic image alt text and positional image fallbacks are not used. Contact
 headers, chat lists and dialogs are excluded. These compatibility rules are tested
 with synthetic layouts; the current live WhatsApp account still needs validation.

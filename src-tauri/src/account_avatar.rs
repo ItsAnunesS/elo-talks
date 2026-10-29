@@ -14,7 +14,7 @@ use tauri::{Emitter, Manager};
 use webkit2gtk::WebViewExt;
 
 const PIXEL_BYTES: usize = 64 * 64 * 4;
-const PROBE: &str = include_str!("avatar-probe.js");
+const PROBE: &str = concat!("return ", include_str!("avatar-probe.js"));
 const WORLD: &str = "dev.anuness.elotalks.avatar";
 
 #[derive(Clone, Serialize)]
@@ -41,6 +41,9 @@ fn avatar_status(value: &str) -> AvatarStatus {
         "image-not-ready" => AvatarStatus::ImageNotReady,
         "image-too-large" => AvatarStatus::ImageTooLarge,
         "canvas-blocked" => AvatarStatus::CanvasBlocked,
+        "canvas-unavailable" => AvatarStatus::CanvasUnavailable,
+        "image-request-failed" => AvatarStatus::ImageRequestFailed,
+        "image-source-unsupported" => AvatarStatus::ImageSourceUnsupported,
         "wrong-origin" => AvatarStatus::WrongOrigin,
         _ => AvatarStatus::Unavailable,
     }
@@ -51,11 +54,15 @@ struct Probe {
     active: Cell<bool>,
     generation: Cell<u64>,
     previous: RefCell<String>,
+    cancellation: RefCell<Option<gtk::gio::Cancellable>>,
 }
 
 impl Probe {
     fn clear(&self, app: &tauri::AppHandle, id: &str) {
         self.generation.set(self.generation.get().wrapping_add(1));
+        if let Some(cancellation) = self.cancellation.borrow_mut().take() {
+            cancellation.cancel();
+        }
         self.publish(app, id, String::new(), AvatarStatus::Waiting);
     }
 
@@ -105,17 +112,23 @@ impl Probe {
         let handle = app.clone();
         let account = id.to_owned();
         let generation = self.generation.get();
-        view.evaluate_javascript(
+        let cancellation = gtk::gio::Cancellable::new();
+        *self.cancellation.borrow_mut() = Some(cancellation.clone());
+        let deadline = cancellation.clone();
+        glib::timeout_add_local_once(Duration::from_secs(7), move || deadline.cancel());
+        view.call_async_javascript_function(
             PROBE,
+            None,
             Some(WORLD),
             None,
-            None::<&gtk::gio::Cancellable>,
+            Some(&cancellation),
             move |result| {
                 probe.busy.set(false);
                 // A result from a previous navigation must never restore an old user's photo.
                 if probe.generation.get() != generation {
                     return;
                 }
+                probe.cancellation.borrow_mut().take();
                 let pixels = result
                     .ok()
                     .map(|value| value.to_string())
@@ -138,6 +151,7 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
         active: Cell::new(false),
         generation: Cell::new(0),
         previous: RefCell::new(String::new()),
+        cancellation: RefCell::new(None),
     });
     let state = probe.clone();
     let handle = app.clone();

@@ -35,6 +35,9 @@ pub enum AvatarStatus {
     ImageNotReady,
     ImageTooLarge,
     CanvasBlocked,
+    CanvasUnavailable,
+    ImageRequestFailed,
+    ImageSourceUnsupported,
     WrongOrigin,
     Unavailable,
 }

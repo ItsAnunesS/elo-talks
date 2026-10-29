@@ -62,6 +62,7 @@ fn main() {
                     let second_view = handle.get_webview("account-two").unwrap();
                     let stage = Rc::new(Cell::new(0));
                     let avatar_checked = Rc::new(Cell::new(false));
+                    let hidden_avatar_checked = Rc::new(Cell::new(false));
                     gtk::glib::timeout_add_local(Duration::from_millis(600), move || {
                         let check = |account: &gtk::Widget| {
                             let allocation = overlay.allocation();
@@ -80,7 +81,7 @@ fn main() {
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::Ready);
                                 let native_view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
                                 let checked = avatar_checked.clone();
-                                native_view.evaluate_javascript(include_str!("../src/avatar-probe.js"), Some("dev.anuness.elotalks.avatar"), None, None::<&gtk::gio::Cancellable>, move |result| {
+                                native_view.call_async_javascript_function(concat!("return ", include_str!("../src/avatar-probe.js")), None, Some("dev.anuness.elotalks.avatar"), None, None::<&gtk::gio::Cancellable>, move |result| {
                                     let pixels = result.unwrap().to_string();
                                     assert_eq!(pixels.len(), 64 * 64 * 4 * 2);
                                     assert_eq!(&pixels[..8], "ff00ffff");
@@ -92,11 +93,23 @@ fn main() {
                                 check(&first); assert!(first.is_visible()); ui_layout::set_account_visible(&first_view, false).unwrap(); ui_layout::set_account_visible(&second_view, true).unwrap(); }
                             2 => { check(&second); assert!(second.is_visible()); assert!(!first.is_visible()); native.resize(900, 640); }
                             3 => { check(&second); assert_eq!(overlay.allocated_width(), 900); native.resize(1400, 900); }
-                            4 => { check(&second); assert_eq!(overlay.allocated_width(), 1400); ui_layout::set_account_visible(&second_view, false).unwrap(); }
+                            4 => {
+                                check(&second);
+                                assert_eq!(overlay.allocated_width(), 1400);
+                                ui_layout::set_account_visible(&second_view, false).unwrap();
+                                let checked = hidden_avatar_checked.clone();
+                                first.clone().downcast::<webkit2gtk::WebView>().unwrap().call_async_javascript_function(concat!("return ", include_str!("../src/avatar-probe.js")), None, Some("dev.anuness.elotalks.avatar"), None, None::<&gtk::gio::Cancellable>, move |result| {
+                                    let pixels = result.unwrap().to_string();
+                                    assert_eq!(pixels.len(), 64 * 64 * 4 * 2, "Hidden account probe returned: {pixels}");
+                                    assert_eq!(&pixels[..8], "ff00ffff");
+                                    checked.set(true);
+                                });
+                            }
                             5 => {
                                 assert!(!first.is_visible() && !second.is_visible());
                                 assert!(shell.is_visible());
                                 assert!(avatar_checked.get(), "Isolated-world avatar extraction did not complete");
+                                assert!(hidden_avatar_checked.get(), "Hidden account avatar extraction did not complete");
                                 println!("PASS: shell visible; two accounts bounded at (304,72); switching, shrink/grow, overview and fullscreen denial");
                                 std::process::exit(0);
                             }
