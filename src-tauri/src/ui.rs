@@ -1,6 +1,6 @@
 use crate::{
     controller::{self, Request},
-    storage,
+    storage, ui_layout,
 };
 use anyhow::Result;
 use gtk::prelude::*;
@@ -154,6 +154,10 @@ fn sync_accounts(
         view.hide().map_err(|e| e.to_string())?;
         view.with_webview(move |platform| {
             let w = platform.inner();
+            if let Err(error) = ui_layout::attach(&w, true) {
+                let _ = h.emit_to("main", "account-error", error.to_string());
+                return;
+            }
             if !w.context().is_some_and(|c| c.is_sandbox_enabled()) {
                 let _ = h.emit_to(
                     "main",
@@ -266,11 +270,18 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
                     url.scheme() == "tauri"
                         || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost"))
                 });
-            window.add_child(
+            let shell = window.add_child(
                 local,
                 LogicalPosition::new(0., 0.),
                 LogicalSize::new(1200., 800.),
             )?;
+            shell.with_webview(|platform| {
+                if let Err(error) = ui_layout::attach(&platform.inner(), false) {
+                    eprintln!("Elo Talks: {error}");
+                    // Fail closed instead of running accounts without trusted controls.
+                    std::process::exit(1);
+                }
+            })?;
             let open =
                 tauri::menu::MenuItem::with_id(app, "open", "Abrir Elo Talks", true, None::<&str>)?;
             let lock =
@@ -324,8 +335,8 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
                     })
                     .unwrap_or(false);
             let handle = app.handle().clone();
-            window.on_window_event(move |event| match event {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     if tray_ok {
                         if let Some(w) = handle.get_window("main") {
@@ -333,26 +344,6 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
                         }
                     }
                 }
-                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                    if let Some(w) = handle.get_window("main") {
-                        if let (Ok(size), Ok(scale)) = (w.inner_size(), w.scale_factor()) {
-                            let size = size.to_logical::<f64>(scale);
-                            for (label, v) in handle.webviews() {
-                                let (x, y) = if label == "main" {
-                                    (0., 0.)
-                                } else {
-                                    (304., 72.)
-                                };
-                                let _ = v.set_position(LogicalPosition::new(x, y));
-                                let _ = v.set_size(LogicalSize::new(
-                                    (size.width - x).max(1.),
-                                    (size.height - y).max(1.),
-                                ));
-                            }
-                        }
-                    }
-                }
-                _ => {}
             });
             Ok(())
         })

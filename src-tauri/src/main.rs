@@ -5,6 +5,7 @@ mod crypto;
 mod session_monitor;
 mod storage;
 mod ui;
+mod ui_layout;
 mod vault;
 use anyhow::{Context, Result};
 use std::path::PathBuf;

@@ -52,3 +52,9 @@ A primeira inicialização usava o padrão do WebKitGTK 4.1, que não habilita s
 Uma falha da interface não reinicia mais janelas: encerra os processos, fecha o cofre e termina o app. Os testes posteriores são executados em desktop virtual separado do GNOME do usuário.
 
 - Interface nativa renderizada e capturada em Xvfb dentro de container, com sandbox WebKit obrigatório e renderização Mesa por software. Captura local em `dist/native-test/native.png`. O teste não abriu janelas no GNOME.
+
+## Layout integrado das contas
+
+O contêiner GtkBox usado pelo Tauri/Wry no Linux não aplica os limites de posição das webviews filhas. A interface local e as contas agora compartilham um GtkOverlay: a interface ocupa a janela, e cada conta recebe margens nativas de 304 px à esquerda e 72 px no topo. O GTK gerencia redimensionamento e escala. O fullscreen solicitado por conteúdo remoto é desabilitado e seu sinal é interceptado.
+
+O exemplo `layout_smoke` testa a composição real Tauri/WebKit com duas páginas sintéticas, sem contas nem dados pessoais. Validado em Xvfb isolado com sandbox WebKit obrigatório, em escalas de 100% e 200%: alternância, retorno à visão geral, redução para 900×640, expansão para 1400×900, limites das contas e recusa de fullscreen. O workflow executa essa regressão antes do empacotamento. O teste não substitui a validação de conversas, anexos e notificações com contas WhatsApp reais.
