@@ -10,7 +10,9 @@ FAKE = (ROOT / "tests/fixtures/github_cli.py").read_text()
 
 
 class PublicationTests(unittest.TestCase):
-    def run_release(self, releases, number):
+    def run_release(
+        self, releases, number, comparison="identical", lookup_denied=False
+    ):
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d)
             (p / "dist").mkdir()
@@ -21,6 +23,8 @@ class PublicationTests(unittest.TestCase):
                 "releases": releases,
                 "latest": releases[0]["tag_name"] if releases else None,
                 "calls": [],
+                "comparison": comparison,
+                "lookup_denied": lookup_denied,
             }
             (p / "state.json").write_text(json.dumps(state))
             env = {
@@ -67,3 +71,20 @@ class PublicationTests(unittest.TestCase):
         r, s = self.run_release([release], 42)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertFalse(any(a[:2] == ["release", "upload"] for a in s["calls"]))
+
+    def test_removed_commit_is_not_published(self):
+        result, state = self.run_release([], 1, comparison="diverged")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no longer in release history", result.stdout)
+        self.assertFalse(any(call[0] == "release" for call in state["calls"]))
+
+    def test_permission_failure_is_not_treated_as_missing_release(self):
+        result, state = self.run_release([], 1, lookup_denied=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("refusing to create", result.stderr)
+        self.assertFalse(any(call[0] == "release" for call in state["calls"]))
+
+    def test_ancestor_commit_is_still_published(self):
+        result, state = self.run_release([], 1, comparison="ahead")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["latest"], "v0.1.1")

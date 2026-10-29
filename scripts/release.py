@@ -10,7 +10,16 @@ TAG_PREFIX = "v0.1."
 
 
 def github_cli(*arguments):
-    return subprocess.check_output(["gh", *arguments], text=True)
+    result = subprocess.run(["gh", *arguments], capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(
+            f"GitHub request failed: {detail}\n"
+            "Publication requires contents:write. A removed commit or a historical "
+            "workflow change may also require permissions unavailable to GITHUB_TOKEN. "
+            "Use a build from the current release history; do not change its target SHA."
+        )
+    return result.stdout
 
 
 def highest_published_version(repository):
@@ -60,6 +69,12 @@ def prepare_draft(repository, revision, tag):
             return False
         return True
 
+    if "404" not in existing.stderr and '"404"' not in existing.stdout:
+        raise SystemExit(
+            "Could not inspect the existing release; refusing to create or overwrite it.\n"
+            + (existing.stderr.strip() or existing.stdout.strip())
+        )
+
     notes = pathlib.Path("release-notes.md")
     notes.write_text(
         f"Elo Talks {tag}\n\nCommit: `{revision}`\n\n"
@@ -87,6 +102,14 @@ def main():
     repository = os.environ["GITHUB_REPOSITORY"]
     revision = os.environ["GITHUB_SHA"]
     tag = f"{TAG_PREFIX}{int(os.environ['GITHUB_RUN_NUMBER'])}"
+    comparison = json.loads(
+        github_cli("api", f"repos/{repository}/compare/{revision}...release")
+    )
+    if comparison.get("status") not in ("ahead", "identical"):
+        print(
+            "::notice::Skipping publication: source commit is no longer in release history."
+        )
+        return
     if not prepare_draft(repository, revision, tag):
         return
     for artifact in sorted(pathlib.Path("dist").iterdir()):

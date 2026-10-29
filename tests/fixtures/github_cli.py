@@ -11,7 +11,13 @@ arguments = sys.argv[1:]
 state["calls"].append(arguments)
 
 if arguments[0] == "api":
-    if "--slurp" in arguments:
+    if "/compare/" in arguments[1]:
+        print(json.dumps({"status": state.get("comparison", "identical")}))
+    elif state.get("lookup_denied") and "/releases/tags/" in arguments[1]:
+        print("HTTP 403: Resource not accessible by integration", file=sys.stderr)
+        state_path.write_text(json.dumps(state))
+        sys.exit(1)
+    elif "--slurp" in arguments:
         print(json.dumps([state["releases"]]))
     elif arguments[1].endswith("/latest"):
         print(
@@ -33,6 +39,7 @@ if arguments[0] == "api":
             print(json.dumps(release))
         else:
             state_path.write_text(json.dumps(state))
+            print("HTTP 404: Not Found", file=sys.stderr)
             sys.exit(1)
 elif arguments[:2] == ["release", "create"]:
     state["releases"].append(
