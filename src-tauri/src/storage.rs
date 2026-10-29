@@ -2,7 +2,7 @@ use anyhow::{ensure, Result};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     fs::{self, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::Path,
 };
@@ -16,9 +16,17 @@ pub fn private_dir(p: &Path) -> Result<()> {
     fs::set_permissions(p, fs::Permissions::from_mode(0o700))?;
     Ok(())
 }
+const MAX_STATE_BYTES: u64 = 1024 * 1024;
+
 pub fn read<T: DeserializeOwned>(p: &Path) -> Result<T> {
-    let bytes = fs::read(p)?;
-    ensure!(bytes.len() < 1024 * 1024, "File exceeds the size limit");
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    fs::File::open(p)?
+        .take(MAX_STATE_BYTES)
+        .read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() < MAX_STATE_BYTES as usize,
+        "File exceeds the size limit"
+    );
     Ok(serde_json::from_slice(&bytes)?)
 }
 pub fn write<T: Serialize>(p: &Path, value: &T) -> Result<()> {
@@ -51,5 +59,14 @@ mod tests {
         write(&p, &vec!["second"]).unwrap();
         assert_eq!(read::<Vec<String>>(&p).unwrap(), ["second"]);
         assert_eq!(fs::metadata(p).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+    #[test]
+    fn rejects_large_state_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("oversize.json");
+        let file = fs::File::create(&path).unwrap();
+        file.set_len(MAX_STATE_BYTES * 16).unwrap();
+        let error = read::<serde_json::Value>(&path).unwrap_err();
+        assert_eq!(error.to_string(), "File exceeds the size limit");
     }
 }

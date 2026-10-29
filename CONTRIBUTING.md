@@ -24,7 +24,12 @@ Keep commits focused. Use the repository owner's configured Git identity; do not
 
 ## Code quality
 
+- Apply SOLID through focused modules with explicit responsibilities; introduce traits only when a real alternate implementation or test boundary needs them.
+- Prefer simple control flow and existing libraries (KISS). Avoid speculative frameworks, generic layers, and dependencies added only for style.
+- Centralize shared rules and protocols (DRY), while keeping authorization checks explicit at trust boundaries.
 - Keep UI rendering, native IPC, and input behavior separate.
+- Bound input before allocating or reading it, set IPC timeouts, and clean up secret-bearing buffers on error paths as well as success.
+- Justify performance changes with a concrete source of unnecessary work or measurements. Never weaken cryptography, sandboxing, or validation to improve a benchmark.
 - Keep security decisions in native code; remote content must never gain vault permissions.
 - Keep persisted formats, authentication contexts, and keyring namespaces stable unless implementing an explicit migration.
 - Use small, named functions and constants instead of compressed statements and magic limits.

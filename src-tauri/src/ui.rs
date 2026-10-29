@@ -1,5 +1,5 @@
 use crate::{
-    controller::{self, Request},
+    ipc::{self, Request},
     storage, ui_layout,
 };
 use anyhow::Result;
@@ -7,7 +7,7 @@ use gtk::prelude::*;
 use serde_json::Value;
 use std::{
     path::PathBuf,
-    sync::{mpsc, Mutex},
+    sync::mpsc,
     time::{Duration, Instant},
 };
 use tauri::{webview::WebviewBuilder, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl};
@@ -16,7 +16,6 @@ use webkit2gtk::{NotificationExt, PermissionRequestExt, SettingsExt, WebContextE
 struct UiState {
     runtime: PathBuf,
     profile: PathBuf,
-    selected: Mutex<Option<String>>,
     activity: mpsc::SyncSender<()>,
 }
 fn local(webview: &tauri::Webview) -> Result<(), String> {
@@ -38,7 +37,7 @@ async fn request(
 ) -> Result<Value, String> {
     local(&webview)?;
     let runtime = state.runtime.clone();
-    tauri::async_runtime::spawn_blocking(move || controller::rpc(&runtime, Request { op, data }))
+    tauri::async_runtime::spawn_blocking(move || ipc::rpc(&runtime, Request { op, data }))
         .await
         .map_err(|_| "Operation failed".to_string())?
         .map_err(|e| e.to_string())
@@ -47,7 +46,6 @@ async fn request(
 fn select_account(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-    state: tauri::State<'_, UiState>,
     id: Option<String>,
 ) -> Result<(), String> {
     local(&webview)?;
@@ -64,7 +62,6 @@ fn select_account(
             ui_layout::set_account_visible(&v, visible).map_err(|e| e.to_string())?;
         }
     }
-    *state.selected.lock().unwrap() = id;
     Ok(())
 }
 #[tauri::command]
@@ -74,7 +71,7 @@ fn sync_accounts(
     state: tauri::State<'_, UiState>,
 ) -> Result<(), String> {
     local(&webview)?;
-    let status = controller::rpc(
+    let status = ipc::rpc(
         &state.runtime,
         Request {
             op: "status".into(),
@@ -241,7 +238,7 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
     let activity_runtime = runtime.clone();
     std::thread::spawn(move || {
         while activity_events.recv().is_ok() {
-            let _ = controller::rpc(
+            let _ = ipc::rpc(
                 &activity_runtime,
                 Request {
                     op: "activity".into(),
@@ -254,7 +251,6 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
         .manage(UiState {
             runtime,
             profile: profile.clone(),
-            selected: Mutex::new(None),
             activity,
         })
         .invoke_handler(tauri::generate_handler![
@@ -309,7 +305,7 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
                         let rt = rt2.clone();
                         let op = event.id().as_ref().to_string();
                         std::thread::spawn(move || {
-                            let _ = controller::rpc(
+                            let _ = ipc::rpc(
                                 &rt,
                                 Request {
                                     op,

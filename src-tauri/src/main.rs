@@ -2,6 +2,7 @@
 mod auth;
 mod controller;
 mod crypto;
+mod ipc;
 mod session_monitor;
 mod storage;
 mod ui;

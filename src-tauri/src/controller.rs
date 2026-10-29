@@ -1,20 +1,19 @@
-use crate::{storage, vault::Vault};
+use crate::{
+    ipc::{receive_frame, send_frame, Request},
+    storage,
+    vault::Vault,
+};
 use anyhow::{anyhow, ensure, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     fs::{self, OpenOptions},
-    io::{Read, Write},
     os::{
         fd::AsRawFd,
-        unix::{
-            fs::OpenOptionsExt,
-            net::{UnixListener, UnixStream},
-            process::CommandExt,
-        },
+        unix::{fs::OpenOptionsExt, net::UnixListener, process::CommandExt},
     },
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Child, Command},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -28,12 +27,6 @@ use zeroize::Zeroizing;
 pub struct Account {
     pub id: String,
     pub name: String,
-}
-#[derive(Serialize, Deserialize)]
-pub struct Request {
-    pub op: String,
-    #[serde(default)]
-    pub data: Value,
 }
 pub struct Controller {
     vault: Vault,
@@ -49,32 +42,6 @@ fn required_text<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
         .get(field)
         .and_then(Value::as_str)
         .context("Required field missing")
-}
-pub fn rpc(runtime: &Path, request: Request) -> Result<Value> {
-    let mut socket = UnixStream::connect(runtime.join("control.sock"))?;
-    socket.set_read_timeout(Some(Duration::from_secs(90)))?;
-    send_frame(&mut socket, &Zeroizing::new(serde_json::to_vec(&request)?))?;
-    let reply: Value = serde_json::from_slice(&receive_frame(&mut socket)?)?;
-    if let Some(e) = reply.get("error").and_then(Value::as_str) {
-        return Err(anyhow!(e.to_string()));
-    }
-    Ok(reply["result"].clone())
-}
-fn send_frame(socket: &mut UnixStream, bytes: &[u8]) -> Result<()> {
-    socket.write_all(&(bytes.len() as u32).to_be_bytes())?;
-    socket.write_all(bytes)?;
-    Ok(())
-}
-const MAX_RPC_FRAME_BYTES: usize = 64 * 1024;
-
-fn receive_frame(socket: &mut UnixStream) -> Result<Zeroizing<Vec<u8>>> {
-    let mut header = [0; 4];
-    socket.read_exact(&mut header)?;
-    let length = u32::from_be_bytes(header) as usize;
-    ensure!(length <= MAX_RPC_FRAME_BYTES, "Request too large");
-    let mut payload = Zeroizing::new(vec![0; length]);
-    socket.read_exact(&mut payload)?;
-    Ok(payload)
 }
 
 impl Controller {
@@ -398,6 +365,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
         }
         if let Ok((mut socket, _)) = listener.accept() {
             socket.set_read_timeout(Some(Duration::from_secs(2)))?;
+            socket.set_write_timeout(Some(Duration::from_secs(2)))?;
             let mut peer: libc::ucred = unsafe { std::mem::zeroed() };
             let mut len = std::mem::size_of_val(&peer) as libc::socklen_t;
             let ok = unsafe {
@@ -418,7 +386,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
             }
             let result = receive_frame(&mut socket)
                 .and_then(|bytes| Ok(serde_json::from_slice::<Request>(&bytes)?));
-            if let Ok(mut r) = result {
+            if let Ok(r) = result {
                 if matches!(r.op.as_str(), "create" | "unlock")
                     && crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed)
                 {
@@ -447,22 +415,11 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                         _ => {}
                     }
                 }
-                // Drop secrets promptly; never include request objects in logs.
-                scrub(&mut r.data);
             }
         }
         std::thread::sleep(Duration::from_millis(50));
     }
     Ok(())
-}
-fn scrub(v: &mut Value) {
-    use zeroize::Zeroize;
-    match v {
-        Value::String(s) => s.zeroize(),
-        Value::Array(v) => v.iter_mut().for_each(scrub),
-        Value::Object(m) => m.values_mut().for_each(scrub),
-        _ => {}
-    }
 }
 
 #[cfg(test)]
@@ -531,11 +488,5 @@ mod tests {
             })
             .is_err());
         assert_eq!(c.accounts().unwrap()[1].id, list[1].id);
-    }
-    #[test]
-    fn rejects_oversize_rpc_before_allocating() {
-        let (mut a, mut b) = UnixStream::pair().unwrap();
-        a.write_all(&u32::MAX.to_be_bytes()).unwrap();
-        assert!(receive_frame(&mut b).is_err());
     }
 }
