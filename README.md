@@ -12,7 +12,7 @@ Na primeira abertura, crie uma senha de pelo menos 12 caracteres. Adicione as co
 
 Fechar a janela mantém o app na bandeja. Bloquear o desktop ou suspender fecha as sessões e o cofre. Se o ambiente não oferecer uma bandeja utilizável, a janela deve continuar acessível. Exporte anexos somente para locais onde queira manter uma cópia fora do cofre.
 
-A inicialização automática registra o caminho original da AppImage. Mantenha o arquivo nesse local; ao substituí-lo por outra versão, abra a nova AppImage uma vez para atualizar o registro. O arquivo de autostart fica em `~/.config/autostart/com.elotalks.desktop.desktop` e pode ser desativado pelas configurações do desktop.
+A inicialização automática registra o caminho original da AppImage. Mantenha o arquivo nesse local; ao substituí-lo por outra versão, abra a nova AppImage uma vez para atualizar o registro. O arquivo de autostart fica em `~/.config/autostart/dev.anuness.elotalks.desktop` e pode ser desativado pelas configurações do desktop. O registro do identificador anterior é removido ao abrir a nova versão.
 
 ## Desenvolvimento
 

@@ -57,7 +57,13 @@ fn run() -> Result<()> {
                 .replace('`', "\\`")
                 .replace('$', "\\$")
                 .replace('%', "%%");
-            std::fs::write(config.join("autostart/com.elotalks.desktop.desktop"), format!("[Desktop Entry]\nType=Application\nName=Elo Talks\nExec=\"{quoted}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"))?;
+            std::fs::write(config.join("autostart/dev.anuness.elotalks.desktop"), format!("[Desktop Entry]\nType=Application\nName=Elo Talks\nExec=\"{quoted}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"))?;
+            // Retire the previous app ID to avoid duplicate login launches.
+            match std::fs::remove_file(config.join("autostart/com.elotalks.desktop.desktop")) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
         }
     }
     controller::run(data, runtime)

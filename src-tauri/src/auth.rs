@@ -71,6 +71,7 @@ pub fn keyring(vault: &str, create: bool) -> Result<Zeroizing<Vec<u8>>> {
         !collection.collection_path.as_str().ends_with("/session"),
         "Chaveiro persistente indisponível"
     );
+    // Keep the keyring namespace stable across app ID changes so existing PINs work.
     let attrs = HashMap::from([("application", "com.elotalks.desktop"), ("vault", vault)]);
     let items = collection.search_items(attrs.clone())?;
     if let Some(item) = items.first() {
