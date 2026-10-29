@@ -3,6 +3,7 @@
 /src-tauri/helpers/
 /dist/
 *.AppImage
+*.AppImage.zsync
 
 /target-check.log
 /target-*.log

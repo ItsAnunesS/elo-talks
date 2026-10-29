@@ -37,6 +37,7 @@
       "helpers/bwrap",
       "helpers/xdg-dbus-proxy",
       "helpers/bwrap-real"
-    ]
+    ],
+    "homepage": "https://github.com/ItsAnunesS/elo-talks"
   }
 }
