@@ -4,6 +4,8 @@
 mod account_events;
 #[path = "../src/account_permissions.rs"]
 mod account_permissions;
+#[path = "../src/account_readiness.rs"]
+mod account_readiness;
 #[allow(dead_code)]
 #[path = "../src/account_runtime.rs"]
 mod account_runtime;
@@ -47,14 +49,15 @@ fn main() {
                         handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.insert(label.into(), account_runtime::AccountHealth::default());
                         account_events::attach(&webview, &handle, label);
                         account_permissions::attach(&webview);
+                        account_readiness::attach(&webview, &handle, label);
                     }
                     webview.load_html(
                         if index == 0 {
                             "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
                         } else if index == 1 {
-                            "<body style='background:#243e38'>Synthetic notification source<script>Promise.all(['notifications','geolocation'].map(name => navigator.permissions.query({name}).then(result => result.state === 'granted' ? 'granted' : 'not-granted'))).then(states => document.title = states.join('|')); if(Notification.permission === 'granted') new Notification('Synthetic private sender', {body:'Synthetic private message'});</script>"
+                            "<body style='background:#243e38'>Synthetic notification source<script>setTimeout(() => { const side = document.createElement('div'); side.id = 'pane-side'; side.style.height = '20px'; document.body.append(side); }, 3000);Promise.all(['notifications','geolocation'].map(name => navigator.permissions.query({name}).then(result => result.state === 'granted' ? 'granted' : 'not-granted'))).then(states => document.title = states.join('|')); if(Notification.permission === 'granted') new Notification('Synthetic private sender', {body:'Synthetic private message'});</script>"
                         } else {
-                            "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data<script>navigator.permissions.query({name:'notifications'}).then(result => document.title = Notification.permission + '|' + result.state);</script></body>"
+                            "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data<div id=\"pane-side\">Untrusted structure</div><script>navigator.permissions.query({name:'notifications'}).then(result => document.title = Notification.permission + '|' + result.state);</script></body>"
                         },
                         Some(match index { 1 => "https://web.whatsapp.com/", 2 => "https://untrusted.example/", _ => "about:blank" }),
                     );
@@ -87,6 +90,7 @@ fn main() {
                         match stage.get() {
                             0 => { assert!(!first.is_visible() && !second.is_visible()); ui_layout::set_account_visible(&first_view, true).unwrap(); }
                             1 => {
+                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].readiness, account_runtime::Readiness::Preparing, "Document load is not WhatsApp readiness");
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::Ready);
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].native_notifications, 1, "WhatsApp notification permission must be initialized before the page checks it");
                                 let native_view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
@@ -96,6 +100,7 @@ fn main() {
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::ProcessStopped);
                                 check(&first); assert!(first.is_visible()); ui_layout::set_account_visible(&first_view, false).unwrap(); ui_layout::set_account_visible(&second_view, true).unwrap(); }
                             2 => {
+                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-two"].readiness, account_runtime::Readiness::Preparing, "Untrusted origins cannot report readiness");
                                 // WebKit masks a denied query as prompt before the origin
                                 // has requested notifications; neither API may grant access.
                                 assert_eq!(second.clone().downcast::<webkit2gtk::WebView>().unwrap().title().as_deref(), Some("default|prompt"), "Other origins must not inherit WhatsApp notification permission");
@@ -113,7 +118,7 @@ fn main() {
                             }
                             5 => {
                                 let received = handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].native_notifications;
-                                if received < 2 || handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].unread_count != Some(7) {
+                                if handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].readiness != account_runtime::Readiness::Chats || received < 2 || handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].unread_count != Some(7) {
                                     hidden_waits.set(hidden_waits.get() + 1);
                                     assert!(hidden_waits.get() < 20, "Hidden account in hidden window must keep receiving native notification events");
                                     return gtk::glib::ControlFlow::Continue;

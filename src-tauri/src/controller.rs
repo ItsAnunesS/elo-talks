@@ -153,6 +153,7 @@ impl Controller {
             "keys": keys,
             "accounts": catalog.as_ref().map(|c| &c.accounts).cloned().unwrap_or_default(),
             "organization": catalog.as_ref().map(Catalog::metadata),
+            "lastAccount": catalog.as_ref().and_then(Catalog::preferred_account),
             "notifications": self.notification_preferences()?,
             "idleMinutes": manifest.map(|vault| vault.idle_minutes).unwrap_or(0),
             "error": self.lock_error,
@@ -216,6 +217,13 @@ impl Controller {
                         catalog.apply(&r.op, d)?;
                         catalog.save(&self.vault.mount)?;
                         // Profile deletion still happens only after every worker exits.
+                    }
+                    "account.activate" => {
+                        let mut catalog = Catalog::load(&self.vault.mount)?;
+                        let id = required_text(d, "id")?;
+                        if catalog.activate(id)? {
+                            catalog.save(&self.vault.mount)?;
+                        }
                     }
                     "notifications" => {
                         let preferences: NotificationPreferences =
@@ -493,6 +501,7 @@ mod tests {
             "category.add",
             "account.move",
             "account.add",
+            "account.activate",
             "account.remove",
             "settings",
             "notifications",

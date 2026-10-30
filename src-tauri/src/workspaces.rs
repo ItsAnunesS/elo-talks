@@ -38,6 +38,8 @@ pub struct Placement {
 #[derive(Serialize, Deserialize)]
 pub struct Catalog {
     version: u32,
+    #[serde(default)]
+    last_account: Option<String>,
     pub accounts: Vec<Account>,
     pub workspaces: Vec<Workspace>,
     pub placements: BTreeMap<String, Placement>,
@@ -113,12 +115,30 @@ impl Catalog {
             .collect();
         let catalog = Self {
             version: 1,
+            last_account: None,
             accounts,
             workspaces: vec![workspace],
             placements,
         };
         catalog.save(root)?;
         Ok(catalog)
+    }
+    pub fn preferred_account(&self) -> Option<&str> {
+        self.last_account
+            .as_deref()
+            .filter(|id| self.accounts.iter().any(|a| a.id == *id))
+            .or_else(|| self.accounts.first().map(|a| a.id.as_str()))
+    }
+    pub fn activate(&mut self, id: &str) -> Result<bool> {
+        ensure!(
+            self.accounts.iter().any(|account| account.id == id),
+            "Account not found"
+        );
+        if self.last_account.as_deref() == Some(id) {
+            return Ok(false);
+        }
+        self.last_account = Some(id.to_owned());
+        Ok(true)
     }
     pub fn save(&self, root: &Path) -> Result<()> {
         storage::write(&root.join("catalog.json"), self)
@@ -314,6 +334,35 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn remembers_only_existing_accounts_and_falls_back_after_removal() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = Catalog::load(dir.path()).unwrap();
+        assert_eq!(catalog.preferred_account(), None);
+        let workspace = catalog.workspaces[0].id.clone();
+        for name in ["First", "Last"] {
+            catalog
+                .apply(
+                    "account.add",
+                    &json!({"name":name,"workspaceId":workspace,"categoryId":null}),
+                )
+                .unwrap();
+        }
+        let first = catalog.accounts[0].id.clone();
+        let last = catalog.accounts[1].id.clone();
+        assert!(catalog.activate("unknown").is_err());
+        catalog.activate(&last).unwrap();
+        catalog.save(dir.path()).unwrap();
+        let mut loaded = Catalog::load(dir.path()).unwrap();
+        assert_eq!(loaded.preferred_account(), Some(last.as_str()));
+        loaded.apply("account.remove", &json!({"id":last})).unwrap();
+        assert_eq!(loaded.preferred_account(), Some(first.as_str()));
+        let mut legacy = serde_json::to_value(&loaded).unwrap();
+        legacy.as_object_mut().unwrap().remove("last_account");
+        let migrated: Catalog = serde_json::from_value(legacy).unwrap();
+        assert_eq!(migrated.preferred_account(), Some(first.as_str()));
+    }
+
     #[test]
     fn migration_preserves_profile_ids_and_runs_only_once() {
         let dir = tempfile::tempdir().unwrap();

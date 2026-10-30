@@ -1,4 +1,6 @@
-import { initializeUpdates, prepareAccounts } from "./updates.js";
+import { initializeUpdates } from "./updates.js";
+import { prepareAccounts } from "./startup.js";
+import { showLoading, hideLoading } from "./loading-screen.js";
 import {
   getElement,
   errorMessage,
@@ -18,6 +20,8 @@ import { initializePinInputs } from "./pin-input.js";
 hydrateIcons();
 const digits = initializePinInputs(getElement("pin-inputs"));
 let state = { created: false, unlocked: false, pin: false, keys: [], accounts: [], idleMinutes: 0 };
+let startingAccounts = false;
+let pendingOpenAccount = null;
 let method = "password",
   selected = null,
   activeWorkspace = null,
@@ -156,7 +160,16 @@ async function selectAccount(id) {
     activeWorkspace = state.organization.placements[id].workspaceId;
     renderState();
   }
+  if (id) await invoke("sync_accounts", { accountId: id });
   await invoke("select_account", { id });
+  if (id) {
+    try {
+      await request("account.activate", { id });
+      state.lastAccount = id;
+    } catch {
+      showToast("Could not remember the last account. Your session remains open.");
+    }
+  }
   selected = id;
   if (id) revealChannel(id);
   updateAccountStatus(null, selected);
@@ -179,6 +192,7 @@ getElement("unlock-form").addEventListener("submit", async (e) => {
   try {
     if (!state.created && secret !== getElement("confirm-secret").value)
       throw Error("The passwords do not match.");
+    showLoading("Unlocking your space…");
     await request(state.created ? "unlock" : "create", {
       method,
       secret,
@@ -186,6 +200,7 @@ getElement("unlock-form").addEventListener("submit", async (e) => {
     });
     clearSecrets();
   } catch (err) {
+    hideLoading();
     getElement("unlock-error").textContent = errorMessage(err);
     clearSecrets();
   } finally {
@@ -676,20 +691,39 @@ async function initializeDesktop() {
     listen("account-state", (event) => updateAccountStatus(event.payload, selected)),
     listen("account-error", (event) => showToast(event.payload)),
     listen("open-account", async (event) => {
+      if (startingAccounts) {
+        pendingOpenAccount = event.payload;
+        return;
+      }
       if (getElement("dialog").open) await closeDialog();
       await selectAccount(event.payload);
     }),
   ]);
+  showLoading("Opening Elo Talks…");
   state = await request("status");
-  await initializeUpdates(state.unlocked);
-  await refreshState();
-  if (state.unlocked) await prepareAccounts(state.accounts);
+  if (!(await initializeUpdates(state.unlocked))) return;
+  renderState();
+  document.body.classList.remove("booting");
+  if (state.unlocked) {
+    startingAccounts = true;
+    try {
+      await prepareAccounts(state.accounts, state.lastAccount, selectAccount);
+    } finally {
+      startingAccounts = false;
+    }
+    if (pendingOpenAccount) await selectAccount(pendingOpenAccount);
+  } else if ((await request("update.status")).phase !== "installing") {
+    hideLoading();
+  }
 }
 if (isDesktop) {
   initializeDesktop().catch((error) => {
+    document.body.classList.remove("booting");
+    hideLoading();
     getElement("unlock-error").textContent = errorMessage(error);
   });
 } else {
+  document.body.classList.remove("booting");
   renderState();
   getElement("unlock-error").textContent =
     "Visual preview. The vault is only available in the desktop application.";

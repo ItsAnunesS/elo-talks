@@ -1,13 +1,8 @@
+import { showLoading as show, hideLoading } from "./loading-screen.js";
 import { request, invoke } from "./bridge.js";
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const overlay = document.getElementById("startup-screen");
-const label = document.getElementById("startup-label");
 const button = document.getElementById("update-now");
 let busy = false;
-function show(text) {
-  label.textContent = text;
-  overlay.hidden = false;
-}
 async function settled() {
   for (;;) {
     const status = await request("update.status");
@@ -33,7 +28,7 @@ async function install() {
     show("Closing your vault and restarting…");
     await request("update.install");
   } catch (error) {
-    overlay.hidden = true;
+    hideLoading();
     window.dispatchEvent(new CustomEvent("ui-error", { detail: error.message }));
     busy = false;
     button.disabled = false;
@@ -51,8 +46,8 @@ export async function initializeUpdates(unlocked) {
   if (current.phase === "installing") {
     show("Installing the verified update. Your vault is closed…");
     const result = await settled();
-    if (result.phase === "installed") return;
-    overlay.hidden = true;
+    if (result.phase === "installed") return false;
+    hideLoading();
     window.dispatchEvent(
       new CustomEvent("ui-error", {
         detail: result.error || "Update failed. You can unlock and continue.",
@@ -71,7 +66,7 @@ export async function initializeUpdates(unlocked) {
     } catch {
       /* Offline startup must still allow vault access. */
     }
-    if (!busy) overlay.hidden = true;
+    if (!busy) hideLoading();
   }
   button.addEventListener("click", install);
   setInterval(async () => {
@@ -84,23 +79,5 @@ export async function initializeUpdates(unlocked) {
       /* The controller may be restarting the interface. */
     }
   }, 10000);
-}
-export async function prepareAccounts(accounts) {
-  if (!accounts.length || busy) return;
-  show("Preparing your WhatsApp accounts…");
-  const deadline = Date.now() + 12000;
-  try {
-    while (Date.now() < deadline) {
-      const snapshot = await invoke("account_snapshot");
-      const loaded = accounts.filter((account) => {
-        const page = snapshot.accounts?.[account.id]?.page;
-        return page && page !== "loading";
-      }).length;
-      label.textContent = `Preparing your accounts · ${loaded} of ${accounts.length}`;
-      if (loaded === accounts.length) break;
-      await pause(400);
-    }
-  } finally {
-    overlay.hidden = true;
-  }
+  return !busy;
 }

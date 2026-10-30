@@ -1348,3 +1348,8 @@ body[data-unlocked="true"] > .toast {
     animation: none;
   }
 }
+
+.booting #lock-screen,
+.booting #workspace {
+  visibility: hidden;
+}

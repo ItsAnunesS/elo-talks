@@ -70,7 +70,7 @@ Each account displays native WebKit page state and offers **Retry** without dele
 its profile. Load failures, TLS failures, stopped web processes and an unavailable
 sandbox are separate states. A successful page load means the WhatsApp page is
 available, not that a QR code has been scanned or its messaging connection is healthy.
-Health detection does not inspect the WhatsApp DOM, conversations or QR codes.
+Startup readiness checks only visible structural containers for the chat list or QR screen; it does not read conversations or QR contents.
 
 Enable notifications in WhatsApp to receive native notification events. Badges use
 WhatsApp's page-title unread counter when its exact format is recognized. This
@@ -80,9 +80,7 @@ When unavailable, badges fall back to native notifications since the account was
 last viewed, with the source explained in the channel badge tooltip. Workspace,
 Overview, tray and desktop totals use the same per-account selection rule.
 
-A native WebKit title-change event updates counts while accounts are hidden; there
-is no DOM scraping, JavaScript injection, periodic page polling, or private WhatsApp
-API. Only a bounded number from the exact HTTPS WhatsApp origin is retained, never
+A native WebKit title-change event updates counts while accounts are hidden; the unread adapter uses no DOM scraping, injected scripts, polling, or private WhatsApp API. Only a bounded number from the exact HTTPS WhatsApp origin is retained, never
 the title text. Unknown title formats use the notification fallback. Counts live
 only in memory and are repopulated from WhatsApp after unlocking.
 
@@ -199,4 +197,4 @@ runtime dependencies, remote assets, content permissions or vault changes are re
 Browser regressions cover 900/1200/1600px windows, keyboard search, form errors,
 confirmations, pending saves and the fixed 304×72 native account viewport offsets.
 
-The AppImage checks GitHub releases before unlocking and installs verified updates automatically. While running, it checks hourly and offers **Update now**; restarting requires a click and closes the vault first. Updates require a writable AppImage directory. After unlocking, account pages warm up behind a loading screen for at most 12 seconds. See [update security and recovery](docs/SECURITY.md#built-in-appimage-updates).
+The AppImage checks GitHub releases before unlocking and installs verified updates automatically. While running, it checks hourly and offers **Update now**; restarting requires a click and closes the vault first. Updates require a writable AppImage directory. After unlocking, the last used account loads first behind one preparation screen. Other accounts start incrementally in the background. The screen waits for a visible chat list or QR container, with **Continue anyway** available after five seconds. Readiness checks stop after 40 seconds; if the page remains unrecognized, continuing is explicit. See [update security and recovery](docs/SECURITY.md#built-in-appimage-updates).

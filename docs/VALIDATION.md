@@ -114,3 +114,9 @@ Still requires desktop acceptance: updating from one published updater-enabled A
 Unit tests cover exact-origin, bounded title parsing; unread count decreases; fallback after failure; and preservation when selecting an account. The native sandboxed fixture updates its title and emits a notification while both its view and window are hidden, then checks acknowledgement and count clearing. The isolated D-Bus fixture delays a reply and verifies that a burst delivers its latest preview instead of dropping it. UI tests distinguish zero reported by WhatsApp from unavailable metadata and aggregate mixed sources across workspaces.
 
 Real WhatsApp acceptance remains necessary: receive messages in an inactive account, compare its badge against the WhatsApp browser-title counter, read chats on another device, and confirm both counter decreases and notifications with the window closed to the tray. The title is an observed UI convention, not an official stable WhatsApp API, and may count chats rather than individual messages.
+
+## Unified startup
+
+The encrypted catalog persists the last selected account and falls back to an existing account after deletion. Locked status does not expose this preference. The primary view starts first; other views start at 500 ms intervals and do not gate the primary view. Structural readiness is tested with a delayed synthetic chat-list element after document load, including a hidden native WebKit view. UI tests cover restoring a non-first account, waiting after page load, QR readiness, background loading without blocking, and explicit Continue anyway. The detector never reads QR contents or messages.
+
+Real WhatsApp markup and network behavior still need acceptance on the supported desktops. If its structural selectors change, the app preserves access through Continue anyway rather than inferring authentication or weakening origin/sandbox policy.

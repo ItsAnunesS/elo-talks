@@ -38,10 +38,20 @@ pub enum NotificationDelivery {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Readiness {
+    #[default]
+    Preparing,
+    Chats,
+    QrCode,
+}
+
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountHealth {
     pub page: PageState,
+    pub readiness: Readiness,
     pub pending_notifications: u32,
     pub unread_count: Option<u32>,
     pub native_notifications: u64,
@@ -86,6 +96,7 @@ impl AccountRuntime {
                 account.page = page;
                 if page != PageState::Ready {
                     account.unread_count = None;
+                    account.readiness = Readiness::Preparing;
                 }
             }
         }
@@ -128,7 +139,7 @@ impl AccountRuntime {
             "doNotDisturb": self.preferences.do_not_disturb,
             "badgeProtocol": "Unity LauncherEntry (requires desktop support)",
             "counter": "WhatsApp page-title unread counter when available; otherwise native notifications since last viewed. Not a guaranteed message total.",
-            "pageState": "Page load only; QR and WhatsApp connection state are not inspected"
+            "pageState": "Page load plus bounded structural startup readiness; not messaging connection health"
         })
     }
 

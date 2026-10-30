@@ -7,11 +7,12 @@
     <link rel="stylesheet" href="style.css" />
     <script src="app.js" type="module"></script>
   </head>
-  <body>
+  <body class="booting">
     <section id="startup-screen" class="startup-screen" hidden aria-live="polite" aria-busy="true">
       <img src="assets/elo-mark.svg" width="72" height="72" alt="Elo Talks" />
       <div class="startup-spinner"></div>
       <p id="startup-label">Preparing your space…</p>
+      <button id="startup-continue" class="text-button" hidden>Continue anyway</button>
     </section>
     <main id="lock-screen" class="lock-screen">
       <section class="brand-story">

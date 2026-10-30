@@ -139,6 +139,7 @@ async fn test_notification(webview: tauri::Webview, app: tauri::AppHandle) -> Re
 
 #[tauri::command]
 fn sync_accounts(
+    account_id: Option<String>,
     webview: tauri::Webview,
     app: tauri::AppHandle,
     state: tauri::State<'_, UiState>,
@@ -164,6 +165,9 @@ fn sync_accounts(
     }
     for a in status["accounts"].as_array().ok_or("Invalid accounts")? {
         let id = a["id"].as_str().ok_or("Invalid account")?;
+        if account_id.as_ref().is_some_and(|requested| requested != id) {
+            continue;
+        }
         uuid::Uuid::parse_str(id).map_err(|_| "Invalid account")?;
         // Refresh labels even when an existing channel is renamed without reloading it.
         app.state::<AccountEvents>()
@@ -260,6 +264,7 @@ fn sync_accounts(
                 settings.set_enable_page_cache(false);
             }
             account_events::attach(&w, &h, &account_id);
+            crate::account_readiness::attach(&w, &h, &account_id);
             w.connect_create(|_, _| None);
             crate::account_permissions::attach(&w);
             let last = std::rc::Rc::new(std::cell::RefCell::new(Instant::now()));

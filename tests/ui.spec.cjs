@@ -43,7 +43,7 @@ const http = require("node:http"),
       window.testListeners = {};
       window.testAccountStatus = {
         accounts: {
-          a: { page: "ready", pendingNotifications: 3 },
+          a: { page: "ready", readiness: "chats", pendingNotifications: 3 },
           b: { page: "load-failed", pendingNotifications: 12 },
         },
         preferences: {},
@@ -57,6 +57,10 @@ const http = require("node:http"),
         idleMinutes: 0,
         version: "0.1.0",
       };
+      if (localStorage.getItem("startupScenario")) {
+        window.testAccountStatus.accounts.a = { page: "loading", readiness: "preparing" };
+        window.testAccountStatus.accounts.b = { page: "ready", readiness: "preparing" };
+      }
       window.__TAURI__ = {
         core: {
           invoke: async (cmd, args) => {
@@ -188,7 +192,7 @@ const http = require("node:http"),
       localStorage.setItem("fixture", JSON.stringify(window.testState));
     });
     await page.reload();
-    await page.locator("#workspace:not([hidden])").waitFor();
+    await page.locator("#account-list").waitFor();
     assert.equal(await page.locator("#account-list .service-icon").count(), 3);
     assert.equal(await page.locator("#account-list img:not(.service-icon)").count(), 0);
     await page.screenshot({ path: "/tmp/elo-workspace.png" });
@@ -513,6 +517,43 @@ const http = require("node:http"),
     });
     await page.locator("#empty-workspace:not([hidden])").waitFor();
     await page.screenshot({ path: "/tmp/elo-empty-premium.png" });
+    await page.evaluate(() => {
+      const fixture = JSON.parse(localStorage.getItem("fixture"));
+      fixture.lastAccount = "b";
+      localStorage.setItem("fixture", JSON.stringify(fixture));
+      localStorage.setItem("startupScenario", "delayed");
+    });
+    await page.reload();
+    await page.locator("#startup-screen:not([hidden])").waitFor();
+    await page.waitForFunction(
+      () => window.testRequests.filter((r) => r.cmd === "sync_accounts").length >= 2,
+    );
+    assert.deepEqual(
+      await page.evaluate(() =>
+        window.testRequests
+          .filter((r) => r.cmd === "sync_accounts")
+          .slice(0, 2)
+          .map((r) => r.args.accountId),
+      ),
+      ["b", "a"],
+    );
+    assert.equal(
+      await page.evaluate(() =>
+        window.testRequests.some((r) => r.cmd === "select_account" && r.args.id),
+      ),
+      false,
+    );
+    await page.evaluate(() => {
+      window.testAccountStatus.accounts.b.readiness = "qr-code";
+    });
+    await page.locator('#account-list [data-account-id="b"].selected').waitFor();
+    assert.equal(await page.locator("#startup-screen").isVisible(), false);
+    assert.equal(await page.evaluate(() => window.testAccountStatus.accounts.a.page), "loading");
+    await page.reload();
+    await page.getByRole("button", { name: "Continue anyway" }).click();
+    await page.locator('#account-list [data-account-id="b"].selected').waitFor();
+    assert.equal(await page.locator("#startup-screen").isVisible(), false);
+    await page.evaluate(() => localStorage.removeItem("startupScenario"));
     await page.addInitScript(() => {
       const original = window.__TAURI__.core.invoke;
       let update = { phase: "idle" };
@@ -555,6 +596,33 @@ const http = require("node:http"),
       await page.evaluate(() => window.updateOperations.includes("update.install")),
       false,
     );
+    const readinessPage = await browser.newPage();
+    const readinessScript = fs.readFileSync(
+      path.resolve(__dirname, "../src-tauri/src/readiness.js"),
+      "utf8",
+    );
+    await readinessPage.setContent(
+      '<body><div id="pane-side" style="display:none">Private text</div></body>',
+    );
+    assert.equal(await readinessPage.evaluate(readinessScript), 0);
+    await readinessPage.setContent(
+      '<body><div data-ref="private-qr"><canvas></canvas></div></body>',
+    );
+    await readinessPage.evaluate(() => {
+      HTMLCanvasElement.prototype.toDataURL = () => {
+        throw Error("Must not read QR pixels");
+      };
+    });
+    assert.equal(await readinessPage.evaluate(readinessScript), 2);
+    await readinessPage.setContent('<body><div id="pane-side" style="height:20px"></div></body>');
+    assert.equal(await readinessPage.evaluate(readinessScript), 1);
+    await readinessPage.evaluate(() => {
+      const splash = document.createElement("div");
+      splash.style.cssText = "position:fixed;inset:0;z-index:999;background:white";
+      document.body.append(splash);
+    });
+    assert.equal(await readinessPage.evaluate(readinessScript), 0);
+    await readinessPage.close();
     assert.deepEqual(errors, []);
     console.log(
       "PASS: credentials, safe labels, account switching, workspaces, raster uploads, category moves, notification badges and private diagnostics.",

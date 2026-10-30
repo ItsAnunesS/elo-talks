@@ -1041,6 +1041,7 @@ dependencies = [
  "fs2",
  "gtk",
  "hex",
+ "javascriptcore-rs",
  "libc",
  "pkg-config",
  "rand",
