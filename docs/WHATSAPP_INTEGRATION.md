@@ -2,8 +2,10 @@
 
 ## Status — 2026-10-29
 
-**A real-account notification failure was reported in Elo v0.1.17. The fix still
-requires validation with WhatsApp.** ZapZap is a source reference only: the user
+**A real-account notification failure was reported in Elo v0.1.17. On 2026-10-30
+the user confirmed that a real message notification appeared after the correction,
+with generic text.** This is one reported success, not completion of the entire
+background test matrix. ZapZap is a source reference only: the user
 explicitly declined installing or running it. No runtime A/B comparison or
 framework migration has been validated.
 

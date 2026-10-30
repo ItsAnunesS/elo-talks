@@ -1,10 +1,13 @@
 //! Privacy-preserving account health and notification state. No message content is retained.
+use crate::notification_content::NotificationDetail;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NotificationPreferences {
+    #[serde(default)]
+    pub detail: NotificationDetail,
     #[serde(default)]
     pub do_not_disturb: bool,
     #[serde(default)]
@@ -53,6 +56,8 @@ pub struct AccountRuntime {
     pub selected: Option<String>,
     #[serde(skip)]
     pub focused: bool,
+    #[serde(skip)]
+    pub channel_names: BTreeMap<String, String>,
 }
 
 impl AccountRuntime {
@@ -195,6 +200,9 @@ mod tests {
     #[test]
     fn diagnostics_exclude_account_identifiers_and_preferences() {
         let mut state = runtime();
+        state
+            .channel_names
+            .insert("one".into(), "Private channel name".into());
         state.accounts.insert(
             "private-account-identifier".into(),
             AccountHealth::default(),
@@ -206,6 +214,19 @@ mod tests {
         let report = state.diagnostics().to_string();
         assert!(!report.contains("private-account-identifier"));
         assert!(!report.contains("mutedAccounts"));
+        assert!(!report.contains("Private channel name"));
+        let snapshot = serde_json::to_string(&state).unwrap();
+        assert!(!snapshot.contains("Private channel name"));
         assert!(report.contains("version"));
+    }
+
+    #[test]
+    fn existing_preferences_do_not_enable_message_previews() {
+        let existing: NotificationPreferences =
+            serde_json::from_str(r#"{"doNotDisturb":false,"mutedAccounts":[]}"#).unwrap();
+        assert_eq!(existing.detail, NotificationDetail::Private);
+        assert!(
+            serde_json::from_str::<NotificationPreferences>(r#"{"detail":"unknown"}"#).is_err()
+        );
     }
 }

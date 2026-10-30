@@ -17,6 +17,7 @@ Hardware keys require FIDO2 hmac-secret, user presence, and user verification. C
 - Decrypted content exists in memory and the mounted filesystem while the vault is open.
 - Root access, malware running as the user, unencrypted swap or hibernation, and compromised WhatsApp/WebKit are outside the at-rest protection model.
 - Exported files are outside the vault. Users are responsible for these copies.
+- Notification details are opt-in. Channel-only mode shares the configured channel name; preview mode additionally shares the native WhatsApp notification title and body with the Linux notification service. These copies may remain in desktop history or appear on the lock screen and are outside vault protection. Changing the setting or locking the vault does not erase notifications already accepted by the OS.
 - Sizes, file counts, timestamps, and previous versions can expose metadata. Authenticated encryption does not prevent rollback to a complete older snapshot.
 - Logical deletion does not guarantee physical erasure on SSDs, snapshots, or backups. Revoke linked devices on the phone when removing an account.
 - Process core dumps are disabled. This does not control privileged system capture tools.
@@ -26,6 +27,16 @@ Hardware keys require FIDO2 hmac-secret, user presence, and user verification. C
 The controller never loads web content. It accepts RPC only through the private session socket after checking the current interface process's UID and PID. Each remote webview has a separate context and directory, with no Tauri capabilities. Commands also check the local webview's label and URL. Interface processes stop before unmounting. Unmount failure is reported as an error, never as a successfully locked vault.
 
 Account list writes are atomic and synchronized. Removing an account stops processes before deleting its profile. Failed vault creation preserves the key envelope so a partially initialized filesystem does not lose its key.
+
+Notification previews use WebKit's native notification event, without inspecting
+conversation DOM or adding remote Tauri capabilities. Elo reads sender/body only
+in preview mode after muting checks. Text is bounded, control characters are
+removed and notification-body markup is escaped. Elo does not request notification
+images or forward them to the desktop.
+Content exists transiently in memory and the D-Bus request, never in Elo logs,
+diagnostics, frontend account events or an application notification-history file.
+Preferences remain inside the encrypted vault. Existing preferences without a
+detail level keep private mode.
 
 ## Distribution
 

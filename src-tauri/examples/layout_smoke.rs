@@ -9,6 +9,9 @@ mod account_permissions;
 mod account_runtime;
 #[path = "../src/desktop_notifications.rs"]
 mod desktop_notifications;
+#[allow(dead_code)]
+#[path = "../src/notification_content.rs"]
+mod notification_content;
 #[path = "../src/ui_layout.rs"]
 mod ui_layout;
 use gtk::prelude::*;

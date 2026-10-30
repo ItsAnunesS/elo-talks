@@ -1,7 +1,8 @@
-//! Native adapters for page health, generic notifications and desktop counters.
+//! Native adapters for page health, notification delivery and desktop counters.
 use crate::{
     account_runtime::{AccountRuntime, NotificationDelivery, PageState},
     desktop_notifications::DesktopNotifications,
+    notification_content::{NotificationDetail, NotificationText},
 };
 use dbus::{
     arg::{PropMap, Variant},
@@ -162,10 +163,30 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
         let allowed = events.runtime.lock().unwrap().notification(&account);
         publish(&handle);
         if allowed {
+            let (detail, channel) = {
+                let runtime = events.runtime.lock().unwrap();
+                (
+                    runtime.preferences.detail,
+                    runtime
+                        .channel_names
+                        .get(&account)
+                        .cloned()
+                        .unwrap_or_default(),
+                )
+            };
+            // Read native content only after the user enables previews. It is never
+            // added to account state, diagnostics, frontend events or persistent storage.
+            let (sender, body) = if detail == NotificationDetail::Preview {
+                (notification.title(), notification.body())
+            } else {
+                (None, None)
+            };
+            let text =
+                NotificationText::message(detail, &channel, sender.as_deref(), body.as_deref());
             let handle = handle.clone();
             let account = account.clone();
             gtk::glib::MainContext::default().spawn_local(async move {
-                let result = send_desktop_notification(&handle, &account, false).await;
+                let result = send_desktop_notification(&handle, &account, text).await;
                 {
                     let events = handle.state::<AccountEvents>();
                     let mut runtime = events.runtime.lock().unwrap();
@@ -193,12 +214,12 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
 pub async fn send_desktop_notification(
     app: &tauri::AppHandle,
     id: &str,
-    test: bool,
+    text: NotificationText,
 ) -> Result<bool, &'static str> {
     let handle = app.clone();
     app.state::<AccountEvents>()
         .desktop
-        .show(id, test, move |account| {
+        .show(id, text, move |account| {
             if handle.get_webview(&format!("account-{account}")).is_none() {
                 return;
             }

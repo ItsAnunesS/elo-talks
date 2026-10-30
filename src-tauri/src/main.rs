@@ -8,6 +8,7 @@ mod crypto;
 mod desktop_integration;
 mod desktop_notifications;
 mod ipc;
+mod notification_content;
 mod session_monitor;
 mod storage;
 mod ui;

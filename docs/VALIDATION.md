@@ -88,5 +88,17 @@ and real-account test matrix are recorded in
 [WhatsApp integration evaluation](WHATSAPP_INTEGRATION.md). ZapZap remains a source
 reference only, as requested. The native regression reproduced a missing
 Permissions API response (`prompt` despite `Notification.permission: granted`).
-It now checks the correction alongside origin and feature restrictions. Real
-WhatsApp delivery after this correction remains pending.
+It now checks the correction alongside origin and feature restrictions. A real
+delivery observation is recorded below; long-idle acceptance remains pending.
+
+On 2026-10-30 the user confirmed that a real message notification appeared, with
+the generic message text. This establishes that delivery worked in that reported
+case; it does not establish all background durations or clean-system acceptance.
+
+Notification-content regression coverage checks private defaults for existing
+preferences, preference persistence at the vault path, exclusion of channel labels from
+diagnostics, bounded Unicode previews, markup escaping and missing-content
+fallbacks. The isolated D-Bus fixture checks the exact private/channel/preview
+payloads and unchanged account click routing. UI coverage verifies explicit
+preview selection, saving and restoring the choice. Real sender/group formatting
+still depends on what WhatsApp includes in its native notification.

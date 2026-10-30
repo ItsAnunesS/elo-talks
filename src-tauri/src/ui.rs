@@ -2,6 +2,7 @@ use crate::{
     account_events::{self, AccountEvents},
     account_runtime::{AccountHealth, NotificationPreferences, PageState},
     ipc::{self, Request},
+    notification_content::NotificationText,
     storage, ui_layout,
 };
 use anyhow::Result;
@@ -110,7 +111,12 @@ async fn test_notification(webview: tauri::Webview, app: tauri::AppHandle) -> Re
     let handle = app.clone();
     app.run_on_main_thread(move || {
         gtk::glib::MainContext::default().spawn_local(async move {
-            let result = account_events::send_desktop_notification(&handle, "test", true).await;
+            let result = account_events::send_desktop_notification(
+                &handle,
+                "test",
+                NotificationText::test(),
+            )
+            .await;
             let result = match result {
                 Ok(true) => Ok(()),
                 Ok(false) => {
@@ -159,6 +165,16 @@ fn sync_accounts(
     for a in status["accounts"].as_array().ok_or("Invalid accounts")? {
         let id = a["id"].as_str().ok_or("Invalid account")?;
         uuid::Uuid::parse_str(id).map_err(|_| "Invalid account")?;
+        // Refresh labels even when an existing channel is renamed without reloading it.
+        app.state::<AccountEvents>()
+            .runtime
+            .lock()
+            .unwrap()
+            .channel_names
+            .insert(
+                id.to_owned(),
+                a["name"].as_str().ok_or("Invalid channel name")?.to_owned(),
+            );
         let label = format!("account-{id}");
         if app.get_webview(&label).is_some() {
             continue;

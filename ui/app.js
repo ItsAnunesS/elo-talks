@@ -371,6 +371,29 @@ function notificationControls(parent) {
     return input;
   };
   const preferences = state.notifications || { doNotDisturb: false, mutedAccounts: [] };
+  const detailLabel = createElement("label", "", "Notification content");
+  const detail = createElement("select");
+  detail.id = `field-${crypto.randomUUID()}`;
+  detailLabel.htmlFor = detail.id;
+  for (const [value, label] of [
+    ["private", "Private — hide all details"],
+    ["channel", "Channel name only"],
+    ["preview", "Channel, sender and message"],
+  ]) {
+    const option = createElement("option", "", label);
+    option.value = value;
+    detail.append(option);
+  }
+  detail.value = preferences.detail || "private";
+  section.append(
+    detailLabel,
+    detail,
+    createElement(
+      "p",
+      "hint",
+      "Previews use the sender and text provided by WhatsApp. Details are shared with Linux and may remain in notification history or appear on the lock screen, depending on system settings.",
+    ),
+  );
   const dnd = checkbox("Do not disturb", preferences.doNotDisturb);
   const accounts = state.accounts.map((account) => ({
     id: account.id,
@@ -390,6 +413,7 @@ function notificationControls(parent) {
     }),
     createButton("Save notification settings", async () => {
       await request("notifications", {
+        detail: detail.value,
         doNotDisturb: dnd.checked,
         mutedAccounts: accounts
           .filter((account) => account.input.checked)

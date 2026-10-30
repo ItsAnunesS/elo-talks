@@ -246,6 +246,11 @@ const http = require("node:http"),
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.screenshot({ path: "/tmp/elo-settings-premium.png" });
     await page.getByRole("tab", { name: "Notifications", exact: true }).click();
+    assert.equal(
+      await page.getByLabel("Notification content", { exact: true }).inputValue(),
+      "private",
+    );
+    await page.getByLabel("Notification content", { exact: true }).selectOption("preview");
     await page.getByRole("button", { name: "Test Linux notification", exact: true }).click();
     await page
       .getByRole("status")
@@ -272,9 +277,17 @@ const http = require("node:http"),
     await page.getByRole("button", { name: "Save notification settings" }).click();
     await page.getByRole("status").filter({ hasText: "Notification settings saved" }).waitFor();
     assert.deepEqual(await page.evaluate(() => window.testState.notifications), {
+      detail: "preview",
       doNotDisturb: true,
       mutedAccounts: ["b"],
     });
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("tab", { name: "Notifications", exact: true }).click();
+    assert.equal(
+      await page.getByLabel("Notification content", { exact: true }).inputValue(),
+      "preview",
+    );
     await page.getByRole("tab", { name: "General", exact: true }).click();
     await page.getByRole("button", { name: "Safe diagnostics", exact: true }).click();
     const diagnosticReport = await page.getByLabel("Diagnostic report").inputValue();

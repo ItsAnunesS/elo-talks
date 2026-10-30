@@ -1,4 +1,5 @@
 //! Asynchronous Linux notifications. One connection and one retained popup per account.
+use crate::notification_content::NotificationText;
 use gtk::{gio, prelude::*};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -31,7 +32,7 @@ impl DesktopNotifications {
     pub async fn show(
         &self,
         key: &str,
-        test: bool,
+        text: NotificationText,
         on_open: impl Fn(&str) + 'static,
     ) -> Result<bool, &'static str> {
         {
@@ -111,22 +112,17 @@ impl DesktopNotifications {
             ("desktop-entry", "dev.anuness.elotalks".to_variant()),
             ("category", "im.received".to_variant()),
         ]);
-        let actions = if test {
-            vec![]
-        } else {
+        let actions = if text.actionable {
             vec!["default", "Open account"]
-        };
-        let body = if test {
-            "This is a test notification from Elo Talks."
         } else {
-            "You have a new message."
+            vec![]
         };
         let parameters = (
             "Elo Talks",
             replaces,
             "dev.anuness.elotalks",
-            "Elo Talks",
-            body,
+            text.summary,
+            text.body,
             actions,
             hints,
             8000i32,

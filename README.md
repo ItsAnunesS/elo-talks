@@ -79,7 +79,16 @@ notifications. Counters exist only in memory and reset when the vault closes.
 
 Settings offers global **Do not disturb** and per-account muting. These suppress
 new desktop popups while retaining counters. Preferences are saved inside the vault.
-Desktop notifications contain only a generic message, and clicking opens the account.
+**Settings → Notifications → Notification content** offers three modes: private
+(the default, including existing installations), channel name only, or channel,
+sender and message. Save the setting to enable previews. The channel comes from
+Elo's account name; sender/group title and preview come directly from WhatsApp's
+native browser notification. If WhatsApp hides or omits those fields, Elo cannot
+recover them and keeps a generic fallback. Clicking opens the receiving account.
+Preview text is bounded, treated as plain text and never stored or logged by Elo
+or included in diagnostics. Enabling details shares them with the Linux
+notification service, which may retain them in history or show them on the lock
+screen according to its settings; that copy is outside the vault.
 A selected account can contain other chats, so window focus does not discard native
 notification events. WhatsApp decides when to emit them; app muting still applies.
 Delivery uses asynchronous GIO/D-Bus calls with a three-second timeout and one

@@ -533,13 +533,23 @@ mod tests {
         controller
             .handle(&Request {
                 op: "notifications".into(),
-                data: json!({"doNotDisturb": true, "mutedAccounts": [account.id]}),
+                data: json!({"detail": "preview", "doNotDisturb": true, "mutedAccounts": [account.id]}),
             })
             .unwrap();
         let saved: NotificationPreferences =
             storage::read(&controller.vault.mount.join("notifications.json")).unwrap();
         assert!(saved.do_not_disturb);
         assert!(saved.muted_accounts.contains(&account.id));
+        assert_eq!(
+            saved.detail,
+            crate::notification_content::NotificationDetail::Preview
+        );
+        assert!(controller
+            .handle(&Request {
+                op: "notifications".into(),
+                data: json!({"detail": "invalid"}),
+            })
+            .is_err());
         assert!(controller
             .handle(&Request {
                 op: "notifications".into(),
@@ -553,6 +563,10 @@ mod tests {
                 .do_not_disturb
         );
         controller.vault.master = None;
+        assert_eq!(
+            controller.notification_preferences().unwrap().detail,
+            crate::notification_content::NotificationDetail::Private
+        );
         assert!(
             !controller
                 .notification_preferences()
