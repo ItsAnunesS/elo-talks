@@ -12,7 +12,10 @@ let snapshot = { accounts: {}, preferences: {} };
 
 let organization = { placements: {} };
 let activeWorkspace;
-function setBadge(element, count) {
+function counter(health) {
+  return health?.unreadCount ?? health?.pendingNotifications ?? 0;
+}
+function setBadge(element, count, source = "Unread items / pending notifications") {
   let badge = element.querySelector(":scope > .notification-badge");
   if (!badge) {
     badge = createElement("span", "notification-badge");
@@ -20,7 +23,7 @@ function setBadge(element, count) {
   }
   badge.hidden = count === 0;
   badge.textContent = count > 99 ? "99+" : String(count);
-  badge.title = `${count} notifications since last viewed`;
+  badge.title = `${count} · ${source}`;
   badge.setAttribute("aria-label", badge.title);
 }
 export function updateAccountStatus(next, selected, groups, workspaceId) {
@@ -33,14 +36,20 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
   for (const [id, placement] of Object.entries(organization.placements)) {
     totals.set(
       placement.workspaceId,
-      (totals.get(placement.workspaceId) || 0) + (snapshot.accounts[id]?.pendingNotifications || 0),
+      (totals.get(placement.workspaceId) || 0) + counter(snapshot.accounts[id]),
     );
   }
   for (const element of getElement("workspace-icons").children)
     setBadge(element, totals.get(element.dataset.workspaceId) || 0);
   for (const element of document.querySelectorAll("#account-list [data-account-id]")) {
     const health = snapshot.accounts[element.dataset.accountId];
-    setBadge(element, health?.pendingNotifications || 0);
+    setBadge(
+      element,
+      counter(health),
+      health?.unreadCount != null
+        ? "Unread counter reported by WhatsApp"
+        : "Notifications since last viewed",
+    );
     let status = element.querySelector(".account-health");
     if (!status) {
       status = createElement("small", "account-health");

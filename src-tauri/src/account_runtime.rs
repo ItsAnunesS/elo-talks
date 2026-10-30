@@ -43,6 +43,7 @@ pub enum NotificationDelivery {
 pub struct AccountHealth {
     pub page: PageState,
     pub pending_notifications: u32,
+    pub unread_count: Option<u32>,
     pub native_notifications: u64,
     pub notification_delivery: NotificationDelivery,
 }
@@ -60,12 +61,32 @@ pub struct AccountRuntime {
     pub channel_names: BTreeMap<String, String>,
 }
 
+impl AccountHealth {
+    pub fn badge_count(&self) -> u32 {
+        self.unread_count.unwrap_or(self.pending_notifications)
+    }
+}
+
 impl AccountRuntime {
+    pub fn update_unread(&mut self, id: &str, count: Option<u32>) -> bool {
+        let Some(account) = self.accounts.get_mut(id) else {
+            return false;
+        };
+        if account.unread_count == count {
+            return false;
+        }
+        account.unread_count = count;
+        true
+    }
+
     pub fn update_page(&mut self, id: &str, page: PageState) {
         if let Some(account) = self.accounts.get_mut(id) {
             // WebKit emits Finished after failure too; never hide the failure with Ready.
             if page != PageState::Ready || account.page == PageState::Loading {
                 account.page = page;
+                if page != PageState::Ready {
+                    account.unread_count = None;
+                }
             }
         }
     }
@@ -106,7 +127,7 @@ impl AccountRuntime {
             "accounts": self.accounts.values().collect::<Vec<_>>(),
             "doNotDisturb": self.preferences.do_not_disturb,
             "badgeProtocol": "Unity LauncherEntry (requires desktop support)",
-            "counter": "Native notifications since account last viewed; not WhatsApp unread totals",
+            "counter": "WhatsApp page-title unread counter when available; otherwise native notifications since last viewed. Not a guaranteed message total.",
             "pageState": "Page load only; QR and WhatsApp connection state are not inspected"
         })
     }
@@ -114,7 +135,7 @@ impl AccountRuntime {
     pub fn total(&self) -> u64 {
         self.accounts
             .values()
-            .map(|account| u64::from(account.pending_notifications))
+            .map(|account| u64::from(account.badge_count()))
             .sum()
     }
 }
@@ -218,6 +239,26 @@ mod tests {
         let snapshot = serde_json::to_string(&state).unwrap();
         assert!(!snapshot.contains("Private channel name"));
         assert!(report.contains("version"));
+    }
+
+    #[test]
+    fn unread_badges_follow_whatsapp_and_do_not_clear_on_selection() {
+        let mut state = runtime();
+        assert!(state.update_unread("one", Some(12)));
+        assert!(!state.update_unread("one", Some(12)));
+        state.focused = true;
+        state.notification("one");
+        state.acknowledge_selected();
+        assert_eq!(state.total(), 12);
+        state.update_unread("one", Some(4));
+        assert_eq!(state.total(), 4);
+        state.update_unread("one", Some(0));
+        state.notification("one");
+        assert_eq!(state.total(), 0);
+        state.update_page("one", PageState::ProcessStopped);
+        assert_eq!(state.accounts["one"].unread_count, None);
+        assert_eq!(state.total(), 1);
+        assert!(!state.update_unread("unknown", Some(50)));
     }
 
     #[test]

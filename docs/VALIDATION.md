@@ -108,3 +108,9 @@ still depends on what WhatsApp includes in its native notification.
 Synthetic tests cover strict release/version selection, checksum binding, unsigned/tampered rejection, symlink rejection, atomic replacement with a preserved previous executable, background checks without installation, startup installation sequencing, and offline unlock fallback. Publication also validates its newly issued Sigstore bundle using the helper extracted from the built AppImage.
 
 Still requires desktop acceptance: updating from one published updater-enabled AppImage to the next, restart with the vault locked, Gear Lever integration preserving the same launcher path, a read-only installation directory, interrupted download, and unmount failure. Page warm-up is bounded and does not inspect authentication state or messages.
+
+## WhatsApp unread integration
+
+Unit tests cover exact-origin, bounded title parsing; unread count decreases; fallback after failure; and preservation when selecting an account. The native sandboxed fixture updates its title and emits a notification while both its view and window are hidden, then checks acknowledgement and count clearing. The isolated D-Bus fixture delays a reply and verifies that a burst delivers its latest preview instead of dropping it. UI tests distinguish zero reported by WhatsApp from unavailable metadata and aggregate mixed sources across workspaces.
+
+Real WhatsApp acceptance remains necessary: receive messages in an inactive account, compare its badge against the WhatsApp browser-title counter, read chats on another device, and confirm both counter decreases and notifications with the window closed to the tray. The title is an observed UI convention, not an official stable WhatsApp API, and may count chats rather than individual messages.

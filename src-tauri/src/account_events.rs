@@ -106,7 +106,9 @@ pub fn publish(app: &tauri::AppHandle) {
         let _ = window.set_title(&title);
     }
     if let Some(tray) = app.tray_by_id("main-tray") {
-        let _ = tray.set_tooltip(Some(format!("Elo Talks · {total} pending notifications")));
+        let _ = tray.set_tooltip(Some(format!(
+            "Elo Talks · {total} unread items / pending notifications"
+        )));
     }
 }
 
@@ -120,6 +122,20 @@ pub fn page(app: &tauri::AppHandle, id: &str, page: PageState) {
 }
 
 pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
+    let handle = app.clone();
+    let account = id.to_owned();
+    view.connect_title_notify(move |view| {
+        let count = crate::whatsapp::unread_count(view.uri().as_deref(), view.title().as_deref());
+        let changed = handle
+            .state::<AccountEvents>()
+            .runtime
+            .lock()
+            .unwrap()
+            .update_unread(&account, count);
+        if changed {
+            publish(&handle);
+        }
+    });
     let handle = app.clone();
     let account = id.to_owned();
     view.connect_load_changed(move |_, event| match event {

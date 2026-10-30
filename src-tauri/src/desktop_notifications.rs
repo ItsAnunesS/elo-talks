@@ -2,7 +2,7 @@
 use crate::notification_content::NotificationText;
 use gtk::{gio, prelude::*};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     sync::{Arc, Mutex, OnceLock},
 };
 
@@ -15,7 +15,7 @@ const ERROR: &str =
 pub struct DesktopNotifications {
     connection: OnceLock<gio::DBusConnection>,
     targets: Arc<Mutex<BTreeMap<String, u32>>>,
-    pending: Mutex<BTreeSet<String>>,
+    pending: Mutex<BTreeMap<String, Option<NotificationText>>>,
 }
 
 struct Pending<'a> {
@@ -32,19 +32,21 @@ impl DesktopNotifications {
     pub async fn show(
         &self,
         key: &str,
-        text: NotificationText,
+        mut text: NotificationText,
         on_open: impl Fn(&str) + 'static,
     ) -> Result<bool, &'static str> {
         {
             let mut pending = self.pending.lock().unwrap();
-            if pending.contains(key) {
-                // Coalesce a burst while the desktop is accepting this account's popup.
+            if let Some(latest) = pending.get_mut(key) {
+                // Keep only the newest payload while D-Bus accepts the current one.
+                // The active request drains it; a burst must not discard the last message.
+                *latest = Some(text);
                 return Ok(false);
             }
             if pending.len() >= 21 {
                 return Err("Too many notification requests are pending. Try again shortly.");
             }
-            pending.insert(key.to_owned());
+            pending.insert(key.to_owned(), None);
         }
         let _pending = Pending {
             notifier: self,
@@ -107,53 +109,65 @@ impl DesktopNotifications {
                 );
             }
         }
-        let replaces = self.targets.lock().unwrap().get(key).copied().unwrap_or(0);
-        let hints = BTreeMap::from([
-            ("desktop-entry", "dev.anuness.elotalks".to_variant()),
-            ("category", "im.received".to_variant()),
-        ]);
-        let actions = if text.actionable {
-            vec!["default", "Open account"]
-        } else {
-            vec![]
-        };
-        let parameters = (
-            "Elo Talks",
-            replaces,
-            "dev.anuness.elotalks",
-            text.summary,
-            text.body,
-            actions,
-            hints,
-            8000i32,
-        )
-            .to_variant();
-        let result = self
-            .connection
-            .get()
-            .unwrap()
-            .call_future(
-                Some(SERVICE),
-                PATH,
-                SERVICE,
-                "Notify",
-                Some(&parameters),
-                None,
-                gio::DBusCallFlags::NONE,
-                3000,
+        loop {
+            let replaces = self.targets.lock().unwrap().get(key).copied().unwrap_or(0);
+            let hints = BTreeMap::from([
+                ("desktop-entry", "dev.anuness.elotalks".to_variant()),
+                ("category", "im.received".to_variant()),
+            ]);
+            let actions = if text.actionable {
+                vec!["default", "Open account"]
+            } else {
+                vec![]
+            };
+            let parameters = (
+                "Elo Talks",
+                replaces,
+                "dev.anuness.elotalks",
+                text.summary,
+                text.body,
+                actions,
+                hints,
+                8000i32,
             )
-            .await
-            .map_err(|_| ERROR)?;
-        let (id,) = result
-            .get::<(u32,)>()
-            .filter(|(id,)| *id != 0)
-            .ok_or(ERROR)?;
-        let mut targets = self.targets.lock().unwrap();
-        // Bound metadata even when accounts are repeatedly removed and recreated.
-        if !targets.contains_key(key) && targets.len() >= 21 {
-            targets.pop_first();
+                .to_variant();
+            let result = self
+                .connection
+                .get()
+                .unwrap()
+                .call_future(
+                    Some(SERVICE),
+                    PATH,
+                    SERVICE,
+                    "Notify",
+                    Some(&parameters),
+                    None,
+                    gio::DBusCallFlags::NONE,
+                    3000,
+                )
+                .await
+                .map_err(|_| ERROR)?;
+            let (id,) = result
+                .get::<(u32,)>()
+                .filter(|(id,)| *id != 0)
+                .ok_or(ERROR)?;
+            let mut targets = self.targets.lock().unwrap();
+            // Bound metadata even when accounts are repeatedly removed and recreated.
+            if !targets.contains_key(key) && targets.len() >= 21 {
+                targets.pop_first();
+            }
+            targets.insert(key.to_owned(), id);
+            drop(targets);
+            let next = self
+                .pending
+                .lock()
+                .unwrap()
+                .get_mut(key)
+                .and_then(Option::take);
+            match next {
+                Some(latest) => text = latest,
+                None => return Ok(true),
+            }
         }
-        targets.insert(key.to_owned(), id);
-        Ok(true)
     }
 }

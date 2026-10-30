@@ -61,6 +61,8 @@ fn main() {
         own_name(&connection, true).await;
         let calls = Arc::new(Mutex::new(Vec::new()));
         let fail = Arc::new(AtomicBool::new(false));
+        let delayed = Arc::new(AtomicBool::new(false));
+        let delay = delayed.clone();
         let records = calls.clone();
         let failed = fail.clone();
         let info = gio::DBusNodeInfo::for_xml(XML).unwrap();
@@ -78,9 +80,14 @@ fn main() {
                 let mut records = records.lock().unwrap();
                 let id = if replaces == 0 { records.len() as u32 + 1 } else { replaces };
                 records.push((replaces, id, actions, title, body));
-                invocation.return_value(Some(&(id,).to_variant()));
+                if delay.load(Ordering::Relaxed) {
+                    glib::MainContext::default().spawn_local(async move {
+                        glib::timeout_future(Duration::from_millis(50)).await;
+                        invocation.return_value(Some(&(id,).to_variant()));
+                    });
+                } else { invocation.return_value(Some(&(id,).to_variant())); }
             }, |_, _, _, _, _| ().to_variant(), |_, _, _, _, _, _| false).unwrap();
-        let notifier = desktop_notifications::DesktopNotifications::default();
+        let notifier = Arc::new(desktop_notifications::DesktopNotifications::default());
         let selected = Arc::new(Mutex::new(String::new()));
         for _ in 0..8 {
             let selected = selected.clone();
@@ -115,6 +122,27 @@ fn main() {
         assert!(!error.contains("Synthetic private error"));
         fail.store(false, Ordering::Relaxed);
         assert_eq!(notifier.show("account-two", private_text(), |_| {}).await, Ok(true));
+        delayed.store(true, Ordering::Relaxed);
+        let active = notifier.clone();
+        let finished = Arc::new(AtomicBool::new(false));
+        let completed = finished.clone();
+        glib::MainContext::default().spawn_local(async move {
+            assert_eq!(active.show("burst", private_text(), |_| {}).await, Ok(true));
+            completed.store(true, Ordering::Relaxed);
+        });
+        glib::timeout_future(Duration::from_millis(10)).await;
+        for body in ["Superseded", "Latest"] {
+            let text = NotificationText::message(NotificationDetail::Preview, "Burst", Some("Sender"), Some(body));
+            assert_eq!(notifier.show("burst", text, |_| {}).await, Ok(false));
+        }
+        for _ in 0..20 {
+            if finished.load(Ordering::Relaxed) { break; }
+            glib::timeout_future(Duration::from_millis(20)).await;
+        }
+        assert!(finished.load(Ordering::Relaxed));
+        assert_eq!(calls.lock().unwrap().last().unwrap().4, "Sender\nLatest");
+        assert!(!calls.lock().unwrap().iter().any(|call| call.4 == "Sender\nSuperseded"));
+        delayed.store(false, Ordering::Relaxed);
         own_name(&connection, false).await;
         assert!(notifier.show("account-one", private_text(), |_| {}).await.is_err());
         own_name(&connection, true).await;

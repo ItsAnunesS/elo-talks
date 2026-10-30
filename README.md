@@ -70,13 +70,21 @@ Each account displays native WebKit page state and offers **Retry** without dele
 its profile. Load failures, TLS failures, stopped web processes and an unavailable
 sandbox are separate states. A successful page load means the WhatsApp page is
 available, not that a QR code has been scanned or its messaging connection is healthy.
-Health detection does not inspect the WhatsApp DOM, page title, conversations or QR codes.
+Health detection does not inspect the WhatsApp DOM, conversations or QR codes.
 
-Enable notifications in WhatsApp to receive native notification events. Account
-badges and the Overview total count those events since the account was last viewed
-in a focused window. Counts continue while another workspace is active or the window
-is hidden. They are not exact unread-message totals; WhatsApp can group or suppress
-notifications. Counters exist only in memory and reset when the vault closes.
+Enable notifications in WhatsApp to receive native notification events. Badges use
+WhatsApp's page-title unread counter when its exact format is recognized. This
+counter can represent unread chats rather than individual messages; Elo does not
+claim an exact message total. Opening a channel does not clear WhatsApp's counter.
+When unavailable, badges fall back to native notifications since the account was
+last viewed, with the source explained in the channel badge tooltip. Workspace,
+Overview, tray and desktop totals use the same per-account selection rule.
+
+A native WebKit title-change event updates counts while accounts are hidden; there
+is no DOM scraping, JavaScript injection, periodic page polling, or private WhatsApp
+API. Only a bounded number from the exact HTTPS WhatsApp origin is retained, never
+the title text. Unknown title formats use the notification fallback. Counts live
+only in memory and are repopulated from WhatsApp after unlocking.
 
 Settings offers global **Do not disturb** and per-account muting. These suppress
 new desktop popups while retaining counters. Preferences are saved inside the vault.
@@ -94,8 +102,8 @@ A selected account can contain other chats, so window focus does not discard nat
 notification events. WhatsApp decides when to emit them; app muting still applies.
 Delivery uses asynchronous GIO/D-Bus calls with a three-second timeout and one
 retained notification per account. Clicks and dismissal arrive as native signals;
-there are no threads waiting for notification clicks. Bursts share an in-flight
-request, while all native events still update counters. Already delivered desktop
+there are no threads waiting for notification clicks. Bursts keep one latest pending payload per account and deliver it after the
+in-flight request, while all native events still update counters. Already delivered desktop
 notifications are controlled by the OS.
 
 The account context initializes notification permission only for
@@ -152,7 +160,7 @@ Channels to connect WhatsApp, and **Add category** to create a group. The channe
 supports renaming, changing workspace/category, ordering within its group, and removal.
 Deleting a category moves its channels to the workspace root. A workspace must be
 empty before deletion, and at least one workspace remains. Background accounts stay
-running; workspace badges sum native notification counters across their channels.
+running; workspace badges sum the selected unread/fallback counter across their channels.
 Clicking a notification switches to the correct workspace and expands its category.
 
 Workspace images are chosen by the user. PNG/JPEG/WebP files (up to 5 MB and

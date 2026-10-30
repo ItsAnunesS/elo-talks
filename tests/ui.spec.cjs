@@ -367,6 +367,24 @@ const http = require("node:http"),
       await page.locator('[data-workspace-id="workspace-1"] .notification-badge').textContent(),
       "7",
     );
+    await page.evaluate(() =>
+      window.testListeners["account-state"]({
+        payload: {
+          accounts: {
+            a: { page: "ready", pendingNotifications: 100, unreadCount: 2 },
+            "account-4": { page: "ready", pendingNotifications: 7, unreadCount: 0 },
+          },
+        },
+      }),
+    );
+    assert.equal(
+      await page.locator('[data-workspace-id="personal"] .notification-badge').textContent(),
+      "2",
+    );
+    assert.equal(
+      await page.locator('[data-workspace-id="workspace-1"] .notification-badge').isVisible(),
+      false,
+    );
     await page.locator(".category-toggle").click();
     await page.evaluate(() => window.testListeners["open-account"]({ payload: "account-4" }));
     await page.locator('.channel-category [data-account-id="account-4"].selected').waitFor();

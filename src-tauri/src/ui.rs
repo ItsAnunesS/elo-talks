@@ -225,8 +225,7 @@ fn sync_accounts(
                 })
                 .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
                 .on_navigation(|url| {
-                    url.as_str() == "about:blank"
-                        || (url.scheme() == "https" && url.host_str() == Some("web.whatsapp.com"))
+                    url.as_str() == "about:blank" || crate::whatsapp::is_origin(url)
                 });
         let window = app.get_window("main").ok_or("Window unavailable")?;
         let size = window

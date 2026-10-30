@@ -14,6 +14,8 @@ mod desktop_notifications;
 mod notification_content;
 #[path = "../src/ui_layout.rs"]
 mod ui_layout;
+#[path = "../src/whatsapp.rs"]
+mod whatsapp;
 use gtk::prelude::*;
 use std::{cell::Cell, rc::Rc, time::Duration};
 use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, Manager, WebviewUrl};
@@ -107,20 +109,30 @@ fn main() {
                                 assert!(shell.is_visible());
                                 native.hide();
                                 let view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
-                                view.evaluate_javascript("setTimeout(() => new Notification('Synthetic background sender', {body:'Synthetic private body'}), 1000)", None, None, None::<&gtk::gio::Cancellable>, |_| {});
+                                view.evaluate_javascript("setTimeout(() => { document.title = '(7) WhatsApp'; new Notification('Synthetic background sender', {body:'Synthetic private body'}); }, 1000)", None, None, None::<&gtk::gio::Cancellable>, |_| {});
                             }
                             5 => {
                                 let received = handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].native_notifications;
-                                if received < 2 {
+                                if received < 2 || handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].unread_count != Some(7) {
                                     hidden_waits.set(hidden_waits.get() + 1);
                                     assert!(hidden_waits.get() < 20, "Hidden account in hidden window must keep receiving native notification events");
                                     return gtk::glib::ControlFlow::Continue;
                                 }
                                 assert!(!first.is_visible() && !second.is_visible());
                                 assert!(!native.is_visible());
+                                {
+                                    let events = handle.state::<account_events::AccountEvents>();
+                                    let mut runtime = events.runtime.lock().unwrap();
+                                    runtime.focused = true;
+                                    runtime.selected = Some("account-one".into());
+                                    runtime.acknowledge_selected();
+                                    assert_eq!(runtime.total(), 7, "Selecting a channel must not mark its WhatsApp items as read");
+                                }
+                                first.clone().downcast::<webkit2gtk::WebView>().unwrap().evaluate_javascript("document.title = 'WhatsApp'", None, None, None::<&gtk::gio::Cancellable>, |_| {});
                                 native.show();
                             }
                             6 => {
+                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].unread_count, Some(0));
                                 assert!(shell.is_visible());
                                 assert!(!first.is_visible() && !second.is_visible());
                                 println!("PASS: shell bounds, account switching, fullscreen denial, consistent notification permissions with origin/feature restrictions and notification events from a hidden account/window");

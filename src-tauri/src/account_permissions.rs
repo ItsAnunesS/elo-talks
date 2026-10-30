@@ -68,7 +68,8 @@ pub fn attach(view: &webkit2gtk::WebView) {
     view.connect_permission_request(|view, request| {
         let allowed = view
             .uri()
-            .is_some_and(|uri| uri.starts_with("https://web.whatsapp.com/"))
+            .and_then(|uri| tauri::Url::parse(&uri).ok())
+            .is_some_and(|url| crate::whatsapp::is_origin(&url))
             && request.is::<webkit2gtk::NotificationPermissionRequest>();
         if allowed {
             request.allow();
