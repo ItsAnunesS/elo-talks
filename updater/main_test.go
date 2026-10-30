@@ -126,3 +126,22 @@ func TestUntrustedSignatureCannotReplaceInstalledImage(t *testing.T) {
 		t.Fatal("signature failure changed executable")
 	}
 }
+
+func TestPublishedReleaseSignature(t *testing.T) {
+	if os.Getenv("ELO_UPDATER_NETWORK_TEST") != "1" {
+		t.Skip("requires Sigstore TUF network access")
+	}
+	if err := authenticate("testdata/release"); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	signature, err := os.ReadFile("testdata/release/SHA256SUMS.sigstore.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "SHA256SUMS.sigstore.json"), signature, 0600)
+	os.WriteFile(filepath.Join(dir, "SHA256SUMS"), []byte("modified manifest"), 0600)
+	if authenticate(dir) == nil {
+		t.Fatal("accepted modified signed manifest")
+	}
+}

@@ -199,7 +199,7 @@ func authenticate(dir string) error {
 	if e != nil {
 		return e
 	}
-	trusted, e := root.NewLiveTrustedRoot(nil)
+	trusted, e := root.FetchTrustedRoot()
 	if e != nil {
 		return e
 	}
