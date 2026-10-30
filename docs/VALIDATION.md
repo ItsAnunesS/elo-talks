@@ -102,3 +102,9 @@ fallbacks. The isolated D-Bus fixture checks the exact private/channel/preview
 payloads and unchanged account click routing. UI coverage verifies explicit
 preview selection, saving and restoring the choice. Real sender/group formatting
 still depends on what WhatsApp includes in its native notification.
+
+## Automatic updates
+
+Synthetic tests cover strict release/version selection, checksum binding, unsigned/tampered rejection, symlink rejection, atomic replacement with a preserved previous executable, background checks without installation, startup installation sequencing, and offline unlock fallback. Publication also validates its newly issued Sigstore bundle using the helper extracted from the built AppImage.
+
+Still requires desktop acceptance: updating from one published updater-enabled AppImage to the next, restart with the vault locked, Gear Lever integration preserving the same launcher path, a read-only installation directory, interrupted download, and unmount failure. Page warm-up is bounded and does not inspect authentication state or messages.

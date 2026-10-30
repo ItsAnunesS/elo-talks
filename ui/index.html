@@ -8,6 +8,11 @@
     <script src="app.js" type="module"></script>
   </head>
   <body>
+    <section id="startup-screen" class="startup-screen" hidden aria-live="polite" aria-busy="true">
+      <img src="assets/elo-mark.svg" width="72" height="72" alt="Elo Talks" />
+      <div class="startup-spinner"></div>
+      <p id="startup-label">Preparing your space…</p>
+    </section>
     <main id="lock-screen" class="lock-screen">
       <section class="brand-story">
         <div class="wordmark">
@@ -167,6 +172,7 @@
         <div class="topbar-status">
           <span id="account-page-status" role="status">Vault open</span
           ><button id="retry-account" class="text-button" hidden>Retry</button>
+          <button id="update-now" class="update-now" hidden>Update now</button>
         </div>
       </header>
       <section class="dashboard" id="dashboard">

@@ -36,7 +36,8 @@
       "helpers/gocryptfs",
       "helpers/bwrap",
       "helpers/xdg-dbus-proxy",
-      "helpers/bwrap-real"
+      "helpers/bwrap-real",
+      "helpers/elo-updater"
     ],
     "homepage": "https://github.com/ItsAnunesS/elo-talks"
   }

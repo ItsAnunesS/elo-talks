@@ -1,3 +1,4 @@
+import { initializeUpdates, prepareAccounts } from "./updates.js";
 import {
   getElement,
   errorMessage,
@@ -679,7 +680,10 @@ async function initializeDesktop() {
       await selectAccount(event.payload);
     }),
   ]);
+  state = await request("status");
+  await initializeUpdates(state.unlocked);
   await refreshState();
+  if (state.unlocked) await prepareAccounts(state.accounts);
 }
 if (isDesktop) {
   initializeDesktop().catch((error) => {

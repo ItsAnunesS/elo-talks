@@ -24,10 +24,11 @@ Updates are managed externally; Elo Talks has no built-in updater. Recognition o
 
 ## Development
 
-Build-only dependencies: Rust from `rust-toolchain.toml`, Go 1.26.10, a C compiler, pkg-config, WebKitGTK 4.1, GTK3, libfido2, libdbus, AppIndicator, binutils, and zsync. The frontend uses local HTML, CSS, and JavaScript without runtime npm dependencies or remote scripts.
+Build-only dependencies: Rust from `rust-toolchain.toml`, Go 1.26.10 (vault helper) and 1.27.3 (updater), a C compiler, pkg-config, WebKitGTK 4.1, GTK3, libfido2, libdbus, AppIndicator, binutils, and zsync. The frontend uses local HTML, CSS, and JavaScript without runtime npm dependencies or remote scripts.
 
 ```sh
 bash scripts/prepare-helper.sh
+bash scripts/prepare-updater.sh
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
 python3 -m unittest discover -s tests -v
@@ -189,3 +190,5 @@ The UI uses local vector icons, system fonts and reduced-motion support; no new
 runtime dependencies, remote assets, content permissions or vault changes are required.
 Browser regressions cover 900/1200/1600px windows, keyboard search, form errors,
 confirmations, pending saves and the fixed 304×72 native account viewport offsets.
+
+The AppImage checks GitHub releases before unlocking and installs verified updates automatically. While running, it checks hourly and offers **Update now**; restarting requires a click and closes the vault first. Updates require a writable AppImage directory. After unlocking, account pages warm up behind a loading screen for at most 12 seconds. See [update security and recovery](docs/SECURITY.md#built-in-appimage-updates).

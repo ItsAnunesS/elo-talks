@@ -1307,3 +1307,44 @@ body[data-unlocked="true"] > .toast {
   max-width: calc(var(--shell) - var(--rail) - 24px);
   transform: none;
 }
+
+.startup-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  background: #121319;
+  color: #d8d6e5;
+}
+.startup-screen[hidden],
+.update-now[hidden] {
+  display: none;
+}
+.startup-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #343142;
+  border-top-color: #ad9cff;
+  border-radius: 50%;
+  animation: startup-spin 1s linear infinite;
+}
+.update-now {
+  background: #ad9cff;
+  color: #181321;
+  border-radius: 8px;
+  padding: 8px 16px;
+}
+@keyframes startup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .startup-spinner {
+    animation: none;
+  }
+}

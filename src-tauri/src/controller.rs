@@ -302,6 +302,9 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
     }
     let listener = UnixListener::bind(socket)?;
     listener.set_nonblocking(true)?;
+    let mut updater = crate::updater::Updater::new(&runtime)?;
+    let mut startup_check = true;
+    let mut installing = false;
     let vault = Vault::new(base, &runtime)?;
     let mut c = Controller {
         vault,
@@ -326,6 +329,17 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
     crate::session_monitor::start(lock.clone(), shutdown.clone());
     c.spawn_ui()?;
     loop {
+        updater.poll();
+        if installing && updater.status()["phase"] == "installed" {
+            c.stop_ui()?;
+            drop(listener);
+            drop(guard);
+            updater.restart()?;
+            return Ok(());
+        }
+        if installing && updater.status()["phase"] == "error" {
+            installing = false;
+        }
         if shutdown.load(Ordering::Relaxed) {
             c.stop_ui()?;
             c.vault.unmount()?;
@@ -383,7 +397,27 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                 {
                     lock.store(false, Ordering::Relaxed);
                 }
-                let result = c.handle(&r);
+                let result = match r.op.as_str() {
+                    "update.startup" => {
+                        let first = startup_check;
+                        startup_check = false;
+                        Ok(json!({"automatic": first}))
+                    }
+                    "update.status" => Ok(updater.status()),
+                    "update.check" => updater.command("check"),
+                    "update.prepare" => updater.command("prepare"),
+                    "update.install" => {
+                        if updater.status()["phase"] == "ready" {
+                            Ok(Value::Null)
+                        } else {
+                            Err(anyhow!("No verified update is ready"))
+                        }
+                    }
+                    "create" | "unlock" if installing => {
+                        Err(anyhow!("Wait for the update to finish"))
+                    }
+                    _ => c.handle(&r),
+                };
                 let success = result.is_ok();
                 let response = match result {
                     Ok(v) => json!({"result":v}),
@@ -392,6 +426,23 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                 let _ = send_frame(&mut socket, &serde_json::to_vec(&response)?);
                 if success {
                     match r.op.as_str() {
+                        "update.install" => {
+                            c.stop_ui()?;
+                            match c.vault.unmount() {
+                                Ok(()) => {
+                                    if updater.command("install").is_ok() {
+                                        installing = true;
+                                        c.spawn_ui()?;
+                                    } else {
+                                        c.spawn_ui()?;
+                                    }
+                                }
+                                Err(error) => {
+                                    c.lock_error = Some(error.to_string());
+                                    c.spawn_ui()?;
+                                }
+                            }
+                        }
                         "create" | "unlock" | "account.remove" => {
                             c.stop_ui()?;
                             c.prune_deleted_profiles()?;

@@ -13,3 +13,5 @@
 
 /node_modules/
 /scripts/__pycache__/
+
+/updater/updater

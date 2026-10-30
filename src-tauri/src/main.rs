@@ -13,6 +13,7 @@ mod session_monitor;
 mod storage;
 mod ui;
 mod ui_layout;
+mod updater;
 mod vault;
 mod workspaces;
 use anyhow::{Context, Result};

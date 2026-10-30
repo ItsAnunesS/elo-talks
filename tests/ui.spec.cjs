@@ -78,6 +78,8 @@ const http = require("node:http"),
                 await new Promise((resolve) => {
                   window.testReleaseRequest = resolve;
                 });
+              if (args.op === "update.startup") return { automatic: false };
+              if (args.op === "update.status") return { phase: "unsupported" };
               if (args.op === "status") return structuredClone(window.testState);
               if (args.op === "notifications") {
                 window.testState.notifications = args.data;
@@ -493,6 +495,48 @@ const http = require("node:http"),
     });
     await page.locator("#empty-workspace:not([hidden])").waitFor();
     await page.screenshot({ path: "/tmp/elo-empty-premium.png" });
+    await page.addInitScript(() => {
+      const original = window.__TAURI__.core.invoke;
+      let update = { phase: "idle" };
+      window.updateOperations = [];
+      window.__TAURI__.core.invoke = async (command, args) => {
+        if (command === "request" && args.op.startsWith("update.")) {
+          window.updateOperations.push(args.op);
+          if (args.op === "update.startup") return { automatic: true };
+          if (args.op === "update.status") return update;
+          if (args.op === "update.check") {
+            update =
+              localStorage.getItem("updateScenario") === "offline"
+                ? { phase: "error", error: "Offline" }
+                : { phase: "available", version: "0.1.99" };
+            return update;
+          }
+          if (args.op === "update.prepare") update = { phase: "ready", version: "0.1.99" };
+          return update;
+        }
+        return original(command, args);
+      };
+    });
+    await page.evaluate(() => {
+      const fixture = JSON.parse(localStorage.getItem("fixture"));
+      fixture.unlocked = false;
+      localStorage.setItem("fixture", JSON.stringify(fixture));
+    });
+    await page.reload();
+    await page.waitForFunction(() => window.updateOperations.includes("update.install"));
+    assert.deepEqual(
+      await page.evaluate(() => window.updateOperations.filter((op) => op !== "update.status")),
+      ["update.startup", "update.check", "update.prepare", "update.install"],
+    );
+    assert.equal(await page.locator("#startup-screen").isVisible(), true);
+    await page.evaluate(() => localStorage.setItem("updateScenario", "offline"));
+    await page.reload();
+    await page.locator("#startup-screen[hidden]").waitFor({ state: "attached" });
+    await page.locator("#unlock-submit").click();
+    assert.equal(
+      await page.evaluate(() => window.updateOperations.includes("update.install")),
+      false,
+    );
     assert.deepEqual(errors, []);
     console.log(
       "PASS: credentials, safe labels, account switching, workspaces, raster uploads, category moves, notification badges and private diagnostics.",
