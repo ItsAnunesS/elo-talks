@@ -1,4 +1,15 @@
 import { createButton, createElement } from "./dom.js";
+export function bindContextMenu(element, open) {
+  element.addEventListener("contextmenu", open);
+  element.addEventListener("keydown", (event) => {
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = document.activeElement.getBoundingClientRect();
+    open({ preventDefault() {}, clientX: bounds.left, clientY: bounds.bottom });
+  });
+}
+
 let menu;
 let dismiss;
 export function openContextMenu(event, actions) {
@@ -7,11 +18,20 @@ export function openContextMenu(event, actions) {
   menu = createElement("div", "context-menu");
   menu.setAttribute("role", "menu");
   const origin = document.activeElement;
+  const originLabel = origin?.getAttribute("aria-label");
+  const restoreFocus = () => {
+    if (origin?.isConnected) origin.focus();
+    else if (originLabel) {
+      [...document.querySelectorAll("button[aria-label]")]
+        .find((button) => button.getAttribute("aria-label") === originLabel)
+        ?.focus();
+    }
+  };
   const current = menu;
   const close = (restore = false) => {
     current.remove();
     controller.abort();
-    if (restore && origin?.isConnected) origin.focus();
+    if (restore) restoreFocus();
   };
   dismiss = close;
   const controller = new AbortController();
@@ -19,8 +39,9 @@ export function openContextMenu(event, actions) {
     const button = createButton(
       label,
       async () => {
-        close();
+        close(true);
         await run();
+        if (document.activeElement === document.body) restoreFocus();
       },
       "context-action",
     );

@@ -1,9 +1,16 @@
 // This module is written only by the unlocked shell, whose storage is in the vault.
 const key = "elo-space";
+let cachedRaw;
+let cachedValue = {};
 export function readSpace() {
   try {
-    const value = JSON.parse(localStorage.getItem(key) || "{}");
-    return value && typeof value === "object" ? value : {};
+    const raw = localStorage.getItem(key) || "{}";
+    if (raw !== cachedRaw) {
+      const value = JSON.parse(raw);
+      cachedValue = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      cachedRaw = raw;
+    }
+    return cachedValue;
   } catch {
     return {};
   }

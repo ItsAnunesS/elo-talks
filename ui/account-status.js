@@ -1,4 +1,4 @@
-import { isFavorite } from "./space-state.js";
+import { savedIds } from "./space-state.js";
 import { icon } from "./icons.js";
 import { createElement, getElement } from "./dom.js";
 
@@ -19,6 +19,10 @@ function healthLabel(health) {
 function needsAttention(health) {
   return !!health?.page && !["loading", "ready"].includes(health.page);
 }
+function setText(element, value) {
+  if (element.textContent !== value) element.textContent = value;
+}
+
 let snapshot = { accounts: {}, preferences: {} };
 
 let organization = { placements: {} };
@@ -30,10 +34,13 @@ function setBadge(element, count, source = "Unread items / pending notifications
   let badge = element.querySelector(":scope > .notification-badge");
   if (!badge) {
     badge = createElement("span", "notification-badge");
+    badge.id = `badge-${crypto.randomUUID()}`;
     element.append(badge);
+    const control = element.matches("button") ? element : element.querySelector(".account-name");
+    control?.setAttribute("aria-describedby", badge.id);
   }
   badge.hidden = count === 0;
-  badge.textContent = count > 99 ? "99+" : String(count);
+  setText(badge, count > 99 ? "99+" : String(count));
   badge.title = `${count} · ${source}`;
   badge.setAttribute("aria-label", badge.title);
 }
@@ -54,6 +61,8 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
     setBadge(element, totals.get(element.dataset.workspaceId) || 0);
   for (const element of document.querySelectorAll("#account-list [data-account-id]")) {
     const health = snapshot.accounts[element.dataset.accountId];
+    const name = element.querySelector(".account-name");
+    name.setAttribute("aria-current", element.dataset.accountId === selected ? "page" : "false");
     setBadge(
       element,
       counter(health),
@@ -76,7 +85,7 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
     indicator.hidden = !muted;
     indicator.title = "Notifications muted";
     indicator.setAttribute("aria-label", "Notifications muted");
-    status.textContent = healthLabel(health);
+    setText(status, healthLabel(health));
     status.title = status.textContent;
     status.hidden = health?.page === "ready" && health?.readiness !== "qr-code";
     element.querySelector(".account-name").title = status.textContent;
@@ -87,36 +96,43 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
     const health = snapshot.accounts[card.dataset.accountId];
     const failed = needsAttention(health);
     card.classList.toggle("needs-attention", failed);
-    card.querySelector(".card-health").textContent = healthLabel(health);
+    setText(card.querySelector(".card-health"), healthLabel(health));
     card.title = healthLabel(health);
     setBadge(card, counter(health));
     if (failed) attention++;
     else if (!health || health.page === "loading") preparing++;
   }
   const summary = getElement("workspace-health");
-  summary.textContent = attention
-    ? `${attention} ${attention === 1 ? "channel needs" : "channels need"} attention.`
-    : preparing
-      ? `${preparing} ${preparing === 1 ? "channel is" : "channels are"} loading…`
-      : "";
+  setText(
+    summary,
+    attention
+      ? `${attention} ${attention === 1 ? "channel needs" : "channels need"} attention.`
+      : preparing
+        ? `${preparing} ${preparing === 1 ? "channel is" : "channels are"} loading…`
+        : "",
+  );
   summary.classList.toggle("has-warning", attention > 0);
+  getElement("overview-button").setAttribute("aria-current", selected ? "false" : "page");
   const total = totals.get(activeWorkspace) || 0;
   getElement("overview-badge").hidden = total === 0;
-  getElement("overview-badge").textContent = total > 99 ? "99+" : String(total);
+  setText(getElement("overview-badge"), total > 99 ? "99+" : String(total));
   applyChannelFilter(document.getElementById("channel-filter").value);
   const health = snapshot.accounts[selected];
-  getElement("account-page-status").textContent = selected
-    ? health?.page === "ready"
-      ? health?.readiness === "qr-code"
-        ? "Scan QR code"
-        : health?.readiness === "chats"
-          ? ""
-          : "Opening WhatsApp…"
-      : labels[health?.page] || "Opening account…"
-    : "Vault open";
+  setText(
+    getElement("account-page-status"),
+    selected
+      ? health?.page === "ready"
+        ? health?.readiness === "qr-code"
+          ? "Scan QR code"
+          : health?.readiness === "chats"
+            ? ""
+            : "Opening WhatsApp…"
+        : labels[health?.page] || "Opening account…"
+      : "Vault open",
+  );
   const retry = getElement("retry-account");
   retry.hidden = !selected || !needsAttention(health) || health?.page === "sandbox-unavailable";
-  retry.textContent = health?.page === "process-stopped" ? "Reconnect" : "Try again";
+  setText(retry, health?.page === "process-stopped" ? "Reconnect" : "Try again");
   getElement("account-page-status").title =
     health?.readiness === "qr-code"
       ? "On your phone, open WhatsApp → Linked devices → Link a device."
@@ -126,13 +142,14 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
 }
 
 export function applyChannelFilter(filter) {
+  const favorites = filter === "favorites" ? savedIds("favorites") : null;
   for (const element of document.querySelectorAll(
     "#account-list [data-account-id], #cards [data-account-id]",
   )) {
     const id = element.dataset.accountId;
     element.hidden =
       filter === "favorites"
-        ? !isFavorite(id)
+        ? !favorites.has(id)
         : filter === "unread"
           ? counter(snapshot.accounts[id]) === 0
           : false;

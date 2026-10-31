@@ -523,8 +523,29 @@ const http = require("node:http"),
     await page.reload();
     await page.getByRole("button", { name: "Company", exact: true }).click();
     assert.equal(await page.locator("#account-list .account-row").count(), 2);
-    await page.locator('#account-list [data-account-id="account-3"]').click({ button: "right" });
-    await page.getByRole("menuitem", { name: "Add to favorites", exact: true }).click();
+    await page.getByRole("button", { name: "Project", exact: true }).focus();
+    const avatarRequests = await page.evaluate(
+      () => window.testRequests.filter((request) => request.cmd === "account_avatar").length,
+    );
+    await page.keyboard.press("Shift+F10");
+    await page.keyboard.press("ArrowDown");
+    assert.equal(
+      await page
+        .getByRole("menuitem", { name: "Add to favorites", exact: true })
+        .evaluate((button) => button === document.activeElement),
+      true,
+    );
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute("aria-label") === "Project",
+    );
+    assert.equal(
+      await page.evaluate(
+        () => window.testRequests.filter((request) => request.cmd === "account_avatar").length,
+      ),
+      avatarRequests,
+    );
+
     await page.getByLabel("Show channels", { exact: true }).selectOption("favorites");
     assert.equal(await page.locator("#account-list [data-account-id]:visible").count(), 1);
     assert.equal(await page.locator("#cards [data-account-id]:visible").count(), 1);
@@ -543,6 +564,26 @@ const http = require("node:http"),
     await page.getByRole("menuitem", { name: "Remove from favorites", exact: true }).waitFor();
     await page.keyboard.press("Escape");
     assert.equal(await page.getByRole("menu").count(), 0);
+    assert.equal(
+      await page.getByRole("button", { name: "Project", exact: true }).getAttribute("aria-current"),
+      "page",
+    );
+    const repeatedTextMutations = await page.evaluate(async () => {
+      const { updateAccountStatus } = await import("./account-status.js");
+      updateAccountStatus(window.testAccountStatus, "account-3");
+      const observer = new MutationObserver(() => {});
+      observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+      for (let index = 0; index < 25; index++)
+        updateAccountStatus(window.testAccountStatus, "account-3");
+      const count = observer.takeRecords().length;
+      observer.disconnect();
+      return count;
+    });
+    assert.equal(
+      repeatedTextMutations,
+      0,
+      "Unchanged counters must not rewrite text or live regions",
+    );
     // Search crosses workspace boundaries and restores the chosen native account.
     await page.getByRole("button", { name: "Find a channel", exact: true }).click();
     assert.equal(

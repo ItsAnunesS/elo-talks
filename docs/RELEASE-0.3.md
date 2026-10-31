@@ -88,3 +88,13 @@ until an exact, safe target can be verified.
 - Text size choices (100/110/120%) scale local reading text without changing the
   native viewport geometry. WhatsApp retains its own text controls. Existing
   reduced-motion support and higher-contrast system preference remain respected.
+
+
+### Interface performance and accessibility
+
+- Reuse avatar requests across navigation renders, prune removed accounts, and refresh each visible account once. Native avatar events still invalidate stale thumbnails; vault locking clears the UI caches.
+- Group channels by category once per render and parse saved workspace preferences only when their serialized value changes. Favorite filtering builds one lookup per pass.
+- Update status and counter text only when it changes, avoiding repeated live-region announcements and text node replacement.
+- Support Shift+F10 and the context-menu key, restore focus after menu actions, expose the current channel and category controls to assistive technology, and associate unread badges with their controls.
+- Preserve visible keyboard focus in forced-color themes. These improvements apply to the local shell; they do not modify WhatsApp's accessibility tree or pause background accounts.
+- Browser regressions cover keyboard menu use, focus restoration, avatar request reuse, and zero text mutations across 25 identical account-state updates. Native screen-reader behavior still needs validation with Orca on GNOME.

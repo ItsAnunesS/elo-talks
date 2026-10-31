@@ -1,4 +1,5 @@
-import { readSpace, saveSpace, savedIds, isFavorite } from "./space-state.js";
+import { bindContextMenu } from "./context-menu.js";
+import { saveSpace, savedIds } from "./space-state.js";
 import { createButton, createElement, getElement } from "./dom.js";
 import { icon } from "./icons.js";
 import { request, invoke } from "./bridge.js";
@@ -33,9 +34,10 @@ export function renderChannelIdentity(account) {
   void loadAvatar(account.id, avatar);
 }
 export function refreshAvatars() {
-  for (const element of document.querySelectorAll("[data-avatar-id]")) {
-    updateAvatar({ id: element.dataset.avatarId, available: true });
-  }
+  const ids = new Set(
+    [...document.querySelectorAll("[data-avatar-id]")].map((element) => element.dataset.avatarId),
+  );
+  for (const id of ids) updateAvatar({ id, available: true });
 }
 async function loadAvatar(id, element) {
   const captured = generation;
@@ -106,6 +108,17 @@ async function loadImage(workspace, element) {
 }
 export function renderNavigation(state, workspaceId, selected, actions) {
   const { workspaces, placements } = state.organization;
+  const favorites = savedIds("favorites");
+  const accountIds = new Set(state.accounts.map((account) => account.id));
+  for (const id of avatars.keys()) if (!accountIds.has(id)) avatars.delete(id);
+  const accountGroups = new Map();
+  for (const account of state.accounts) {
+    const placement = placements[account.id];
+    if (placement?.workspaceId !== workspaceId) continue;
+    const group = accountGroups.get(placement.categoryId) || [];
+    group.push(account);
+    accountGroups.set(placement.categoryId, group);
+  }
   const workspace = workspaces.find((w) => w.id === workspaceId);
   const revisions = new Set(workspaces.map((w) => w.imageRevision));
   for (const revision of images.keys()) if (!revisions.has(revision)) images.delete(revision);
@@ -116,7 +129,7 @@ export function renderNavigation(state, workspaceId, selected, actions) {
       () => actions.selectWorkspace(item.id),
       "account-icon workspace-icon",
     );
-    button.addEventListener("contextmenu", (event) => actions.workspaceMenu(event, item));
+    bindContextMenu(button, (event) => actions.workspaceMenu(event, item));
     button.dataset.workspaceId = item.id;
     button.dataset.dropWorkspace = item.id;
     button.title = item.name;
@@ -141,9 +154,9 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   getElement("account-list").replaceChildren();
   getElement("cards").replaceChildren();
   const appendChannels = (parent, categoryId) => {
-    for (const account of accounts.filter((a) => placements[a.id].categoryId === categoryId)) {
+    for (const account of accountGroups.get(categoryId) || []) {
       const row = createElement("div", "account-row");
-      row.addEventListener("contextmenu", (event) => actions.channelMenu(event, account));
+      bindContextMenu(row, (event) => actions.channelMenu(event, account));
       row.dataset.accountId = account.id;
       row.draggable = true;
       row.title = "Drag to a workspace or category. Manage channel also offers move controls.";
@@ -155,7 +168,7 @@ export function renderNavigation(state, workspaceId, selected, actions) {
         createElement(
           "span",
           "channel-label",
-          `${isFavorite(account.id) ? "★ " : ""}${account.name}`,
+          `${favorites.has(account.id) ? "★ " : ""}${account.name}`,
         ),
       );
       const menu = createButton("⋯", () => actions.editAccount(account), "account-menu");
@@ -171,6 +184,7 @@ export function renderNavigation(state, workspaceId, selected, actions) {
     section.dataset.dropCategory = category.id;
     const heading = createElement("div", "category-heading");
     const channels = createElement("div", "category-channels");
+    channels.id = `category-${category.id}`;
     channels.hidden = collapsed.has(category.id);
     const toggle = createButton(
       "",
@@ -184,8 +198,10 @@ export function renderNavigation(state, workspaceId, selected, actions) {
       },
       "category-toggle",
     );
+    toggle.setAttribute("aria-controls", channels.id);
     toggle.setAttribute("aria-expanded", String(!channels.hidden));
     const caret = createElement("span", "", channels.hidden ? "▸" : "▾");
+    caret.setAttribute("aria-hidden", "true");
     toggle.append(caret, createElement("span", "channel-label", category.name));
     const edit = createButton("⋯", () => actions.editCategory(category), "account-menu");
     edit.setAttribute("aria-label", `Manage category ${category.name}`);
@@ -204,10 +220,11 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   }
   for (const [index, account] of accounts.entries()) {
     const card = createButton("", () => actions.selectAccount(account.id), "account-card");
-    card.addEventListener("contextmenu", (event) => actions.channelMenu(event, account));
+    bindContextMenu(card, (event) => actions.channelMenu(event, account));
     card.dataset.accountId = account.id;
     card.style.setProperty("--entry-delay", `${Math.min(index, 4) * 25}ms`);
     const initials = createElement("span", "card-initials", account.name.slice(0, 2).toUpperCase());
+    initials.setAttribute("aria-hidden", "true");
     initials.dataset.avatarId = account.id;
     initials.dataset.initials = initials.textContent;
     const title = createElement("strong", "channel-card-title");
@@ -215,7 +232,6 @@ export function renderNavigation(state, workspaceId, selected, actions) {
     const status = createElement("small", "card-health", "Preparing WhatsApp…");
     card.append(initials, title, status);
     getElement("cards").append(card);
-    avatars.delete(account.id);
     void loadAvatar(account.id, initials);
   }
 }

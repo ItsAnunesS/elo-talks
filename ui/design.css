@@ -597,3 +597,23 @@ select:focus {
     border-color: #9b8aab;
   }
 }
+
+/* Keep keyboard location visible independently of the color theme. */
+:where(button, input, select, textarea, summary, a):focus-visible {
+  outline: 2px solid var(--accent, #c4b5fd);
+  outline-offset: 3px;
+}
+@media (forced-colors: active) {
+  :where(button, input, select, textarea, summary, a):focus-visible {
+    outline-color: Highlight;
+  }
+  .account-row.selected,
+  .workspace-icon.selected,
+  .overview-button.active {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .notification-badge {
+    border: 1px solid ButtonText;
+  }
+}
