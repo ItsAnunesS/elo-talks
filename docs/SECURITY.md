@@ -78,3 +78,20 @@ The controller closes every profile process and confirms unmount before installa
 The first version with this updater must be installed through the existing download/Gear Lever flow. Existing older versions cannot acquire this capability without that initial upgrade. All account webviews start after unlock. The last selected account ID is stored inside the encrypted catalog. Startup probes inspect only structural element presence and visibility in an isolated JavaScript world every 500 ms for at most 40 seconds per navigation, stopping early when ready. They return only a fixed readiness code and never read text, input values, QR attributes/pixels, cookies, conversation contents, or private WhatsApp APIs. Readiness is a UI hint, never authorization or proof of message synchronization. Slow or changed pages expose Continue anyway; remote Tauri capabilities remain disabled.
 
 The unread adapter observes the native WebKit title property only for the exact HTTPS WhatsApp origin. It accepts only the fixed `WhatsApp` or `(digits) WhatsApp` shape with at most six ASCII digits; arbitrary titles are discarded. Only the numeric value enters runtime state and diagnostics. No conversation access, injected JavaScript, message history, or new remote permissions are introduced. During notification bursts, at most one newest pending bounded notification payload per account is retained in process memory while the current D-Bus request completes.
+
+
+## Memory-only account card photos
+
+The avatar adapter selects only an explicitly labeled self-profile control in the
+lower-left WhatsApp navigation. It accepts a unique image source, never conversation
+images or private WhatsApp APIs. Native extraction is restricted to the already
+loaded matching HTTPS `pp.whatsapp.net` / `pps.whatsapp.net` resource, with PNG/JPEG
+MIME and size checks; it makes no additional request. WhatsApp-origin blob images
+use normal origin-clean canvas access. A denied canvas remains denied.
+
+The normalized 64×64 PNG is held only by the UI process and local frontend, outside
+the catalog, logs and diagnostics. Locking terminates this process before vault
+unmount. This does not prevent WhatsApp itself from caching its original image
+inside the encrypted profile. Card reads revalidate the profile control; failure
+uses initials. The bounded probe stops on success or after 40 seconds. This adapter
+does not grant remote pages any Tauri permissions or relax TLS, CORS or sandboxing.

@@ -12,7 +12,13 @@ import {
 } from "./dom.js";
 import { invoke, request, listen, isDesktop } from "./bridge.js";
 import { updateAccountStatus } from "./account-status.js";
-import { renderNavigation, clearWorkspaceImages, revealChannel } from "./workspace-navigation.js";
+import {
+  renderNavigation,
+  clearWorkspaceImages,
+  revealChannel,
+  updateAvatar,
+  refreshAvatars,
+} from "./workspace-navigation.js";
 import { placementFields, workspaceDialogs } from "./workspace-dialogs.js";
 import { hydrateIcons } from "./icons.js";
 import { openChannelSearch } from "./channel-search.js";
@@ -171,6 +177,7 @@ async function selectAccount(id) {
     }
   }
   selected = id;
+  if (!id) refreshAvatars();
   if (id) revealChannel(id);
   updateAccountStatus(null, selected);
   getElement("page-title").textContent =
@@ -688,6 +695,7 @@ for (const event of ["pointerdown", "keydown"])
   });
 async function initializeDesktop() {
   await Promise.all([
+    listen("account-avatar", (event) => updateAvatar(event.payload)),
     listen("account-state", (event) => updateAccountStatus(event.payload, selected)),
     listen("account-error", (event) => showToast(event.payload)),
     listen("open-account", async (event) => {

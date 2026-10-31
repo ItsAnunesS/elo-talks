@@ -124,10 +124,27 @@ platform, page states, counters and vault state. It excludes message content, ac
 names/identifiers, credentials, cookies, filesystem paths and remote URLs. Nothing
 is uploaded automatically. TLS failures never create certificate exceptions.
 
-## Account initials
+## Account photos
 
-Account cards display initials derived from the channel name. Elo Talks does not
-inspect WhatsApp profile controls, poll for profile photos or make avatar requests.
+Account cards use the signed-in WhatsApp user's photo when an explicitly labeled
+self-profile control can be identified; otherwise they keep the channel initials.
+A bounded probe runs every two seconds for up to 40 seconds after page navigation,
+stopping after success. It does not inspect conversations or click profile controls.
+
+For supported WhatsApp profile-image hosts, the adapter reads an already loaded
+WebKit resource matching that control; it does not download the URL again. An
+origin-clean WhatsApp blob image can also be used. CORS, TLS and the sandbox remain
+enabled. Only bounded PNG/JPEG input is decoded and normalized to a 64×64 PNG.
+The adapter retains at most 64 resource references during the probe and accepts
+resource bodies up to 256 KiB, with a normalized output limit of 32 KiB.
+
+The card copy stays in memory, is excluded from diagnostics and the catalog, and
+is discarded when the UI process exits on vault lock. WhatsApp's own browser cache
+remains inside the encrypted profile. Returning to Overview rechecks the self
+control before displaying a cached photo. Missing, ambiguous or unsupported images
+use initials. A slow first login beyond the probe window may require reloading the
+account. Synthetic tests cover the native resource path with a CORS-blocked canvas;
+compatibility with every live WhatsApp layout is not guaranteed.
 
 ## Desktop icon refresh
 

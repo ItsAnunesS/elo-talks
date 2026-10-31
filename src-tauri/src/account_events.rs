@@ -58,6 +58,7 @@ pub fn clear_desktop_badge() {
 
 pub struct AccountEvents {
     pub runtime: Mutex<AccountRuntime>,
+    pub avatars: Mutex<std::collections::BTreeMap<String, crate::account_avatar::Avatar>>,
     badge_count: Arc<AtomicU64>,
     badge_wake: mpsc::SyncSender<()>,
     desktop: DesktopNotifications,
@@ -79,6 +80,7 @@ impl Default for AccountEvents {
         });
         Self {
             runtime: Mutex::new(AccountRuntime::default()),
+            avatars: Mutex::default(),
             badge_count,
             badge_wake,
             desktop: DesktopNotifications::default(),

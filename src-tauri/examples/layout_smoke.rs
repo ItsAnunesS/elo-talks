@@ -1,5 +1,8 @@
 //! Synthetic native regression, run only in an isolated Xvfb desktop.
 #[allow(dead_code)]
+#[path = "../src/account_avatar.rs"]
+mod account_avatar;
+#[allow(dead_code)]
 #[path = "../src/account_events.rs"]
 mod account_events;
 #[path = "../src/account_permissions.rs"]
@@ -9,6 +12,8 @@ mod account_readiness;
 #[allow(dead_code)]
 #[path = "../src/account_runtime.rs"]
 mod account_runtime;
+#[path = "support/avatar_fixture.rs"]
+mod avatar_fixture;
 #[path = "../src/desktop_notifications.rs"]
 mod desktop_notifications;
 #[allow(dead_code)]
@@ -27,6 +32,7 @@ fn main() {
     tauri::Builder::default()
         .manage(account_events::AccountEvents::default())
         .setup(|app| {
+            let avatar_complete = avatar_fixture::start();
             let window = tauri::window::WindowBuilder::new(app, "layout-test")
                 .title("Elo Talks — synthetic layout regression")
                 .inner_size(1200., 800.)
@@ -41,6 +47,7 @@ fn main() {
                     LogicalSize::new(1200., 800.),
                 )?;
                 let handle = app.handle().clone();
+                let avatar_complete = avatar_complete.clone();
                 view.with_webview(move |platform| {
                     let webview = platform.inner();
                     assert!(webview.context().is_some_and(|context| context.is_sandbox_enabled()), "WebKit sandbox must remain enabled in the layout test");
@@ -50,15 +57,19 @@ fn main() {
                         account_events::attach(&webview, &handle, label);
                         account_permissions::attach(&webview);
                         account_readiness::attach(&webview, &handle, label);
+                        account_avatar::attach(&webview, &handle, label);
                     }
+                    let avatar_html = if index == 1 {
+                        format!("<script>const bytes = Uint8Array.from(atob('{}'), c => c.charCodeAt(0)); const own = document.createElement('button'); own.title='Você'; own.style.cssText='position:fixed;left:16px;bottom:16px;width:48px;height:48px'; const photo = document.createElement('img'); photo.style.cssText='width:32px;height:32px'; photo.src=URL.createObjectURL(new Blob([bytes], {{type:'image/png'}})); own.append(photo); document.body.append(own);</script>", gtk::glib::base64_encode(include_bytes!("../icons/32x32.png")))
+                    } else { String::new() };
                     webview.load_html(
-                        if index == 0 {
+                        &format!("{}{}", if index == 0 {
                             "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
                         } else if index == 1 {
                             "<body style='background:#243e38'>Synthetic notification source<script>setTimeout(() => { const side = document.createElement('div'); side.id = 'pane-side'; side.style.height = '20px'; document.body.append(side); }, 3000);Promise.all(['notifications','geolocation'].map(name => navigator.permissions.query({name}).then(result => result.state === 'granted' ? 'granted' : 'not-granted'))).then(states => document.title = states.join('|')); if(Notification.permission === 'granted') new Notification('Synthetic private sender', {body:'Synthetic private message'});</script>"
                         } else {
                             "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data<div id=\"pane-side\">Untrusted structure</div><script>navigator.permissions.query({name:'notifications'}).then(result => document.title = Notification.permission + '|' + result.state);</script></body>"
-                        },
+                        }, avatar_html),
                         Some(match index { 1 => "https://web.whatsapp.com/", 2 => "https://untrusted.example/", _ => "about:blank" }),
                     );
                     if index != 2 {
@@ -137,6 +148,9 @@ fn main() {
                                 native.show();
                             }
                             6 => {
+                                assert!(handle.state::<account_events::AccountEvents>().avatars.lock().unwrap().contains_key("account-one"), "Own blob avatar must reach the memory-only store");
+                                assert!(!handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().diagnostics().to_string().contains("base64"));
+                                assert!(avatar_complete.load(std::sync::atomic::Ordering::Relaxed), "Native avatar extraction must work without granting canvas access");
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].unread_count, Some(0));
                                 assert!(shell.is_visible());
                                 assert!(!first.is_visible() && !second.is_visible());

@@ -67,6 +67,7 @@ const http = require("node:http"),
             window.testRequests.push({ cmd, args });
             if (cmd === "test_notification" && window.testNotificationError)
               throw Error("Linux notification service unavailable");
+            if (cmd === "account_avatar") return window.testAvatars?.[args.id] || null;
             if (cmd === "account_snapshot") return structuredClone(window.testAccountStatus);
             if (cmd === "diagnostics")
               return {
@@ -220,6 +221,23 @@ const http = require("node:http"),
     );
     await page.locator("#overview-button").click();
     await page.locator("#dashboard:not([hidden])").waitFor();
+    const avatarSource = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 64;
+      canvas.getContext("2d").fillRect(0, 0, 64, 64);
+      return canvas.toDataURL("image/png");
+    });
+    await page.evaluate((source) => {
+      window.testAvatars = { a: source };
+      window.testListeners["account-avatar"]({ payload: { id: "a", available: true } });
+    }, avatarSource);
+    await page.locator('[data-avatar-id="a"] img').waitFor();
+    assert.equal(await page.locator('[data-avatar-id="b"]').textContent(), "WO");
+    await page.evaluate(() => {
+      window.testAvatars = {};
+      window.testListeners["account-avatar"]({ payload: { id: "a", available: false } });
+    });
+    assert.equal(await page.locator('[data-avatar-id="a"]').textContent(), "PE");
     await page.getByRole("button", { name: "Add channel", exact: true }).click();
     await page.getByLabel("Account name", { exact: true }).fill("Project");
     await page.screenshot({ path: "/tmp/elo-add-channel-premium.png" });
@@ -622,6 +640,22 @@ const http = require("node:http"),
       document.body.append(splash);
     });
     assert.equal(await readinessPage.evaluate(readinessScript), 0);
+    const avatarScript = fs.readFileSync(
+      path.resolve(__dirname, "../src-tauri/src/avatar.js"),
+      "utf8",
+    );
+    await readinessPage.setContent(
+      `<button title="Você" style="position:fixed;left:16px;bottom:16px;width:48px;height:48px"><img width="32" height="32" src="${avatarSource}"></button><button title="You" style="position:fixed;left:400px;bottom:16px;width:48px;height:48px"><img src="${avatarSource}"></button>`,
+    );
+    await readinessPage
+      .locator("img")
+      .first()
+      .evaluate((img) => img.decode());
+    assert.equal(JSON.parse(await readinessPage.evaluate(avatarScript)).source, avatarSource);
+    await readinessPage
+      .locator('[title="Você"]')
+      .evaluate((button) => button.removeAttribute("title"));
+    assert.equal(await readinessPage.evaluate(avatarScript), "");
     await readinessPage.close();
     assert.deepEqual(errors, []);
     console.log(

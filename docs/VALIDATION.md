@@ -120,3 +120,20 @@ Real WhatsApp acceptance remains necessary: receive messages in an inactive acco
 The encrypted catalog persists the last selected account and falls back to an existing account after deletion. Locked status does not expose this preference. The primary view starts first; other views start at 500 ms intervals and do not gate the primary view. Structural readiness is tested with a delayed synthetic chat-list element after document load, including a hidden native WebKit view. UI tests cover restoring a non-first account, waiting after page load, QR readiness, background loading without blocking, and explicit Continue anyway. The detector never reads QR contents or messages.
 
 Real WhatsApp markup and network behavior still need acceptance on the supported desktops. If its structural selectors change, the app preserves access through Continue anyway rather than inferring authentication or weakening origin/sandbox policy.
+
+
+## Account card avatar regression
+
+Synthetic coverage includes PNG normalization and input limits, profile host and
+blob-origin rejection, self-control selection with a contact-position decoy,
+frontend photo/initials fallback, and exclusion from diagnostics. The isolated native
+layout fixture exercises the production blob adapter and a separate cross-origin
+image resource: JavaScript canvas export must fail while native WebKit resource
+reuse succeeds. Both desktop scale factors run with the WebKit sandbox enabled.
+
+Live WhatsApp acceptance remains manual: after updating and unlocking, verify the
+own-user photo on each account card, including background accounts. Check initials
+for missing or unsupported photos, logout and return to Overview, and vault lock.
+The bounded adapter can miss a first QR login that takes longer than 40 seconds;
+reload the account after login to retry without signing out. Do not interpret a
+successful synthetic test as proof of compatibility with every WhatsApp rollout.

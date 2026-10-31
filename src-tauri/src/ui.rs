@@ -81,6 +81,32 @@ fn account_snapshot(webview: tauri::Webview, app: tauri::AppHandle) -> Result<Va
         .map_err(|error| error.to_string())
 }
 #[tauri::command]
+async fn account_avatar(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Option<String>, String> {
+    local(&webview)?;
+    let view = app
+        .get_webview(&format!("account-{id}"))
+        .ok_or("Account not found")?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    view.with_webview(move |platform| {
+        crate::account_avatar::current(&platform.inner(), &app, &id, move |image| {
+            let _ = sender.send(image);
+        });
+    })
+    .map_err(|_| "Avatar unavailable")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap_or(None)
+    })
+    .await
+    .map_err(|_| "Avatar unavailable".into())
+}
+
+#[tauri::command]
 fn retry_account(webview: tauri::Webview, app: tauri::AppHandle, id: String) -> Result<(), String> {
     local(&webview)?;
     let view = app
@@ -265,6 +291,7 @@ fn sync_accounts(
             }
             account_events::attach(&w, &h, &account_id);
             crate::account_readiness::attach(&w, &h, &account_id);
+            crate::account_avatar::attach(&w, &h, &account_id);
             w.connect_create(|_, _| None);
             crate::account_permissions::attach(&w);
             let last = std::rc::Rc::new(std::cell::RefCell::new(Instant::now()));
@@ -318,6 +345,7 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
             select_account,
             sync_accounts,
             account_snapshot,
+            account_avatar,
             retry_account,
             diagnostics,
             test_notification

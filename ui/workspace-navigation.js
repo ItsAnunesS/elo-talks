@@ -1,13 +1,58 @@
 import { createButton, createElement, getElement } from "./dom.js";
 import { icon } from "./icons.js";
-import { request } from "./bridge.js";
+import { request, invoke } from "./bridge.js";
 
 const images = new Map();
 const collapsed = new Set();
 let generation = 0;
+const avatars = new Map();
+export function updateAvatar({ id, available }) {
+  avatars.delete(id);
+  for (const element of document.querySelectorAll("[data-avatar-id]")) {
+    if (element.dataset.avatarId === id) {
+      element.textContent = element.dataset.initials;
+      if (available) void loadAvatar(id, element);
+    }
+  }
+}
+export function refreshAvatars() {
+  for (const element of document.querySelectorAll("[data-avatar-id]")) {
+    updateAvatar({ id: element.dataset.avatarId, available: true });
+  }
+}
+async function loadAvatar(id, element) {
+  const captured = generation;
+  if (!avatars.has(id)) avatars.set(id, invoke("account_avatar", { id }));
+  const pending = avatars.get(id);
+  try {
+    const source = await pending;
+    if (
+      captured !== generation ||
+      avatars.get(id) !== pending ||
+      !element.isConnected ||
+      !source?.startsWith("data:image/png;base64,") ||
+      source.length > 44000
+    )
+      return;
+    const image = createElement("img", "card-avatar");
+    image.alt = "";
+    image.addEventListener(
+      "error",
+      () => {
+        element.textContent = element.dataset.initials;
+      },
+      { once: true },
+    );
+    image.src = source;
+    element.replaceChildren(image);
+  } catch {
+    if (avatars.get(id) === pending) avatars.delete(id);
+  }
+}
 export function clearWorkspaceImages() {
   generation++;
   images.clear();
+  avatars.clear();
   collapsed.clear();
   getElement("workspace-icons").replaceChildren();
 }
@@ -127,10 +172,14 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   for (const account of accounts) {
     const card = createButton("", () => actions.selectAccount(account.id), "account-card");
     const initials = createElement("span", "card-initials", account.name.slice(0, 2).toUpperCase());
+    initials.dataset.avatarId = account.id;
+    initials.dataset.initials = initials.textContent;
     const title = createElement("strong", "channel-card-title");
     title.append(serviceIcon(), createElement("span", "", account.name));
     card.append(initials, title, createElement("small", "", "Open WhatsApp →"));
     getElement("cards").append(card);
+    avatars.delete(account.id);
+    void loadAvatar(account.id, initials);
   }
 }
 
