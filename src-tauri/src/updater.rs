@@ -23,6 +23,7 @@ pub struct Updater {
     state: Value,
     stage: Option<PathBuf>,
     output: PathBuf,
+    progress: PathBuf,
 }
 impl Updater {
     pub fn new(runtime: &std::path::Path) -> Result<Self> {
@@ -57,6 +58,7 @@ impl Updater {
             last_check: None,
             stage: None,
             output: runtime.join("update-result.json"),
+            progress: runtime.join("update-progress.json"),
         })
     }
     pub fn configure(&mut self, path: PathBuf) -> Result<()> {
@@ -110,6 +112,22 @@ impl Updater {
                 .unwrap_or_default()
         };
         let mut status = self.state.clone();
+        status["currentVersion"] = json!(env!("CARGO_PKG_VERSION"));
+        if self.state["phase"] == "downloading" {
+            if let Ok(progress) = crate::storage::read::<Value>(&self.progress) {
+                let total = progress["total"].as_u64().unwrap_or(0);
+                let downloaded = progress["downloaded"].as_u64().unwrap_or(0);
+                if matches!(
+                    progress["step"].as_str(),
+                    Some("downloading" | "verifying-release" | "verifying-download")
+                ) && total <= 512 * 1024 * 1024
+                    && downloaded <= total
+                {
+                    status["progress"] =
+                        json!({"step":progress["step"], "downloaded":downloaded, "total":total});
+                }
+            }
+        }
         status["canCheck"] = json!(self.target.is_some() && self.child.is_none() && wait.is_zero());
         status["retryInSeconds"] = json!(wait.as_secs() + u64::from(wait.subsec_nanos() > 0));
         status["intervalMinutes"] = json!(self.interval.as_secs() / 60);
@@ -163,6 +181,8 @@ impl Updater {
             }
             _ => anyhow::bail!("Unknown update operation"),
         };
+        let _ = std::fs::remove_file(&self.progress);
+        command.env("ELO_UPDATE_PROGRESS", &self.progress);
         let output = std::fs::File::create(&self.output)?;
         self.child = Some(
             command
@@ -314,6 +334,30 @@ impl Drop for Updater {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn progress_exposes_only_bounded_public_sizes_during_download() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut updater = Updater::new(dir.path()).unwrap();
+        updater.state = json!({"phase":"downloading"});
+        crate::storage::write(
+            &updater.progress,
+            &json!({"step":"downloading", "downloaded":25, "total":100, "url":"private"}),
+        )
+        .unwrap();
+        assert_eq!(
+            updater.status()["progress"],
+            json!({"step":"downloading", "downloaded":25, "total":100})
+        );
+        crate::storage::write(
+            &updater.progress,
+            &json!({"step":"downloading", "downloaded":101, "total":100}),
+        )
+        .unwrap();
+        assert!(updater.status().get("progress").is_none());
+        updater.state = json!({"phase":"ready"});
+        assert!(updater.status().get("progress").is_none());
+    }
 
     #[test]
     fn interval_persists_and_cannot_bypass_cooldown() {

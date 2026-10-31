@@ -283,6 +283,7 @@ func imageHash(path, want string) error {
 	return nil
 }
 func prepare(current, target, expected string) (Result, error) {
+	reportProgress("verifying-release", 0, 0)
 	if !filepath.IsAbs(target) {
 		return Result{}, errors.New("invalid target")
 	}
@@ -351,12 +352,14 @@ func prepare(current, target, expected string) (Result, error) {
 	if e != nil {
 		return Result{}, e
 	}
-	n, copyErr := io.Copy(f, io.LimitReader(response.Body, maxImage+1))
+	reportProgress("downloading", 0, a.Size)
+	n, copyErr := io.Copy(io.MultiWriter(f, &progressWriter{total: a.Size}), io.LimitReader(response.Body, maxImage+1))
 	syncErr := f.Sync()
 	closeErr := f.Close()
 	if copyErr != nil || syncErr != nil || closeErr != nil || n != a.Size {
 		return Result{}, errors.New("download incomplete or disk full")
 	}
+	reportProgress("verifying-download", n, a.Size)
 	if e = imageHash(path, want); e != nil {
 		return Result{}, e
 	}

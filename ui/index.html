@@ -44,6 +44,11 @@
       <img src="assets/elo-mark.svg" width="72" height="72" alt="Elo Talks" />
       <div class="startup-spinner"></div>
       <p id="startup-label">Preparing your space…</p>
+      <div id="update-progress" class="update-progress" hidden>
+        <span id="update-version"></span
+        ><progress id="update-meter" max="100" aria-label="Update download progress"></progress
+        ><span id="update-detail" role="status"></span>
+      </div>
       <button id="startup-continue" class="text-button" hidden>Continue anyway</button>
     </section>
     <main id="lock-screen" class="lock-screen">
@@ -160,13 +165,13 @@
           ></button>
           <button
             id="settings-button"
-            title="Settings"
+            title="Settings (Ctrl+,)"
             aria-label="Settings"
             data-icon="settings"
           ></button
           ><button
             id="lock-button"
-            title="Lock vault"
+            title="Lock vault (Ctrl+Shift+L)"
             aria-label="Lock vault"
             data-icon="lock"
           ></button>
@@ -199,6 +204,9 @@
         <button id="add-category" class="text-button add-category">
           <span data-icon="folder"></span>Add category
         </button>
+        <div id="move-feedback" class="move-feedback" hidden role="status">
+          <span id="move-label"></span><button id="undo-move" class="text-button">Undo</button>
+        </div>
         <div class="vault-state">
           <i class="status-dot"></i>
           <div><strong>Vault unlocked</strong><small>Sessions protected on this device</small></div>

@@ -1,3 +1,4 @@
+import { icon } from "./icons.js";
 import { createElement, getElement } from "./dom.js";
 
 const labels = {
@@ -64,6 +65,16 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
       status = createElement("small", "account-health");
       element.append(status);
     }
+    const muted = snapshot.preferences?.mutedAccounts?.includes(element.dataset.accountId);
+    let indicator = element.querySelector(".channel-muted");
+    if (!indicator) {
+      indicator = createElement("span", "channel-muted");
+      indicator.append(icon("bellOff"));
+      element.querySelector(".account-name").append(indicator);
+    }
+    indicator.hidden = !muted;
+    indicator.title = "Notifications muted";
+    indicator.setAttribute("aria-label", "Notifications muted");
     status.textContent = healthLabel(health);
     status.title = status.textContent;
     status.hidden = health?.page === "ready" && health?.readiness !== "qr-code";
@@ -101,5 +112,13 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
           : "Opening WhatsApp…"
       : labels[health?.page] || "Opening account…"
     : "Vault open";
-  getElement("retry-account").hidden = !selected || health?.page === "sandbox-unavailable";
+  const retry = getElement("retry-account");
+  retry.hidden = !selected || !needsAttention(health) || health?.page === "sandbox-unavailable";
+  retry.textContent = health?.page === "process-stopped" ? "Reconnect" : "Try again";
+  getElement("account-page-status").title =
+    health?.readiness === "qr-code"
+      ? "On your phone, open WhatsApp → Linked devices → Link a device."
+      : health?.page === "tls-failed"
+        ? "Check your connection and system clock. Certificate validation remains enabled."
+        : "";
 }

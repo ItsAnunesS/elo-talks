@@ -116,6 +116,7 @@ export function renderNavigation(state, workspaceId, selected, actions) {
       "account-icon workspace-icon",
     );
     button.dataset.workspaceId = item.id;
+    button.dataset.dropWorkspace = item.id;
     button.title = item.name;
     button.setAttribute("aria-label", item.name);
     button.setAttribute("aria-pressed", String(item.id === workspaceId));
@@ -133,12 +134,16 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   getElement("empty-workspace").hidden = accounts.length > 0;
   getElement("workspace-summary").textContent =
     `${accounts.length} ${accounts.length === 1 ? "channel" : "channels"} · ${workspace.categories.length} ${workspace.categories.length === 1 ? "category" : "categories"}`;
+  getElement("manage-workspace").dataset.dropWorkspace = workspaceId;
+  getElement("account-list").dataset.dropWorkspace = workspaceId;
   getElement("account-list").replaceChildren();
   getElement("cards").replaceChildren();
   const appendChannels = (parent, categoryId) => {
     for (const account of accounts.filter((a) => placements[a.id].categoryId === categoryId)) {
       const row = createElement("div", "account-row");
       row.dataset.accountId = account.id;
+      row.draggable = true;
+      row.title = "Drag to a workspace or category. Manage channel also offers move controls.";
       row.classList.toggle("selected", selected === account.id);
       const button = createButton("", () => actions.selectAccount(account.id), "account-name");
       button.setAttribute("aria-label", account.name);
@@ -155,6 +160,8 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   appendChannels(getElement("account-list"), null);
   for (const category of workspace.categories) {
     const section = createElement("section", "channel-category");
+    section.dataset.dropWorkspace = workspaceId;
+    section.dataset.dropCategory = category.id;
     const heading = createElement("div", "category-heading");
     const channels = createElement("div", "category-channels");
     channels.hidden = collapsed.has(category.id);

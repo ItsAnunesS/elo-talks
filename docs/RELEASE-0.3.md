@@ -45,3 +45,27 @@ messages, override message colors, alter dimensions, hide functional controls,
 relax permissions or request remote resources. WhatsApp may change these selectors;
 real-account visual validation is still needed. Promotional elements are left alone
 until an exact, safe target can be verified.
+
+## Everyday workflow refinements
+
+- Header recovery actions appear for load, TLS or process errors, with a dedicated
+  reconnect label after process exit. QR readiness points to Linked devices; this
+  still does not claim to monitor WhatsApp transport health. Manual reload remains
+  in channel settings even when the page is healthy.
+- Drag local channel rows onto workspace icons, category sections or the workspace
+  heading (uncategorized). External drag payloads are ignored. The latest move can
+  be undone in the sidebar; a failed move is not shown as successful. Existing
+  placement selectors and move-up/down actions remain the keyboard alternative.
+- Channel settings can mute/unmute notifications; the bell-with-slash indicator
+  marks muted channels while unread counters remain visible.
+- Update progress shows current/target versions, actual downloaded bytes and
+  separate signature/download verification and installation stages. The helper
+  atomically publishes size-only progress in the private runtime directory; no
+  paths, messages or URLs are sent to the interface. Percentages are shown only
+  for a known download size, never fabricated for cryptographic verification.
+- General settings provide Comfortable/Compact density and an animation toggle,
+  saved automatically in local shell storage. No account data is stored in these
+  preferences. System reduced motion takes priority. Density never changes the
+  native account viewport, header height or sidebar width.
+- Ctrl+, opens Settings and Ctrl+Shift+L locks the vault from the local interface;
+  Ctrl+K remains the quick switcher. Remote WhatsApp focus retains its own shortcuts.

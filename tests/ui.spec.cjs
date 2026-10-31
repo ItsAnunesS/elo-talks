@@ -105,6 +105,7 @@ const http = require("node:http"),
               if (args.op === "status") return structuredClone(window.testState);
               if (args.op === "notifications") {
                 window.testState.notifications = args.data;
+                window.testAccountStatus.preferences = args.data;
                 return structuredClone(window.testState);
               }
               const organization = window.testState.organization;
@@ -142,6 +143,14 @@ const http = require("node:http"),
                 organization.workspaces.find((w) => w.id === data.workspaceId).categories = [];
                 for (const placement of Object.values(organization.placements))
                   if (placement.categoryId === data.id) placement.categoryId = null;
+                return structuredClone(window.testState);
+              }
+              if (args.op === "account.move") {
+                organization.placements[data.id] = {
+                  ...organization.placements[data.id],
+                  workspaceId: data.workspaceId,
+                  categoryId: data.categoryId,
+                };
                 return structuredClone(window.testState);
               }
               if (args.op === "account.update") {
@@ -283,7 +292,7 @@ const http = require("node:http"),
     );
     await page.locator('#account-list [data-account-id="b"]').click();
     await page.getByRole("status").filter({ hasText: "Could not load" }).waitFor();
-    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
     assert.ok(
       await page.evaluate(() =>
         window.testRequests.some(
@@ -529,6 +538,12 @@ const http = require("node:http"),
     await page.keyboard.press("Enter");
     await page.locator('#account-list [data-account-id="account-4"].selected').waitFor();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByLabel("Layout density", { exact: true }).selectOption("compact");
+    assert.equal(await page.locator("html").getAttribute("data-density"), "compact");
+    await page.getByLabel("Interface animations", { exact: true }).uncheck();
+    assert.equal(await page.locator("html").getAttribute("data-motion"), "off");
+    await page.getByLabel("Layout density", { exact: true }).selectOption("comfortable");
+    await page.getByLabel("Interface animations", { exact: true }).check();
     await page.getByRole("tab", { name: "Security", exact: true }).click();
     await page.getByLabel("Current master password", { exact: true }).fill("synthetic-only-secret");
     await page.getByLabel("Current master password", { exact: true }).press("Enter");
@@ -752,6 +767,47 @@ const http = require("node:http"),
         .evaluate((element) => getComputedStyle(element).animationName),
       "none",
     );
+    await page.getByRole("button", { name: "Company", exact: true }).click();
+    await page.getByRole("button", { name: "Manage Project", exact: true }).click();
+    await page.getByRole("button", { name: "Mute notifications", exact: true }).click();
+    await page
+      .locator('#account-list [data-account-id="account-3"] .channel-muted:not([hidden])')
+      .waitFor();
+    await page.getByRole("button", { name: "Manage Project", exact: true }).click();
+    await page.getByRole("button", { name: "Unmute notifications", exact: true }).click();
+    await page
+      .locator('#account-list [data-account-id="account-3"] .channel-muted[hidden]')
+      .waitFor({ state: "attached" });
+    const beforeMove = await page.evaluate(() =>
+      structuredClone(window.testState.organization.placements["account-3"]),
+    );
+    await page
+      .locator('#account-list [data-account-id="account-3"]')
+      .dragTo(page.locator('#workspace-icons [data-workspace-id="personal"]'));
+    await page.locator("#move-feedback:not([hidden])").waitFor();
+    assert.equal(
+      await page.evaluate(() => window.testState.organization.placements["account-3"].workspaceId),
+      "personal",
+    );
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await page.locator("#move-feedback[hidden]").waitFor({ state: "attached" });
+    assert.deepEqual(
+      await page.evaluate(() => window.testState.organization.placements["account-3"]),
+      beforeMove,
+    );
+    await page.evaluate(async () => {
+      const loading = await import("./loading-screen.js");
+      loading.showUpdate({
+        phase: "downloading",
+        currentVersion: "0.3.0",
+        version: "0.3.1",
+        progress: { step: "downloading", downloaded: 25 * 1048576, total: 100 * 1048576 },
+      });
+    });
+    assert.equal(await page.locator("#update-meter").getAttribute("value"), "25");
+    assert.equal(await page.locator("#update-version").textContent(), "0.3.0 → 0.3.1");
+    assert.equal(await page.locator("#update-detail").textContent(), "25.0 / 100.0 MB");
+    await page.evaluate(async () => (await import("./loading-screen.js")).hideLoading());
     const readinessPage = await browser.newPage();
     const readinessScript = fs.readFileSync(
       path.resolve(__dirname, "../src-tauri/src/readiness.js"),

@@ -1,12 +1,13 @@
-import { showLoading as show, hideLoading } from "./loading-screen.js";
+import { showLoading as show, hideLoading, showUpdate } from "./loading-screen.js";
 import { request, invoke } from "./bridge.js";
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const button = document.getElementById("update-now");
 let busy = false;
-async function settled(timeout = 320000) {
+async function settled(timeout = 320000, progress = false) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     const status = await request("update.status");
+    if (progress) showUpdate(status);
     if (!["checking", "downloading", "installing"].includes(status.phase)) return status;
     await pause(600);
   }
@@ -21,16 +22,14 @@ async function install() {
     await invoke("select_account", { id: null });
     show("Downloading and verifying the update…");
     let status = await request("update.status");
-    if (["checking", "downloading"].includes(status.phase)) status = await settled();
+    if (["checking", "downloading"].includes(status.phase)) status = await settled(320000, true);
     if (status.phase === "available") {
       await request("update.prepare");
-      status = await settled();
+      status = await settled(320000, true);
     }
     if (status.phase !== "ready")
       throw new Error(status.error || "Update unavailable. Try again later.");
-    show(
-      `Installing ${status.version || "the verified update"}. Closing your vault and restarting…`,
-    );
+    showUpdate({ ...status, phase: "installing" });
     await request("update.install");
   } catch (error) {
     hideLoading();
@@ -56,7 +55,7 @@ export async function initializeUpdates(unlocked) {
     );
   if (current.phase === "installing") {
     show("Installing the verified update. Your vault is closed…");
-    const result = await settled();
+    const result = await settled(320000, true);
     if (result.phase === "installed") return false;
     hideLoading();
     window.dispatchEvent(

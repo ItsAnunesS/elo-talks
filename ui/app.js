@@ -1,3 +1,5 @@
+import { appearanceControls } from "./appearance.js";
+import { initializeChannelDrag } from "./channel-drag.js";
 import { updateSettings } from "./update-settings.js";
 import { initializeUpdates, restartForUpdate } from "./updates.js";
 import { prepareAccounts } from "./startup.js";
@@ -370,6 +372,26 @@ async function editAccount(a) {
       const current = state.organization.placements[a.id];
       placement = placementFields(state, p, current.workspaceId, current.categoryId);
       const actions = createElement("div", "dialog-actions");
+      const muted = state.notifications?.mutedAccounts?.includes(a.id);
+      actions.append(
+        createButton(muted ? "Unmute notifications" : "Mute notifications", async () => {
+          const preferences = { ...state.notifications };
+          const ids = new Set(preferences.mutedAccounts || []);
+          if (ids.has(a.id)) ids.delete(a.id);
+          else ids.add(a.id);
+          await request("notifications", { ...preferences, mutedAccounts: [...ids] });
+          await refreshState();
+          await closeDialog();
+          showToast(ids.has(a.id) ? "Channel muted." : "Channel notifications restored.");
+        }),
+      );
+      actions.append(
+        createButton("Reload WhatsApp", async () => {
+          await invoke("retry_account", { id: a.id });
+          restoreSelected = a.id;
+          await closeDialog();
+        }),
+      );
       const move = async (delta) => {
         const ids = state.accounts.map((a) => a.id);
         const siblings = ids.filter((id) => {
@@ -527,6 +549,7 @@ async function openSettings() {
         "Updates",
       ]);
       notificationControls(notifications);
+      appearanceControls(general);
       general.append(
         createElement("h3", "", "On this device"),
         createElement(
@@ -707,6 +730,18 @@ getElement("find-channel").addEventListener("click", () =>
   findChannel().catch((error) => showToast(errorMessage(error))),
 );
 document.addEventListener("keydown", (event) => {
+  if (state.unlocked && !getElement("dialog").open && (event.ctrlKey || event.metaKey)) {
+    if (event.key === ",") {
+      event.preventDefault();
+      openSettings().catch((error) => showToast(errorMessage(error)));
+      return;
+    }
+    if (event.shiftKey && event.key.toLowerCase() === "l") {
+      event.preventDefault();
+      request("lock").catch((error) => showToast(errorMessage(error)));
+      return;
+    }
+  }
   if (
     state.unlocked &&
     !getElement("dialog").open &&
@@ -863,4 +898,46 @@ getElement("app-menu").addEventListener("click", () => {
 getElement("channel-settings").addEventListener("click", () => {
   const account = state.accounts.find((account) => account.id === selected);
   if (account) editAccount(account).catch((error) => showToast(errorMessage(error)));
+});
+
+let undoMove = null;
+let moveBusy = false;
+initializeChannelDrag(
+  async (id, workspaceId, categoryId) => {
+    if (moveBusy) return;
+    const previous = state.organization.placements[id];
+    if (!previous || (previous.workspaceId === workspaceId && previous.categoryId === categoryId))
+      return;
+    moveBusy = true;
+    try {
+      await request("account.move", { id, workspaceId, categoryId });
+      undoMove = { id, workspaceId: previous.workspaceId, categoryId: previous.categoryId || null };
+      await refreshState();
+      await selectWorkspace(workspaceId);
+      getElement("move-label").textContent = "Channel moved.";
+      getElement("move-feedback").hidden = false;
+    } finally {
+      moveBusy = false;
+    }
+  },
+  (error) => showToast(errorMessage(error)),
+);
+getElement("undo-move").addEventListener("click", async () => {
+  if (!undoMove || moveBusy) return;
+  moveBusy = true;
+  const button = getElement("undo-move");
+  button.disabled = true;
+  try {
+    const move = undoMove;
+    await request("account.move", move);
+    undoMove = null;
+    await refreshState();
+    await selectWorkspace(move.workspaceId);
+    getElement("move-feedback").hidden = true;
+  } catch (error) {
+    showToast(errorMessage(error));
+  } finally {
+    moveBusy = false;
+    button.disabled = false;
+  }
 });
