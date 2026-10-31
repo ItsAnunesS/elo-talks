@@ -30,13 +30,31 @@ class VersionTests(unittest.TestCase):
             )
             self.assertEqual(
                 json.loads((root / "src-tauri/tauri.conf.json").read_text())["version"],
-                "0.2.0-rc.42",
+                "0.2.10",
             )
             self.assertIn(
-                'name = "elo-talks"\nversion = "0.2.0-rc.42"',
+                'name = "elo-talks"\nversion = "0.2.10"',
                 (root / "Cargo.lock").read_text(),
             )
+            for run_number, expected in [(32, "0.2.0"), (33, "0.2.1"), (33, "0.2.1")]:
+                subprocess.run(
+                    ["python3", str(root / "scripts/set-version.py"), str(run_number)],
+                    check=True,
+                    capture_output=True,
+                )
+                self.assertEqual(
+                    json.loads((root / "src-tauri/tauri.conf.json").read_text())[
+                        "version"
+                    ],
+                    expected,
+                )
             before = (root / "Cargo.lock").read_text()
+            result = subprocess.run(
+                ["python3", str(root / "scripts/set-version.py"), "31"],
+                capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(before, (root / "Cargo.lock").read_text())
             result = subprocess.run(
                 ["python3", str(root / "scripts/set-version.py"), "../malicious"],
                 capture_output=True,

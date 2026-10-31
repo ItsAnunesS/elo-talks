@@ -3,20 +3,13 @@ import { request } from "./bridge.js";
 
 export function updateSettings(parent, { preferences, version, restart, feedback, signal }) {
   const heading = createElement("div", "settings-version");
-  const candidate = version?.includes("-rc.");
   heading.append(
     createElement("h3", "", `Elo Talks ${version || "development"}`),
-    createElement("span", "release-channel", candidate ? "Release candidate" : "Stable channel"),
+    createElement("span", "release-channel", "Stable channel"),
   );
   parent.append(
     heading,
-    createElement(
-      "p",
-      "hint",
-      candidate
-        ? "This candidate receives updates for the same release series. Stable installations never receive candidates automatically."
-        : "Only stable releases are offered automatically.",
-    ),
+    createElement("p", "hint", "Updates are installed automatically when the app starts."),
   );
   const status = createElement("p", "update-status", "Checking update status…");
   status.setAttribute("role", "status");

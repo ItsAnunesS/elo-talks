@@ -1,6 +1,6 @@
 # 0.2.0 stabilization
 
-The 0.2 line is a release candidate until manual acceptance is complete. It is not a
+The 0.2 line is published directly to the stable update channel. This is not a
 claim of certified distribution support or vulnerability-free software.
 
 ## Implemented workflows
@@ -18,30 +18,22 @@ claim of certified distribution support or vulnerability-free software.
 
 ## Release policy
 
-`release.json` owns the base version and channel. Every push currently builds
-`0.2.0-rc.<github.run_number>` and publishes an immutable GitHub prerelease. It never
-replaces the latest stable release. Run numbers intentionally need not start at one.
-The checked-in `0.2.0-rc.1` is the development version, overwritten only in CI's build
-checkout. No automated version commits are created.
+`release.json` owns the base version and its first GitHub run number. Run 32 builds
+`0.2.0`; subsequent pushes build `0.2.1`, `0.2.2`, and so on. Reruns keep the same
+version. No automated version commits are created and published assets stay immutable.
 
-Stable installations stay on stable releases. Installing a candidate is an explicit
-manual opt-in; that candidate can update to newer candidates of the same base version
-and then to a newer stable release. Candidate queries use one bounded releases-list
-request. They retain the same signature verification, cooldowns and closed-vault
-installation requirements. External AppImage managers have a pinned candidate tag
-so they cannot accidentally replace it with an older stable build; use the built-in
-updater for candidate-to-candidate upgrades. Stable builds keep the usual latest source.
+Every successful build publishes a regular release. The highest stable version is
+marked latest and offered by the built-in updater and compatible AppImage managers.
+Signature verification, cooldowns and closed-vault installation remain required.
+The updater retains compatibility with previously installed candidate builds so they
+can move to the stable release.
 
-Promoting to stable requires changing the channel to `stable` after acceptance.
-Published tags/assets cannot be reused for a different commit. Do not promote solely
-because CI is green.
-
-## Acceptance gate
+## Validation checklist
 
 | Check | Evidence required |
 |---|---|
 | Three real accounts | Messages and notifications after 30 minutes in inactive accounts and a hidden window |
-| AppImage update | Candidate-to-candidate and candidate-to-stable transition, fresh process and correct version |
+| AppImage update | Upgrade from the previous installed version, fresh process and correct version |
 | Vault | Screen lock/suspend close all profile users before unmount; failure remains visible |
 | Login recovery | Restart, offline startup, unavailable keyring and hardware-key/password fallback |
 | Photos | Correct self image or initials; seven-attempt stop and Retry budget reset |

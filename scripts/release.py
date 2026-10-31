@@ -81,12 +81,7 @@ def prepare_draft(repository, revision, tag):
     notes.write_text(
         f"Elo Talks {tag}\n\nCommit: `{revision}`\n\n"
         "Linux x86_64 AppImage. See docs/VALIDATION.md for validation limits.\n\n"
-        + (
-            "Release candidate for testing. Not promoted to the stable update channel.\n\n"
-            if "-rc." in tag
-            else ""
-        )
-        + "Verify SHA256SUMS and its Sigstore signature before running the application.\n"
+        "Verify SHA256SUMS and its Sigstore signature before running the application.\n"
     )
     github_cli(
         "release",
@@ -109,7 +104,6 @@ def main():
     repository = os.environ["GITHUB_REPOSITORY"]
     revision = os.environ["GITHUB_SHA"]
     tag = "v" + build_version(os.environ["GITHUB_RUN_NUMBER"])
-    candidate = "-rc." in tag
     comparison = json.loads(
         github_cli("api", f"repos/{repository}/compare/{revision}...release")
     )
@@ -140,10 +134,9 @@ def main():
         repository,
         "--draft=false",
         "--latest=false",
-        f"--prerelease={str(candidate).lower()}",
+        "--prerelease=false",
     )
-    if not candidate:
-        reconcile_latest(repository)
+    reconcile_latest(repository)
 
 
 if __name__ == "__main__":

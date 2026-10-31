@@ -41,18 +41,18 @@ newer commit or promoting an incomplete draft as latest.
 References: [GitHub release API permissions](https://docs.github.com/en/rest/releases/releases)
 and [workflow scope enforcement](https://github.blog/changelog/2023-11-02-github-actions-enforcing-workflow-scope-when-creating-a-release/).
 
-## 0.2 release candidates
+## Automatic stable releases
 
-Version selection now comes from `release.json`, shared by the version setter and
-publisher through `scripts/release_version.py`. Candidate pushes produce
-`<version>-rc.<run_number>` and never alter stable `latest`. Stable publication uses
-the exact configured version and preserves immutable tags/assets. Latest reconciliation
-compares all stable major/minor/patch components, not only the old 0.1 patch number.
+Version selection comes from `release.json`, shared by the version setter and
+publisher through `scripts/release_version.py`. The patch number is the configured
+base patch plus `github.run_number - first_run_number`. Run 32 produces `0.2.0`,
+run 33 produces `0.2.1`. Reruns preserve the version. Builds before the configured
+first run are rejected. When starting a new series, update both fields together.
 
-The built-in updater keeps stable and candidate installations separated. Candidate
-builds opt into their own version series and may graduate to a newer stable release;
-users of stable builds are never automatically moved to a candidate. See
-[RELEASE-0.2.md](RELEASE-0.2.md) before promotion.
+Every successful push publishes directly to the stable channel; no RC step is used.
+Tags/assets remain immutable. Latest reconciliation compares all stable
+major/minor/patch components so older builds cannot replace newer releases.
+See [RELEASE-0.2.md](RELEASE-0.2.md) for outstanding manual validation.
 
 CI now runs the pinned Playwright browser workflow suite before packaging. On Ubuntu
 runners, a temporary profile grants user namespaces only to the test browser binary;

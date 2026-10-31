@@ -18,7 +18,7 @@ class PublicationTests(unittest.TestCase):
         comparison="identical",
         lookup_denied=False,
         creation_denied=False,
-        candidate=False,
+        new_series=False,
     ):
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d)
@@ -28,8 +28,8 @@ class PublicationTests(unittest.TestCase):
             (p / "release.json").write_text(
                 json.dumps(
                     {
-                        "version": "0.2.0" if candidate else f"0.1.{number}",
-                        "channel": "candidate" if candidate else "stable",
+                        "version": "0.2.0" if new_series else f"0.1.{number}",
+                        "first_run_number": number,
                     }
                 )
             )
@@ -121,21 +121,19 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(mutations[0][mutations[0].index("--target") + 1], "abc123")
         self.assertEqual(state["releases"], [])
 
-    def test_candidate_never_replaces_stable_latest(self):
+    def test_new_series_replaces_previous_latest(self):
         stable = {
             "tag_name": "v0.1.30",
             "target_commitish": "older",
             "draft": False,
             "prerelease": False,
         }
-        result, state = self.run_release([stable], 31, candidate=True)
+        result, state = self.run_release([stable], 32, new_series=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(state["latest"], "v0.1.30")
-        candidate = next(
-            r for r in state["releases"] if r["tag_name"] == "v0.2.0-rc.31"
-        )
-        self.assertTrue(candidate["prerelease"])
-        self.assertFalse(candidate["draft"])
+        self.assertEqual(state["latest"], "v0.2.0")
+        release = next(r for r in state["releases"] if r["tag_name"] == "v0.2.0")
+        self.assertFalse(release["prerelease"])
+        self.assertFalse(release["draft"])
 
     def test_stable_latest_is_ordered_across_minor_versions(self):
         newer = {

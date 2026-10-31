@@ -15,11 +15,14 @@ def build_version(number):
     version = config["version"]
     if not STABLE.fullmatch(version):
         raise ValueError("Invalid release version")
-    if config["channel"] == "candidate":
-        return f"{version}-rc.{number}"
-    if config["channel"] == "stable":
-        return version
-    raise ValueError("Invalid release channel")
+    first = config["first_run_number"]
+    if type(first) is not int or first < 1:
+        raise ValueError("Expected a positive first run number")
+    offset = int(number) - first
+    if offset < 0:
+        raise ValueError("Build predates the configured release series")
+    major, minor, patch = map(int, version.split("."))
+    return f"{major}.{minor}.{patch + offset}"
 
 
 def stable_key(tag):

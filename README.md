@@ -1,6 +1,6 @@
 # Elo Talks
 
-**0.2.0 release-candidate preparation.** See [the stabilization scope and acceptance gate](docs/RELEASE-0.2.md). Stable installations remain on the stable update channel.
+**0.2.0 workflow improvements.** See [the release scope and validation checklist](docs/RELEASE-0.2.md). Releases are published directly to the stable update channel.
 
 A Linux desktop application built with Tauri 2 for multiple WhatsApp Web accounts, with persistent profiles stored in an encrypted local vault.
 
