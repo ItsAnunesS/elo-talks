@@ -21,7 +21,18 @@ export async function prepareAccounts(accounts, lastAccount, openAccount, waitFo
   proceed.addEventListener("click", skip);
   showLoading(`Opening ${priority.name}…`);
   try {
-    await invoke("sync_accounts", { accountId: priority.id });
+    let priorityFailed = false;
+    try {
+      await invoke("sync_accounts", { accountId: priority.id });
+    } catch {
+      priorityFailed = true;
+      window.dispatchEvent(
+        new CustomEvent("ui-error", {
+          detail:
+            "The last channel could not start. Other channels are still opening. Select it to retry.",
+        }),
+      );
+    }
     // Give the priority view a head start. Other views stay hidden and are
     // created incrementally; their readiness never blocks the selected account.
     void (async () => {
@@ -41,6 +52,10 @@ export async function prepareAccounts(accounts, lastAccount, openAccount, waitFo
           }),
         );
     })();
+    if (priorityFailed) {
+      await openAccount(null);
+      return;
+    }
     const started = Date.now();
     while (!skipped) {
       const snapshot = await invoke("account_snapshot");

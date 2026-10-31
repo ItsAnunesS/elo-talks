@@ -1,7 +1,7 @@
 const overlay = document.getElementById("startup-screen");
 const label = document.getElementById("startup-label");
 export function showLoading(text) {
-  label.textContent = text;
+  if (label.textContent !== text) label.textContent = text;
   document.getElementById("update-progress").hidden = true;
   overlay.hidden = false;
   for (const id of ["workspace", "lock-screen"]) document.getElementById(id).inert = true;
@@ -43,7 +43,7 @@ export function showUpdate(status) {
     meter.removeAttribute("value");
     detail.textContent =
       status.phase === "installing"
-        ? "Your vault is closed before replacement."
+        ? "Closing your accounts and vault before replacement."
         : "The signature and checksum must pass before installation.";
   }
 }

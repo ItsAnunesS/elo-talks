@@ -125,7 +125,12 @@ impl Controller {
         }
         let path = self.vault.mount.join("notifications.json");
         if path.exists() {
-            storage::read(&path)
+            let mut preferences: NotificationPreferences = storage::read(&path)?;
+            let accounts = self.accounts()?;
+            preferences
+                .muted_accounts
+                .retain(|id| accounts.iter().any(|account| &account.id == id));
+            Ok(preferences)
         } else {
             Ok(NotificationPreferences::default())
         }
@@ -647,6 +652,25 @@ mod tests {
                 .unwrap()
                 .do_not_disturb
         );
+        controller
+            .handle(&Request {
+                op: "account.remove".into(),
+                data: json!({"id": account.id}),
+            })
+            .unwrap();
+        let preferences = controller.notification_preferences().unwrap();
+        assert!(preferences.muted_accounts.is_empty());
+        assert!(preferences.do_not_disturb);
+        assert_eq!(
+            preferences.detail,
+            crate::notification_content::NotificationDetail::Preview
+        );
+        controller
+            .handle(&Request {
+                op: "notifications".into(),
+                data: serde_json::to_value(preferences).unwrap(),
+            })
+            .unwrap();
         controller.vault.master = None;
         assert_eq!(
             controller.notification_preferences().unwrap().detail,

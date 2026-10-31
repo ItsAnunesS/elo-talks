@@ -35,6 +35,11 @@ pub fn read<T: DeserializeOwned>(p: &Path) -> Result<T> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 pub fn write<T: Serialize>(p: &Path, value: &T) -> Result<()> {
+    let bytes = zeroize::Zeroizing::new(serde_json::to_vec(value)?);
+    ensure!(
+        bytes.len() < MAX_STATE_BYTES as usize,
+        "File exceeds the size limit"
+    );
     let tmp = p.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
     let mut f = OpenOptions::new()
         .write(true)
@@ -42,7 +47,6 @@ pub fn write<T: Serialize>(p: &Path, value: &T) -> Result<()> {
         .mode(0o600)
         .open(&tmp)?;
     let result = (|| -> Result<()> {
-        let bytes = zeroize::Zeroizing::new(serde_json::to_vec(value)?);
         f.write_all(&bytes)?;
         f.sync_all()?;
         fs::rename(&tmp, p)?;
@@ -83,6 +87,16 @@ mod tests {
             read::<serde_json::Value>(&fifo).unwrap_err().to_string(),
             "State must be a regular file"
         );
+    }
+
+    #[test]
+    fn oversized_write_preserves_previous_state_without_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        write(&path, &"original").unwrap();
+        assert!(write(&path, &"x".repeat(MAX_STATE_BYTES as usize)).is_err());
+        assert_eq!(read::<String>(&path).unwrap(), "original");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]

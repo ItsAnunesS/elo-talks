@@ -86,8 +86,10 @@ export async function initializeUpdates(unlocked) {
     if (!busy) hideLoading();
   }
   button.addEventListener("click", restartForUpdate);
+  let refreshing = false;
   setInterval(async () => {
-    if (busy) return;
+    if (busy || refreshing) return;
+    refreshing = true;
     try {
       const status = await request("update.status");
       window.dispatchEvent(new CustomEvent("update-state", { detail: status }));
@@ -101,6 +103,8 @@ export async function initializeUpdates(unlocked) {
             : "Preparing update…";
     } catch {
       /* The controller may be restarting the interface. */
+    } finally {
+      refreshing = false;
     }
   }, 10000);
   return !busy;

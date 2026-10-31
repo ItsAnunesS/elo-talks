@@ -40,6 +40,11 @@ const http = require("node:http"),
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(() => {
       window.testRequests = [];
+      const nativeInterval = window.setInterval;
+      window.setInterval = (callback, delay, ...args) => {
+        if (delay === 10000) window.testUpdatePoll = callback;
+        return nativeInterval(callback, delay, ...args);
+      };
       window.testListeners = {};
       window.testAccountStatus = {
         accounts: {
@@ -70,7 +75,8 @@ const http = require("node:http"),
             if (
               cmd === "sync_accounts" &&
               localStorage.getItem("startupScenario") &&
-              args.accountId === "a"
+              (args.accountId === "a" ||
+                localStorage.getItem("startupScenario") === "priority-failed")
             )
               throw Error("Synthetic background failure");
             if (cmd === "account_avatar") return window.testAvatars?.[args.id] || null;
@@ -618,6 +624,14 @@ const http = require("node:http"),
     assert.equal(await page.locator(".switcher-result").count(), 1);
     await page.screenshot({ animations: "disabled", path: "/tmp/elo-search-premium.png" });
     await page.getByLabel("Search channels").press("ArrowDown");
+    await page.keyboard.press("ArrowUp");
+    assert.equal(
+      await page
+        .getByLabel("Search channels")
+        .evaluate((input) => input === document.activeElement),
+      true,
+    );
+    await page.getByLabel("Search channels").press("ArrowDown");
     await page.keyboard.press("Enter");
     await page.locator('#account-list [data-account-id="account-4"].selected').waitFor();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -748,7 +762,35 @@ const http = require("node:http"),
     await page.getByRole("button", { name: "Continue anyway" }).click();
     await page.locator('#account-list [data-account-id="b"].selected').waitFor();
     assert.equal(await page.locator("#startup-screen").isVisible(), false);
+    await page.evaluate(() => localStorage.setItem("startupScenario", "priority-failed"));
+    await page.reload();
+    await page.locator("#startup-screen[hidden]").waitFor({ state: "attached" });
+    assert.equal(await page.locator("#dashboard").isVisible(), true);
+    await page.waitForFunction(
+      () => window.testRequests.filter((request) => request.cmd === "sync_accounts").length >= 2,
+    );
+    assert.equal(await page.locator("#lock-screen").isVisible(), false);
     await page.evaluate(() => localStorage.removeItem("startupScenario"));
+    await page.evaluate(async () => {
+      window.testHoldOperation = "update.status";
+      const before = window.testRequests.filter(
+        (request) => request.args?.op === "update.status",
+      ).length;
+      const first = window.testUpdatePoll();
+      await Promise.resolve();
+      await window.testUpdatePoll();
+      window.testPollDelta =
+        window.testRequests.filter((request) => request.args?.op === "update.status").length -
+        before;
+      window.testHoldOperation = null;
+      window.testReleaseRequest();
+      await first;
+    });
+    assert.equal(
+      await page.evaluate(() => window.testPollDelta),
+      1,
+      "Slow status queries must not overlap",
+    );
     await page.addInitScript(() => {
       const original = window.__TAURI__.core.invoke;
       let update =

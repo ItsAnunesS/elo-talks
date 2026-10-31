@@ -20,17 +20,26 @@ export async function openChannelSearch(state, open, select, actions = []) {
       const results = createElement("div", "switcher-results");
       parent.append(summary, results);
       const normalize = (text) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+      const workspaces = new Map(
+        state.organization.workspaces.map((workspace) => [workspace.id, workspace]),
+      );
+      const channels = state.accounts.flatMap((account) => {
+        const placement = state.organization.placements[account.id];
+        const workspace = workspaces.get(placement?.workspaceId);
+        if (!workspace) return [];
+        const category = workspace.categories.find((item) => item.id === placement.categoryId);
+        const location = [workspace.name, category?.name].filter(Boolean).join(" / ");
+        return [{ account, placement, location, search: normalize(`${account.name} ${location}`) }];
+      });
+      const shortcuts = actions.map((action) => ({
+        ...action,
+        search: normalize(`${action.label} ${action.hint || ""}`),
+      }));
       const render = () => {
-        results.replaceChildren();
-        for (const account of state.accounts) {
-          const placement = state.organization.placements[account.id];
-          const workspace = state.organization.workspaces.find(
-            (w) => w.id === placement.workspaceId,
-          );
-          const category = workspace.categories.find((c) => c.id === placement.categoryId);
-          const location = [workspace.name, category?.name].filter(Boolean).join(" / ");
-          if (!normalize(`${account.name} ${location}`).includes(normalize(input.value.trim())))
-            continue;
+        const query = normalize(input.value.trim());
+        const fragment = document.createDocumentFragment();
+        for (const { account, placement, location, search } of channels) {
+          if (!search.includes(query)) continue;
           const row = createButton("", () => select(account.id), "switcher-result");
           const label = createElement("span");
           label.append(
@@ -38,16 +47,11 @@ export async function openChannelSearch(state, open, select, actions = []) {
             createElement("small", "", location),
           );
           row.append(serviceIcon(placement.service), label);
-          results.append(row);
+          fragment.append(row);
         }
-        const channelCount = results.childElementCount;
-        for (const action of actions) {
-          if (
-            !normalize(`${action.label} ${action.hint || ""}`).includes(
-              normalize(input.value.trim()),
-            )
-          )
-            continue;
+        const channelCount = fragment.childElementCount;
+        for (const action of shortcuts) {
+          if (!action.search.includes(query)) continue;
           const row = createButton("", action.run, "switcher-result quick-action");
           const label = createElement("span");
           label.append(
@@ -55,8 +59,9 @@ export async function openChannelSearch(state, open, select, actions = []) {
             createElement("small", "", action.hint || "Action"),
           );
           row.append(icon(action.icon || "arrow"), label);
-          results.append(row);
+          fragment.append(row);
         }
+        results.replaceChildren(fragment);
         summary.textContent = results.childElementCount
           ? `${channelCount} channels · ${results.childElementCount - channelCount} shortcuts`
           : "No matches. Try another name.";
@@ -70,11 +75,15 @@ export async function openChannelSearch(state, open, select, actions = []) {
         }
       });
       results.addEventListener("keydown", (event) => {
-        if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         const rows = Array.from(results.children);
         const index = rows.indexOf(document.activeElement);
-        rows[(index + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length]?.focus();
+        if (event.key === "ArrowUp" && index === 0) input.focus();
+        else if (event.key === "Home") rows[0]?.focus();
+        else if (event.key === "End") rows.at(-1)?.focus();
+        else
+          rows[(index + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length]?.focus();
       });
       render();
     },
