@@ -7,6 +7,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+const BACKGROUND_CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
 pub struct Updater {
     target: Option<PathBuf>,
     helper: PathBuf,
@@ -32,7 +34,7 @@ impl Updater {
             helper,
             child: None,
             started: Instant::now(),
-            next_check: Instant::now() + Duration::from_secs(3600),
+            next_check: Instant::now() + BACKGROUND_CHECK_INTERVAL,
             stage: None,
             output: runtime.join("update-result.json"),
         })
@@ -123,12 +125,12 @@ impl Updater {
                 self.state.as_object_mut().map(|o| o.remove("stage"));
                 let _ = std::fs::remove_file(&self.output);
             }
-            self.next_check = Instant::now() + Duration::from_secs(3600);
+            self.next_check = Instant::now() + BACKGROUND_CHECK_INTERVAL;
         } else if self.target.is_some()
             && Instant::now() >= self.next_check
             && !matches!(self.state["phase"].as_str(), Some("ready" | "installed"))
         {
-            self.next_check = Instant::now() + Duration::from_secs(3600);
+            self.next_check = Instant::now() + BACKGROUND_CHECK_INTERVAL;
             let _ = self.command("check");
         }
     }
@@ -219,6 +221,15 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
             updater.poll();
         }
+        assert_eq!(updater.status()["phase"], "available");
+        let remaining = updater.next_check.saturating_duration_since(Instant::now());
+        assert!(remaining > Duration::from_secs(295));
+        assert!(remaining <= Duration::from_secs(300));
+        updater.poll();
+        assert!(
+            updater.child.is_none(),
+            "Do not check again before the deadline"
+        );
         assert_eq!(updater.status()["phase"], "available");
         assert!(updater.command("install").is_err());
         assert!(updater.stage.is_none());
