@@ -1360,3 +1360,77 @@ body[data-unlocked="true"] > .toast {
   object-fit: cover;
   border-radius: inherit;
 }
+
+/* Release-candidate polish: status stays readable without adding another panel. */
+.workspace-health {
+  margin: -2px 0 18px;
+  color: #a7a5b5;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.workspace-health.has-warning {
+  color: #e7bd82;
+}
+.account-card {
+  position: relative;
+  padding: 22px;
+  min-height: 104px;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+.account-card > .notification-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+.account-card .channel-card-title {
+  padding-right: 14px;
+}
+.account-card.needs-attention {
+  border-color: #65513d;
+}
+.account-card.needs-attention .card-health {
+  color: #e7bd82;
+}
+.account-card:focus-visible {
+  outline-offset: 4px;
+}
+.settings-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.settings-version h3 {
+  margin: 0;
+}
+.release-channel {
+  padding: 4px 8px;
+  border: 1px solid #494253;
+  border-radius: 6px;
+  font-size: 10px;
+  color: #c2b2ec;
+}
+.update-status {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #191920;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.settings-tabs {
+  overflow-x: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-card {
+    transition: none;
+  }
+}
+
+#quiet-button[aria-pressed="true"] {
+  background: #302a40;
+  color: #d0bdff;
+  border-radius: 10px;
+}

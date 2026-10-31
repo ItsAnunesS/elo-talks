@@ -5,10 +5,9 @@ import pathlib
 import re
 import sys
 
-number = sys.argv[1]
-if not re.fullmatch(r"[1-9][0-9]*", number):
-    raise SystemExit("Expected a positive GitHub run number")
-version = f"0.1.{number}"
+from release_version import build_version
+
+version = build_version(sys.argv[1])
 root = pathlib.Path(__file__).resolve().parents[1]
 p = root / "src-tauri/Cargo.toml"
 p.write_text(

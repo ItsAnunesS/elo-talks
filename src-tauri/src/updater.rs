@@ -19,6 +19,7 @@ pub struct Updater {
     failures: u32,
     interval: Duration,
     preferences: Option<PathBuf>,
+    last_check: Option<Instant>,
     state: Value,
     stage: Option<PathBuf>,
     output: PathBuf,
@@ -42,6 +43,7 @@ impl Updater {
             failures: 0,
             interval: BACKGROUND_CHECK_INTERVAL,
             preferences: None,
+            last_check: None,
             stage: None,
             output: runtime.join("update-result.json"),
         })
@@ -88,7 +90,19 @@ impl Updater {
         Ok(self.preferences())
     }
     pub fn status(&self) -> Value {
-        self.state.clone()
+        let now = Instant::now();
+        let wait = if self.failures > 0 {
+            self.next_check.saturating_duration_since(now)
+        } else {
+            self.last_check
+                .map(|last| Duration::from_secs(60).saturating_sub(last.elapsed()))
+                .unwrap_or_default()
+        };
+        let mut status = self.state.clone();
+        status["canCheck"] = json!(self.target.is_some() && self.child.is_none() && wait.is_zero());
+        status["retryInSeconds"] = json!(wait.as_secs() + u64::from(wait.subsec_nanos() > 0));
+        status["intervalMinutes"] = json!(self.interval.as_secs() / 60);
+        status
     }
     pub fn command(&mut self, operation: &str) -> Result<Value> {
         ensure!(
@@ -106,7 +120,14 @@ impl Updater {
         let mut command = Command::new(&self.helper);
         command.arg(operation).arg(env!("CARGO_PKG_VERSION"));
         let phase = match operation {
-            "check" => "checking",
+            "check" => {
+                ensure!(
+                    self.last_check
+                        .is_none_or(|last| last.elapsed() >= Duration::from_secs(60)),
+                    "Wait a minute before checking again"
+                );
+                "checking"
+            }
             "prepare" => {
                 ensure!(
                     self.state["phase"] == "available",
@@ -141,6 +162,9 @@ impl Updater {
                 .context("Bundled updater unavailable")?,
         );
         self.started = Instant::now();
+        if operation == "check" {
+            self.last_check = Some(self.started);
+        }
         self.state["phase"] = json!(phase);
         Ok(self.status())
     }
@@ -426,6 +450,12 @@ printf '%s' "$$" > "$ELO_RESTART_TEST_RESULT"
         );
         assert_eq!(updater.status()["phase"], "available");
         assert!(updater.command("install").is_err());
+        assert!(
+            updater.command("check").is_err(),
+            "Manual checks must not bypass the one-minute minimum"
+        );
+        assert_eq!(updater.status()["canCheck"], false);
+        assert!(updater.status()["retryInSeconds"].as_u64().unwrap() > 0);
         assert!(updater.stage.is_none());
         assert!(updater.status().get("stage").is_none());
     }

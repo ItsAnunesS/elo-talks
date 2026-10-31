@@ -60,6 +60,8 @@ elif arguments[:2] == ["release", "edit"]:
     )
     if "--draft=false" in arguments:
         release["draft"] = False
+    if "--prerelease=true" in arguments:
+        release["prerelease"] = True
     if "--latest" in arguments:
         state["latest"] = arguments[2]
 

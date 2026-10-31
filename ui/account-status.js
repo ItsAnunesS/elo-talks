@@ -8,6 +8,15 @@ const labels = {
   "process-stopped": "Account stopped unexpectedly",
   "sandbox-unavailable": "Security sandbox unavailable",
 };
+function healthLabel(health) {
+  if (health?.page !== "ready") return labels[health?.page] || "Preparing WhatsApp…";
+  if (health.readiness === "qr-code") return "Scan QR code to connect";
+  if (health.readiness === "chats") return "Open WhatsApp →";
+  return "Open WhatsApp · sign in if needed";
+}
+function needsAttention(health) {
+  return !!health?.page && !["loading", "ready"].includes(health.page);
+}
 let snapshot = { accounts: {}, preferences: {} };
 
 let organization = { placements: {} };
@@ -55,18 +64,39 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
       status = createElement("small", "account-health");
       element.append(status);
     }
-    status.textContent = labels[health?.page] || "Opening account…";
+    status.textContent = healthLabel(health);
     status.title = status.textContent;
-    status.hidden = health?.page === "ready";
+    status.hidden = health?.page === "ready" && health?.readiness !== "qr-code";
     element.querySelector(".account-name").title = status.textContent;
   }
+  let attention = 0,
+    preparing = 0;
+  for (const card of document.querySelectorAll("#cards [data-account-id]")) {
+    const health = snapshot.accounts[card.dataset.accountId];
+    const failed = needsAttention(health);
+    card.classList.toggle("needs-attention", failed);
+    card.querySelector(".card-health").textContent = healthLabel(health);
+    card.title = healthLabel(health);
+    setBadge(card, counter(health));
+    if (failed) attention++;
+    else if (!health || health.page === "loading") preparing++;
+  }
+  const summary = getElement("workspace-health");
+  summary.textContent = attention
+    ? `${attention} ${attention === 1 ? "channel needs" : "channels need"} attention. Open a channel to retry.`
+    : preparing
+      ? `${preparing} ${preparing === 1 ? "channel is" : "channels are"} preparing in the background.`
+      : "Accounts stay open when you switch channels.";
+  summary.classList.toggle("has-warning", attention > 0);
   const total = totals.get(activeWorkspace) || 0;
   getElement("overview-badge").hidden = total === 0;
   getElement("overview-badge").textContent = total > 99 ? "99+" : String(total);
   const health = snapshot.accounts[selected];
   getElement("account-page-status").textContent = selected
     ? health?.page === "ready"
-      ? "WhatsApp Web"
+      ? health?.readiness === "qr-code"
+        ? "Scan QR code"
+        : "WhatsApp Web"
       : labels[health?.page] || "Opening account…"
     : "Vault open";
   getElement("retry-account").hidden = !selected || health?.page === "sandbox-unavailable";

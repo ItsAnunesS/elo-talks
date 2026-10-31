@@ -14,6 +14,8 @@ class VersionTests(unittest.TestCase):
             root = pathlib.Path(d)
             for path in [
                 "scripts/set-version.py",
+                "scripts/release_version.py",
+                "release.json",
                 "Cargo.lock",
                 "src-tauri/Cargo.toml",
                 "src-tauri/tauri.conf.json",
@@ -28,10 +30,10 @@ class VersionTests(unittest.TestCase):
             )
             self.assertEqual(
                 json.loads((root / "src-tauri/tauri.conf.json").read_text())["version"],
-                "0.1.42",
+                "0.2.0-rc.42",
             )
             self.assertIn(
-                'name = "elo-talks"\nversion = "0.1.42"',
+                'name = "elo-talks"\nversion = "0.2.0-rc.42"',
                 (root / "Cargo.lock").read_text(),
             )
             before = (root / "Cargo.lock").read_text()

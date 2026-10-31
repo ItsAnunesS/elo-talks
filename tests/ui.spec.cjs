@@ -67,6 +67,12 @@ const http = require("node:http"),
             window.testRequests.push({ cmd, args });
             if (cmd === "test_notification" && window.testNotificationError)
               throw Error("Linux notification service unavailable");
+            if (
+              cmd === "sync_accounts" &&
+              localStorage.getItem("startupScenario") &&
+              args.accountId === "a"
+            )
+              throw Error("Synthetic background failure");
             if (cmd === "account_avatar") return window.testAvatars?.[args.id] || null;
             if (cmd === "account_snapshot") return structuredClone(window.testAccountStatus);
             if (cmd === "diagnostics")
@@ -90,7 +96,12 @@ const http = require("node:http"),
                 return { intervalMinutes: window.testUpdateInterval };
               }
               if (args.op === "update.startup") return { automatic: false };
-              if (args.op === "update.status") return { phase: "unsupported" };
+              if (args.op === "update.status")
+                return window.testUpdateStatus || { phase: "unsupported" };
+              if (args.op === "update.check") {
+                window.testUpdateStatus = { phase: "current", canCheck: false, retryInSeconds: 60 };
+                return window.testUpdateStatus;
+              }
               if (args.op === "status") return structuredClone(window.testState);
               if (args.op === "notifications") {
                 window.testState.notifications = args.data;
@@ -273,6 +284,22 @@ const http = require("node:http"),
       await page.locator('#account-list [data-account-id="b"] .notification-badge').textContent(),
       "99+",
     );
+    await page.evaluate(() => {
+      window.testAccountStatus.accounts.b = { page: "tls-failed", pendingNotifications: 101 };
+    });
+    const quiet = page.getByRole("button", { name: "Pause desktop notifications", exact: true });
+    await quiet.click();
+    await page.waitForFunction(
+      () => document.getElementById("quiet-button").getAttribute("aria-pressed") === "true",
+    );
+    assert.equal(
+      await page.locator('#account-list [data-account-id="b"] .notification-badge').textContent(),
+      "99+",
+    );
+    await quiet.click();
+    await page.waitForFunction(
+      () => document.getElementById("quiet-button").getAttribute("aria-pressed") === "false",
+    );
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.screenshot({ path: "/tmp/elo-settings-premium.png" });
     await page.getByRole("tab", { name: "Notifications", exact: true }).click();
@@ -318,7 +345,7 @@ const http = require("node:http"),
       await page.getByLabel("Notification content", { exact: true }).inputValue(),
       "preview",
     );
-    await page.getByRole("tab", { name: "General", exact: true }).click();
+    await page.getByRole("tab", { name: "Updates", exact: true }).click();
     assert.equal(
       await page.getByLabel("Check for updates every", { exact: true }).inputValue(),
       "5",
@@ -327,6 +354,18 @@ const http = require("node:http"),
     await page.getByRole("button", { name: "Save update interval", exact: true }).click();
     await page.getByRole("status").filter({ hasText: "Update interval saved" }).waitFor();
     assert.equal(await page.evaluate(() => window.testUpdateInterval), 15);
+    await page.evaluate(() => {
+      window.testUpdateStatus = { phase: "idle", canCheck: true };
+      window.dispatchEvent(new CustomEvent("update-state", { detail: window.testUpdateStatus }));
+    });
+    await page.getByRole("button", { name: "Check now", exact: true }).click();
+    await page.locator(".update-status").filter({ hasText: "up to date" }).waitFor();
+    assert.equal(
+      await page.getByRole("button", { name: "Check now", exact: true }).isDisabled(),
+      true,
+    );
+    await page.screenshot({ path: "/tmp/elo-updates-020.png" });
+    await page.getByRole("tab", { name: "General", exact: true }).click();
     await page.getByRole("button", { name: "Safe diagnostics", exact: true }).click();
     const diagnosticReport = await page.getByLabel("Diagnostic report").inputValue();
     assert.ok(diagnosticReport.includes("load-failed"));
@@ -569,6 +608,12 @@ const http = require("node:http"),
       ),
       ["b", "a"],
     );
+    await page.waitForFunction(() =>
+      window.testRequests.some(
+        (r) => r.cmd === "sync_accounts" && r.args.accountId !== "a" && r.args.accountId !== "b",
+      ),
+    );
+
     assert.equal(
       await page.evaluate(() =>
         window.testRequests.some((r) => r.cmd === "select_account" && r.args.id),

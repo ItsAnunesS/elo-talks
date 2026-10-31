@@ -8,6 +8,10 @@ export UPDATE_INFORMATION="$LDAI_UPDATE_INFORMATION"
 export LDAI_VERSION
 LDAI_VERSION="$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')"
 export VERSION="$LDAI_VERSION"
+if [[ "$VERSION" == *-rc.* ]]; then
+  export LDAI_UPDATE_INFORMATION="gh-releases-zsync|ItsAnunesS|elo-talks|v$VERSION|*amd64.AppImage.zsync"
+  export UPDATE_INFORMATION="$LDAI_UPDATE_INFORMATION"
+fi
 cargo tauri build --bundles appimage -- --locked
 # Tauri may leave the generated companion outside its bundle directory.
 # Generate it at a predictable path from the final image before signing.

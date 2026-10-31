@@ -171,12 +171,14 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   }
   for (const account of accounts) {
     const card = createButton("", () => actions.selectAccount(account.id), "account-card");
+    card.dataset.accountId = account.id;
     const initials = createElement("span", "card-initials", account.name.slice(0, 2).toUpperCase());
     initials.dataset.avatarId = account.id;
     initials.dataset.initials = initials.textContent;
     const title = createElement("strong", "channel-card-title");
     title.append(serviceIcon(), createElement("span", "", account.name));
-    card.append(initials, title, createElement("small", "", "Open WhatsApp →"));
+    const status = createElement("small", "card-health", "Preparing WhatsApp…");
+    card.append(initials, title, status);
     getElement("cards").append(card);
     avatars.delete(account.id);
     void loadAvatar(account.id, initials);

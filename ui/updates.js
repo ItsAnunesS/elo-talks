@@ -34,7 +34,7 @@ async function install() {
     button.disabled = false;
   }
 }
-async function restartForUpdate() {
+export async function restartForUpdate() {
   if (busy) return;
   busy = true;
   button.disabled = true;
@@ -88,6 +88,7 @@ export async function initializeUpdates(unlocked) {
     if (busy) return;
     try {
       const status = await request("update.status");
+      window.dispatchEvent(new CustomEvent("update-state", { detail: status }));
       button.hidden = !["available", "ready"].includes(status.phase);
       button.textContent = `Restart to update${status.version ? ` · ${status.version}` : ""}`;
     } catch {

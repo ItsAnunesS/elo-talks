@@ -157,3 +157,24 @@ Safe diagnostics includes `avatar`, `avatarAttempts` and `avatarProbeActive` for
 each account, without identifying the account or exposing image URLs/pixels.
 Retry reloads the WhatsApp page, clears the previous photo and starts a new budget
 of at most seven attempts. Search stops earlier on success.
+
+## 0.2 candidate preparation (2026-10-31)
+
+Local automated validation passed for the candidate: 42 Rust tests (the separately
+run FUSE test remains ignored in the ordinary suite), 14 Python contracts, Go
+updater tests including a real Sigstore fixture, browser workflow tests, native
+D-Bus notification tests, and the native WebKit layout suite at both scale factors.
+Clippy, formatting and dependency audits completed. Go reported no reachable
+vulnerability; three findings in required modules were outside called/imported
+code. Rust retains four documented maintenance warnings.
+
+Browser coverage includes notification pause without clearing badges, update
+interval persistence through the controller tests, a manual-check cooldown, stable
+vs candidate release ordering, candidate publication without changing stable
+latest, and continuing background startup after one account fails. Browser tests
+use synthetic data; they do not prove live WhatsApp health.
+
+The attempted process-counter sample found no running Elo Talks process. It is
+not a usable CPU/memory baseline and no performance improvement percentage is
+claimed. The three-account soak, clean distributions, hardware credentials and
+installed-AppImage candidate upgrade acceptance remain pending.

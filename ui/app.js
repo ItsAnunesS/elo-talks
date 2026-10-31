@@ -1,4 +1,5 @@
-import { initializeUpdates } from "./updates.js";
+import { updateSettings } from "./update-settings.js";
+import { initializeUpdates, restartForUpdate } from "./updates.js";
 import { prepareAccounts } from "./startup.js";
 import { showLoading, hideLoading } from "./loading-screen.js";
 import {
@@ -106,7 +107,12 @@ function renderState() {
   document.body.dataset.unlocked = String(state.unlocked);
   getElement("lock-screen").hidden = state.unlocked;
   getElement("workspace").hidden = !state.unlocked;
-  getElement("version").textContent = `v${state.version || "0.1.0"}`;
+  getElement("version").textContent = `v${state.version || "development"}`;
+  const quiet = !!state.notifications?.doNotDisturb;
+  getElement("quiet-button").setAttribute("aria-pressed", String(quiet));
+  getElement("quiet-button").title = quiet
+    ? "Notifications paused · click to resume"
+    : "Pause desktop notifications";
   if (!state.unlocked) {
     clearWorkspaceImages();
     getElement("lock-title").textContent = state.created
@@ -154,13 +160,23 @@ function renderState() {
   getElement("overview-button").classList.toggle("active", !selected);
 }
 async function selectWorkspace(id) {
-  await invoke("select_account", { id: null });
+  await selectAccount(null);
   activeWorkspace = id;
   selected = null;
   renderState();
-  await selectAccount(null);
 }
-async function selectAccount(id) {
+let selectionQueue = Promise.resolve();
+let selectionGeneration = 0;
+function selectAccount(id) {
+  const generation = ++selectionGeneration;
+  selectionQueue = selectionQueue
+    .catch(() => {})
+    .then(() => {
+      if (generation === selectionGeneration) return activateAccount(id);
+    });
+  return selectionQueue;
+}
+async function activateAccount(id) {
   if (id && !state.organization.placements[id]) throw Error("Channel not found.");
   if (id && state.organization.placements[id]?.workspaceId !== activeWorkspace) {
     activeWorkspace = state.organization.placements[id].workspaceId;
@@ -222,6 +238,7 @@ async function openDialog(title, build, action, submit = "Save") {
   if (dialogOpening || getElement("dialog").open) return;
   dialogOpening = true;
   try {
+    await selectionQueue.catch(() => {});
     restoreSelected = selected;
     dialogFocus = document.activeElement;
     await invoke("select_account", { id: null });
@@ -426,7 +443,7 @@ function notificationControls(parent) {
     createElement(
       "p",
       "hint",
-      "Muting stops desktop popups. Badges count native notifications since last viewed, not exact WhatsApp unread messages. Enable notifications in WhatsApp to receive them. Counters reset when the vault closes.",
+      "Muting stops desktop popups. Badges use WhatsApp’s unread counter when available, otherwise received notifications. Keep notifications enabled inside WhatsApp.",
     ),
     createButton("Test Linux notification", async () => {
       await invoke("test_notification");
@@ -487,10 +504,11 @@ async function openSettings() {
   await openDialog(
     "Settings",
     (p) => {
-      const [general, notifications, security] = createTabs(p, [
+      const [general, notifications, security, updates] = createTabs(p, [
         "General",
         "Notifications",
         "Security",
+        "Updates",
       ]);
       notificationControls(notifications);
       general.append(
@@ -522,32 +540,18 @@ async function openSettings() {
           showToast("Lock timeout updated.");
         }),
       );
-      const updates = createElement("section", "dialog-section");
-      updates.append(createElement("h3", "", "Updates"));
-      const updateLabel = createElement("label", "", "Check for updates every");
-      const interval = createElement("select");
-      interval.id = `update-interval-${crypto.randomUUID()}`;
-      updateLabel.htmlFor = interval.id;
-      for (const minutes of [5, 10, 15, 30, 60]) {
-        const option = createElement("option", "", `${minutes} minutes`);
-        option.value = String(minutes);
-        interval.append(option);
-      }
-      interval.value = String(updatePreferences?.intervalMinutes || 5);
-      updates.append(
-        updateLabel,
-        interval,
-        createElement(
-          "p",
-          "hint",
-          "Checks run in the background. Updates install automatically when opening the app; during use, choose Restart to update. GitHub limits and errors can extend the interval.",
-        ),
-        createButton("Save update interval", async () => {
-          await request("update.configure", { intervalMinutes: Number(interval.value) });
-          showToast("Update interval saved.");
-        }),
-      );
-      general.append(updates);
+      const updateEvents = new AbortController();
+      getElement("dialog").addEventListener("close", () => updateEvents.abort(), { once: true });
+      updateSettings(updates, {
+        preferences: updatePreferences,
+        version: state.version,
+        feedback: showToast,
+        signal: updateEvents.signal,
+        restart: async () => {
+          await closeDialog();
+          await restartForUpdate();
+        },
+      });
       const support = createElement("section", "dialog-section");
       support.append(
         createElement("h3", "", "Troubleshooting"),
@@ -704,6 +708,25 @@ getElement("add-account").addEventListener("click", () =>
 getElement("add-account-card").addEventListener("click", () =>
   addAccount().catch((e) => showToast(errorMessage(e))),
 );
+getElement("quiet-button").addEventListener("click", async () => {
+  const button = getElement("quiet-button");
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const preferences = state.notifications || { detail: "private", mutedAccounts: [] };
+    await request("notifications", { ...preferences, doNotDisturb: !preferences.doNotDisturb });
+    await refreshState();
+    showToast(
+      state.notifications.doNotDisturb
+        ? "Desktop notifications paused. Unread badges remain active."
+        : "Desktop notifications resumed.",
+    );
+  } catch (error) {
+    showToast(errorMessage(error));
+  } finally {
+    button.disabled = false;
+  }
+});
 getElement("settings-button").addEventListener("click", () =>
   openSettings().catch((e) => showToast(errorMessage(e))),
 );

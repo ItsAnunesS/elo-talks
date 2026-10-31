@@ -55,9 +55,18 @@ type Staged struct {
 	Asset   string `json:"asset"`
 }
 
-func version(s string) ([3]uint64, error) {
-	var v [3]uint64
-	parts := strings.Split(strings.TrimPrefix(s, "v"), ".")
+func version(s string) ([4]uint64, error) {
+	var v [4]uint64
+	core, rc, candidate := strings.Cut(strings.TrimPrefix(s, "v"), "-rc.")
+	v[3] = ^uint64(0)
+	if candidate {
+		n, err := strconv.ParseUint(rc, 10, 32)
+		if err != nil || n == 0 || strconv.FormatUint(n, 10) != rc {
+			return v, errors.New("invalid candidate version")
+		}
+		v[3] = n
+	}
+	parts := strings.Split(core, ".")
 	if len(parts) != 3 {
 		return v, errors.New("invalid version")
 	}
@@ -130,25 +139,51 @@ func get(address string, limit int64) ([]byte, error) {
 	return data, nil
 }
 func latest(current string) (*Release, error) {
-	data, e := get("https://api.github.com/repos/ItsAnunesS/elo-talks/releases/latest", 1024*1024)
-	if e != nil {
-		return nil, e
+	installed, err := version(current)
+	if err != nil {
+		return nil, err
 	}
-	var release Release
-	if e = json.Unmarshal(data, &release); e != nil {
-		return nil, e
+	endpoint := "https://api.github.com/repos/ItsAnunesS/elo-talks/releases/latest"
+	candidate := installed[3] != ^uint64(0)
+	if candidate {
+		endpoint = "https://api.github.com/repos/ItsAnunesS/elo-talks/releases?per_page=30"
 	}
-	if release.Draft || release.Prerelease {
-		return nil, errors.New("unsupported release")
+	data, err := get(endpoint, 1024*1024)
+	if err != nil {
+		return nil, err
 	}
-	if _, e = version(release.Tag); e != nil {
-		return nil, e
+	var releases []Release
+	if candidate {
+		err = json.Unmarshal(data, &releases)
+	} else {
+		var release Release
+		err = json.Unmarshal(data, &release)
+		releases = []Release{release}
 	}
-	if !newer(release.Tag, current) {
-		return nil, nil
+	if err != nil {
+		return nil, err
 	}
-	return &release, nil
+	var best *Release
+	for _, release := range releases {
+		parsed, err := version(release.Tag)
+		if err != nil || release.Draft || !newer(release.Tag, current) {
+			continue
+		}
+		preview := parsed[3] != ^uint64(0)
+		if release.Prerelease != preview {
+			continue
+		}
+		if preview && (!candidate || parsed[0] != installed[0] || parsed[1] != installed[1] || parsed[2] != installed[2]) {
+			continue
+		}
+		if best == nil || newer(release.Tag, best.Tag) {
+			copy := release
+			best = &copy
+		}
+	}
+	return best, nil
 }
+
 func asset(r *Release, name string) (Asset, error) {
 	var found *Asset
 	for _, a := range r.Assets {

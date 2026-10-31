@@ -4,9 +4,11 @@
   "type": "module",
   "scripts": {
     "format": "prettier --write ui tests/*.cjs package.json .prettierrc.json",
-    "format:check": "prettier --check ui tests/*.cjs package.json .prettierrc.json"
+    "format:check": "prettier --check ui tests/*.cjs package.json .prettierrc.json",
+    "test:ui": "node tests/ui.spec.cjs"
   },
   "devDependencies": {
+    "playwright": "1.62.1",
     "prettier": "3.6.2"
   }
 }

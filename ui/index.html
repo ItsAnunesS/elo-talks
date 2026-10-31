@@ -120,6 +120,13 @@
         ></button>
         <div class="rail-bottom">
           <button
+            id="quiet-button"
+            title="Pause desktop notifications"
+            aria-label="Pause desktop notifications"
+            aria-pressed="false"
+            data-icon="bell"
+          ></button>
+          <button
             id="settings-button"
             title="Settings"
             aria-label="Settings"
@@ -140,7 +147,7 @@
             <span id="workspace-name">My workspace</span><span data-icon="chevron"></span>
           </button>
         </div>
-        <button id="find-channel" class="find-channel">
+        <button id="find-channel" class="find-channel" title="Find a channel (Ctrl+K)">
           <span data-icon="search"></span><span>Find a channel</span>
         </button>
         <button class="overview active" id="overview-button">
@@ -184,8 +191,9 @@
         </div>
         <div class="section-heading">
           <h2>Your channels</h2>
-          <span class="hint">WhatsApp Web</span>
+          <span class="hint">Your private workspace</span>
         </div>
+        <p id="workspace-health" class="workspace-health" role="status"></p>
         <div id="cards" class="cards"></div>
         <div id="empty-workspace" class="empty-workspace" hidden>
           <span class="empty-icon" data-icon="grid"></span>

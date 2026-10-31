@@ -1,6 +1,7 @@
 // Small local vectors; no icon font, external request or runtime dependency.
 const paths = {
   plus: "M12 5v14M5 12h14",
+  bell: "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4",
   close: "m6 6 12 12M18 6 6 18",
   search: "M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
   chevron: "m8 10 4 4 4-4",

@@ -1,5 +1,7 @@
 # Elo Talks
 
+**0.2.0 release-candidate preparation.** See [the stabilization scope and acceptance gate](docs/RELEASE-0.2.md). Stable installations remain on the stable update channel.
+
 A Linux desktop application built with Tauri 2 for multiple WhatsApp Web accounts, with persistent profiles stored in an encrypted local vault.
 
 **Status: initial implementation under validation.** An AppImage build does not certify security or platform compatibility. See [validation requirements](docs/VALIDATION.md) for outstanding acceptance criteria.
@@ -222,7 +224,7 @@ GitHub `Retry-After` (seconds or HTTP date), or an exhausted quota
 configured schedule. The controller enforces this cooldown for retries while it
 is running; restarting the app resets the in-memory schedule.
 
-Settings → General offers background check intervals of 5, 10, 15, 30 or 60
+Settings → Updates offers background check intervals of 5, 10, 15, 30 or 60
 minutes. This non-sensitive device preference is saved privately in `updates.json`
 outside the vault so it is available before unlocking. Changing it cannot shorten
 an active error/server cooldown. Restart to update closes the vault and reopens
@@ -232,3 +234,8 @@ Safe diagnostics includes `avatar`, `avatarAttempts` and `avatarProbeActive` for
 each account, without identifying the account or exposing image URLs/pixels.
 Retry reloads the WhatsApp page, clears the previous photo and starts a new budget
 of at most seven attempts. Search stops earlier on success.
+
+The Overview now shows per-channel counters and actionable page states. Use the
+notification bell to pause desktop popups while keeping unread badges. Settings →
+Updates shows the installed version, release channel, check status and interval.
+Manual checks have a one-minute minimum in addition to GitHub error cooldowns.

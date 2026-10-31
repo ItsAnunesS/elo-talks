@@ -19,23 +19,28 @@ export async function prepareAccounts(accounts, lastAccount, openAccount) {
     resolveContinue();
   };
   proceed.addEventListener("click", skip);
-  showLoading("Preparing your WhatsApp…");
+  showLoading(`Opening ${priority.name}…`);
   try {
     await invoke("sync_accounts", { accountId: priority.id });
     // Give the priority view a head start. Other views stay hidden and are
     // created incrementally; their readiness never blocks the selected account.
     void (async () => {
+      let failed = 0;
       for (const account of accounts.filter((account) => account.id !== priority.id)) {
         await pause(500);
-        await invoke("sync_accounts", { accountId: account.id });
+        try {
+          await invoke("sync_accounts", { accountId: account.id });
+        } catch {
+          failed++;
+        }
       }
-    })().catch(() => {
-      window.dispatchEvent(
-        new CustomEvent("ui-error", {
-          detail: "Some background accounts could not start. Select a channel to retry.",
-        }),
-      );
-    });
+      if (failed)
+        window.dispatchEvent(
+          new CustomEvent("ui-error", {
+            detail: `${failed} background ${failed === 1 ? "account could" : "accounts could"} not start. Select a channel to retry.`,
+          }),
+        );
+    })();
     const started = Date.now();
     while (!skipped) {
       const snapshot = await invoke("account_snapshot");
@@ -43,6 +48,11 @@ export async function prepareAccounts(accounts, lastAccount, openAccount) {
       if (["chats", "qr-code"].includes(health?.readiness)) break;
       const elapsed = Date.now() - started;
       const failed = health?.page && !["loading", "ready"].includes(health.page);
+      if (!failed && elapsed >= 5000 && elapsed < 40000) {
+        showLoading(
+          `Still opening ${priority.name}. Other accounts are preparing in the background…`,
+        );
+      }
       proceed.hidden = elapsed < 5000 && !failed;
       if (failed || elapsed >= 40000) {
         showLoading(

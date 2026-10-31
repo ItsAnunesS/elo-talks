@@ -5,8 +5,9 @@ import os
 import pathlib
 import subprocess
 
+from release_version import build_version, stable_key
+
 MAX_LATEST_RECONCILIATION_ATTEMPTS = 20
-TAG_PREFIX = "v0.1."
 
 
 def github_cli(*arguments):
@@ -31,15 +32,14 @@ def highest_published_version(repository):
         )
     )
     versions = [
-        int(release["tag_name"][len(TAG_PREFIX) :])
+        release["tag_name"]
         for page in pages
         for release in page
-        if release["tag_name"].startswith(TAG_PREFIX)
-        and release["tag_name"][len(TAG_PREFIX) :].isdigit()
+        if stable_key(release["tag_name"]) is not None
         and not release["draft"]
         and not release["prerelease"]
     ]
-    return f"{TAG_PREFIX}{max(versions)}"
+    return max(versions, key=stable_key)
 
 
 def reconcile_latest(repository):
@@ -80,8 +80,13 @@ def prepare_draft(repository, revision, tag):
     notes = pathlib.Path("release-notes.md")
     notes.write_text(
         f"Elo Talks {tag}\n\nCommit: `{revision}`\n\n"
-        "Linux x86_64 AppImage. Initial implementation; see docs/VALIDATION.md for validation limits.\n\n"
-        "Verify SHA256SUMS and its Sigstore signature before running the application.\n"
+        "Linux x86_64 AppImage. See docs/VALIDATION.md for validation limits.\n\n"
+        + (
+            "Release candidate for testing. Not promoted to the stable update channel.\n\n"
+            if "-rc." in tag
+            else ""
+        )
+        + "Verify SHA256SUMS and its Sigstore signature before running the application.\n"
     )
     github_cli(
         "release",
@@ -103,7 +108,8 @@ def prepare_draft(repository, revision, tag):
 def main():
     repository = os.environ["GITHUB_REPOSITORY"]
     revision = os.environ["GITHUB_SHA"]
-    tag = f"{TAG_PREFIX}{int(os.environ['GITHUB_RUN_NUMBER'])}"
+    tag = "v" + build_version(os.environ["GITHUB_RUN_NUMBER"])
+    candidate = "-rc." in tag
     comparison = json.loads(
         github_cli("api", f"repos/{repository}/compare/{revision}...release")
     )
@@ -127,9 +133,17 @@ def main():
             )
     # An older parallel build must not become latest merely because it finished last.
     github_cli(
-        "release", "edit", tag, "--repo", repository, "--draft=false", "--latest=false"
+        "release",
+        "edit",
+        tag,
+        "--repo",
+        repository,
+        "--draft=false",
+        "--latest=false",
+        f"--prerelease={str(candidate).lower()}",
     )
-    reconcile_latest(repository)
+    if not candidate:
+        reconcile_latest(repository)
 
 
 if __name__ == "__main__":

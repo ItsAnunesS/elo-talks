@@ -3,6 +3,7 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import shutil
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -17,9 +18,21 @@ class PublicationTests(unittest.TestCase):
         comparison="identical",
         lookup_denied=False,
         creation_denied=False,
+        candidate=False,
     ):
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d)
+            (p / "scripts").mkdir()
+            for name in ["release.py", "release_version.py"]:
+                shutil.copy(ROOT / "scripts" / name, p / "scripts" / name)
+            (p / "release.json").write_text(
+                json.dumps(
+                    {
+                        "version": "0.2.0" if candidate else f"0.1.{number}",
+                        "channel": "candidate" if candidate else "stable",
+                    }
+                )
+            )
             (p / "dist").mkdir()
             (p / "dist/test.AppImage").write_bytes(b"fixture")
             (p / "gh").write_text(FAKE)
@@ -42,7 +55,7 @@ class PublicationTests(unittest.TestCase):
                 "GITHUB_RUN_NUMBER": str(number),
             }
             result = subprocess.run(
-                ["python3", str(ROOT / "scripts/release.py")],
+                ["python3", str(p / "scripts/release.py")],
                 cwd=p,
                 env=env,
                 capture_output=True,
@@ -107,3 +120,30 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(mutations[0][:3], ["release", "create", "v0.1.3"])
         self.assertEqual(mutations[0][mutations[0].index("--target") + 1], "abc123")
         self.assertEqual(state["releases"], [])
+
+    def test_candidate_never_replaces_stable_latest(self):
+        stable = {
+            "tag_name": "v0.1.30",
+            "target_commitish": "older",
+            "draft": False,
+            "prerelease": False,
+        }
+        result, state = self.run_release([stable], 31, candidate=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["latest"], "v0.1.30")
+        candidate = next(
+            r for r in state["releases"] if r["tag_name"] == "v0.2.0-rc.31"
+        )
+        self.assertTrue(candidate["prerelease"])
+        self.assertFalse(candidate["draft"])
+
+    def test_stable_latest_is_ordered_across_minor_versions(self):
+        newer = {
+            "tag_name": "v0.2.0",
+            "target_commitish": "newer",
+            "draft": False,
+            "prerelease": False,
+        }
+        result, state = self.run_release([newer], 99)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["latest"], "v0.2.0")

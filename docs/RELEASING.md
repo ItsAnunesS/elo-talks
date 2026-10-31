@@ -40,3 +40,20 @@ newer commit or promoting an incomplete draft as latest.
 
 References: [GitHub release API permissions](https://docs.github.com/en/rest/releases/releases)
 and [workflow scope enforcement](https://github.blog/changelog/2023-11-02-github-actions-enforcing-workflow-scope-when-creating-a-release/).
+
+## 0.2 release candidates
+
+Version selection now comes from `release.json`, shared by the version setter and
+publisher through `scripts/release_version.py`. Candidate pushes produce
+`<version>-rc.<run_number>` and never alter stable `latest`. Stable publication uses
+the exact configured version and preserves immutable tags/assets. Latest reconciliation
+compares all stable major/minor/patch components, not only the old 0.1 patch number.
+
+The built-in updater keeps stable and candidate installations separated. Candidate
+builds opt into their own version series and may graduate to a newer stable release;
+users of stable builds are never automatically moved to a candidate. See
+[RELEASE-0.2.md](RELEASE-0.2.md) before promotion.
+
+CI now runs the pinned Playwright browser workflow suite before packaging. On Ubuntu
+runners, a temporary profile grants user namespaces only to the test browser binary;
+it is removed afterwards and is not packaged. The production WebKit sandbox stays on.

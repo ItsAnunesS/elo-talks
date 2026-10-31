@@ -2,6 +2,7 @@
 """Fail publication if update metadata or the delta companion is missing/stale."""
 import fnmatch
 import hashlib
+import re
 import pathlib
 import subprocess
 import sys
@@ -24,7 +25,15 @@ def verify(appimage):
             check=True,
             capture_output=True,
         )
-        if section.read_bytes().rstrip(b"\0").decode() != EXPECTED:
+        candidate = re.search(
+            r"([0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*)", appimage.name
+        )
+        expected = (
+            EXPECTED.replace("|latest|", f"|v{candidate[1]}|")
+            if candidate
+            else EXPECTED
+        )
+        if section.read_bytes().rstrip(b"\0").decode() != expected:
             raise ValueError(
                 "AppImage update source does not match the release repository"
             )
