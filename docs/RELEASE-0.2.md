@@ -13,8 +13,9 @@ claim of certified distribution support or vulnerability-free software.
 - A notification pause control keeps badges active and preserves per-account settings.
 - Updates has its own settings tab with version/channel, current status, a rate-limited
   Check now action, configurable interval and Restart to update.
-- Avatar extraction stays memory-only, with at most seven attempts per navigation
-  and a new budget on Retry. Initials remain a supported fallback.
+- Avatar extraction caches only normalized thumbnails inside the encrypted account
+  profile, with at most seven attempts per navigation and a new budget on Retry.
+  Cached photos remain visible while refreshing; initials are the final fallback.
 
 ## Release policy
 

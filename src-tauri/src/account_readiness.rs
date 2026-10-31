@@ -92,6 +92,9 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                     {
                         health.readiness = state;
                     }
+                    if state == Readiness::QrCode {
+                        crate::account_avatar::clear(&handle, &account);
+                    }
                     account_events::publish(&handle);
                 },
             );

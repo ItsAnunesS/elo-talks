@@ -10,8 +10,8 @@ export function updateAvatar({ id, available }) {
   avatars.delete(id);
   for (const element of document.querySelectorAll("[data-avatar-id]")) {
     if (element.dataset.avatarId === id) {
-      element.textContent = element.dataset.initials;
       if (available) void loadAvatar(id, element);
+      else element.textContent = element.dataset.initials;
     }
   }
 }

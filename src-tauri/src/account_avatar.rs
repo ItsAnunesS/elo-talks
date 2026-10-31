@@ -1,4 +1,4 @@
-//! Memory-only self-avatar adapter. Never downloads a URL or reads other resource bodies.
+//! Bounded self-avatar adapter with an optional cache inside the unlocked vault.
 use crate::{account_events::AccountEvents, account_runtime::AvatarState};
 use gtk::{gdk_pixbuf::PixbufLoader, glib, prelude::*};
 use javascriptcore::ValueExt;
@@ -13,7 +13,6 @@ use webkit2gtk::{URIResponseExt, WebResourceExt, WebViewExt};
 
 #[derive(Clone)]
 pub struct Avatar {
-    source: String,
     image: String,
 }
 
@@ -154,6 +153,22 @@ fn publish(app: &tauri::AppHandle, id: &str, image: Option<Avatar>) {
         report(app, id, AvatarState::Ready, Some(false));
     }
     let events = app.state::<AccountEvents>();
+    if let Some(path) = events.avatar_cache_paths.lock().unwrap().get(id) {
+        if let Some(ref avatar) = image {
+            // The UI process exits before the vault unmounts. Failure keeps the RAM fallback.
+            let unchanged = events
+                .avatars
+                .lock()
+                .unwrap()
+                .get(id)
+                .is_some_and(|previous| previous.image == avatar.image);
+            if !unchanged {
+                let _ = crate::storage::write(path, &avatar.image);
+            }
+        } else {
+            let _ = std::fs::remove_file(path);
+        }
+    }
     let mut avatars = events.avatars.lock().unwrap();
     if let Some(image) = image {
         avatars.insert(id.to_owned(), image);
@@ -168,55 +183,50 @@ fn publish(app: &tauri::AppHandle, id: &str, image: Option<Avatar>) {
     );
 }
 
-/// Recheck the self control when a card is rendered, so a logged-out or changed
-/// profile does not keep showing a previous user's in-memory image.
-pub fn current(
-    view: &webkit2gtk::WebView,
-    app: &tauri::AppHandle,
-    id: &str,
-    reply: impl FnOnce(Option<String>) + 'static,
-) {
-    let saved = app
-        .state::<AccountEvents>()
+/// Restore only a bounded, normalized image, never a remote URL or browser identifier.
+pub fn restore(app: &tauri::AppHandle, id: &str, path: std::path::PathBuf) {
+    let events = app.state::<AccountEvents>();
+    let cached = read_cache(&path);
+    events
+        .avatar_cache_paths
+        .lock()
+        .unwrap()
+        .insert(id.to_owned(), path);
+    if let Some(image) = cached {
+        events
+            .avatars
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), Avatar { image });
+        let _ = app.emit_to(
+            "main",
+            "account-avatar",
+            serde_json::json!({"id": id, "available": true}),
+        );
+    }
+}
+
+fn read_cache(path: &std::path::Path) -> Option<String> {
+    let encoded: String = crate::storage::read(path).ok()?;
+    if encoded.len() > 44_000 {
+        return None;
+    }
+    let bytes = glib::base64_decode(encoded.strip_prefix("data:image/png;base64,")?);
+    normalized_image(&bytes)
+}
+
+pub fn clear(app: &tauri::AppHandle, id: &str) {
+    publish(app, id, None);
+}
+
+/// Return the last known photo while the bounded background probe refreshes it.
+pub fn current(app: &tauri::AppHandle, id: &str) -> Option<String> {
+    app.state::<AccountEvents>()
         .avatars
         .lock()
         .unwrap()
         .get(id)
-        .cloned();
-    let Some(saved) = saved else {
-        reply(None);
-        return;
-    };
-    if !view
-        .uri()
-        .and_then(|uri| tauri::Url::parse(&uri).ok())
-        .is_some_and(|url| crate::whatsapp::is_origin(&url))
-    {
-        reply(None);
-        return;
-    }
-    let app = app.clone();
-    let id = id.to_owned();
-    view.evaluate_javascript(
-        include_str!("avatar.js"),
-        None,
-        Some("elo-self-avatar"),
-        None::<&gtk::gio::Cancellable>,
-        move |result| {
-            let same = result
-                .ok()
-                .filter(|v| v.is_string())
-                .and_then(|v| candidate(&v.to_string()))
-                .is_some_and(|candidate| candidate.source == saved.source);
-            if same {
-                reply(Some(saved.image));
-            } else {
-                report(&app, &id, AvatarState::ControlNotFound, None);
-                publish(&app, &id, None);
-                reply(None);
-            }
-        },
-    );
+        .map(|avatar| avatar.image.clone())
 }
 
 pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
@@ -262,7 +272,6 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
         let epoch = generation.get();
         resources.borrow_mut().clear();
         collecting.set(true);
-        publish(&app, &id, None);
         report(&app, &id, AvatarState::Searching, Some(true));
         let weak = view.downgrade();
         let app = app.clone();
@@ -358,7 +367,7 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                         pending.set(false);
                         done.set(true);
                         resources.borrow_mut().clear();
-                        publish(&app, &id, Some(Avatar { source, image }));
+                        publish(&app, &id, Some(Avatar { image }));
                         return;
                     }
                     if !eligible_image_resource(&source) {
@@ -397,7 +406,7 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                             resources.borrow_mut().retain(|resource| {
                                 resource.uri().as_deref() == Some(source.as_str())
                             });
-                            publish(&app, &id, Some(Avatar { source, image }));
+                            publish(&app, &id, Some(Avatar { image }));
                         } else {
                             report(&app, &id, status, None);
                         }
@@ -425,6 +434,27 @@ mod tests {
         let mut reloaded = ProbeBudget::default();
         assert!(reloaded.begin());
         assert_eq!(reloaded.attempts, 1);
+    }
+
+    #[test]
+    fn cache_restores_only_bounded_normalized_images() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("self-avatar.json");
+        assert!(read_cache(&path).is_none());
+        let pixel = gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, true, 8, 64, 64)
+            .unwrap();
+        pixel.fill(0xaabbccff);
+        let image = normalized_image(&pixel.save_to_bufferv("png", &[]).unwrap()).unwrap();
+        crate::storage::write(&path, &image).unwrap();
+        assert_eq!(read_cache(&path), Some(image));
+        for invalid in [
+            "https://example.com/photo".to_owned(),
+            "data:image/png;base64,broken".to_owned(),
+            "x".repeat(44_001),
+        ] {
+            crate::storage::write(&path, &invalid).unwrap();
+            assert!(read_cache(&path).is_none());
+        }
     }
 
     #[test]

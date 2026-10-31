@@ -80,7 +80,7 @@ The first version with this updater must be installed through the existing downl
 The unread adapter observes the native WebKit title property only for the exact HTTPS WhatsApp origin. It accepts only the fixed `WhatsApp` or `(digits) WhatsApp` shape with at most six ASCII digits; arbitrary titles are discarded. Only the numeric value enters runtime state and diagnostics. No conversation access, injected JavaScript, message history, or new remote permissions are introduced. During notification bursts, at most one newest pending bounded notification payload per account is retained in process memory while the current D-Bus request completes.
 
 
-## Memory-only account card photos
+## Encrypted account card photo cache
 
 The avatar adapter selects only an explicitly labeled self-profile control in the
 lower-left WhatsApp navigation. It accepts a unique image source, never conversation
@@ -89,11 +89,16 @@ loaded HTTPS resource whose URL exactly matches the self control, with PNG/JPEG
 MIME and size checks; it makes no additional request. WhatsApp-origin blob images
 use normal origin-clean canvas access. A denied canvas remains denied.
 
-The normalized 64×64 PNG is held only by the UI process and local frontend, outside
-the catalog, logs and diagnostics. Locking terminates this process before vault
-unmount. This does not prevent WhatsApp itself from caching its original image
-inside the encrypted profile. Card reads revalidate the profile control; failure
-uses initials. Resource hostnames are not treated as proof of identity: selection
+The normalized 64×64 PNG is cached as bounded base64 in `self-avatar.json` inside
+each account's encrypted profile, never in the catalog, logs or diagnostics. Only
+the UI process accesses it after unlocking; locking terminates this process before
+vault unmount. The cache stores no source URL. Reads validate and normalize the
+raster again. Missing or corrupt cache entries fall back to initials. Reloads keep
+the last known photo while the background probe refreshes it; a detected QR sign-in
+screen clears it, and removing the account deletes its profile and cache. A cached
+photo can be stale until a new self photo or QR screen is detected.
+
+Resource hostnames are not treated as proof of identity: selection
 requires the unique self-profile control in the exact WhatsApp origin, and only
 that already loaded browser resource is read. No URL is fetched by the native
 adapter. The bounded probe stops on success or after seven attempts spaced five
@@ -121,5 +126,5 @@ the AppImage, which checks, downloads and verifies the update before unlocking.
 
 Safe diagnostics includes `avatar`, `avatarAttempts` and `avatarProbeActive` for
 each account, without identifying the account or exposing image URLs/pixels.
-Retry reloads the WhatsApp page, clears the previous photo and starts a new budget
+Retry reloads the WhatsApp page, preserves the cached photo and starts a new budget
 of at most seven attempts. Search stops earlier on success.

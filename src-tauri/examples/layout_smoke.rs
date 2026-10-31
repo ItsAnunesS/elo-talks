@@ -19,6 +19,9 @@ mod desktop_notifications;
 #[allow(dead_code)]
 #[path = "../src/notification_content.rs"]
 mod notification_content;
+#[allow(dead_code)]
+#[path = "../src/storage.rs"]
+mod storage;
 #[path = "../src/ui_layout.rs"]
 mod ui_layout;
 #[path = "../src/whatsapp.rs"]
@@ -160,7 +163,7 @@ fn main() {
                             }
                             7 => {
                                 let events = handle.state::<account_events::AccountEvents>();
-                                assert!(!events.avatars.lock().unwrap().contains_key("account-one"));
+                                assert!(events.avatars.lock().unwrap().contains_key("account-one"), "Reload keeps the cached photo while refreshing");
                                 let runtime = events.runtime.lock().unwrap();
                                 assert_eq!(runtime.accounts["account-one"].avatar_attempts, 0, "Reload resets the avatar search budget");
                                 assert!(runtime.accounts["account-one"].avatar_probe_active);

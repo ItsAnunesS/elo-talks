@@ -81,29 +81,13 @@ fn account_snapshot(webview: tauri::Webview, app: tauri::AppHandle) -> Result<Va
         .map_err(|error| error.to_string())
 }
 #[tauri::command]
-async fn account_avatar(
+fn account_avatar(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     id: String,
 ) -> Result<Option<String>, String> {
     local(&webview)?;
-    let view = app
-        .get_webview(&format!("account-{id}"))
-        .ok_or("Account not found")?;
-    let (sender, receiver) = mpsc::sync_channel(1);
-    view.with_webview(move |platform| {
-        crate::account_avatar::current(&platform.inner(), &app, &id, move |image| {
-            let _ = sender.send(image);
-        });
-    })
-    .map_err(|_| "Avatar unavailable")?;
-    tauri::async_runtime::spawn_blocking(move || {
-        receiver
-            .recv_timeout(Duration::from_secs(3))
-            .unwrap_or(None)
-    })
-    .await
-    .map_err(|_| "Avatar unavailable".into())
+    Ok(crate::account_avatar::current(&app, &id))
 }
 
 #[tauri::command]
@@ -217,6 +201,7 @@ fn sync_accounts(
             .insert(id.to_owned(), AccountHealth::default());
         let p = state.profile.join("accounts").join(id);
         storage::private_dir(&p).map_err(|e| e.to_string())?;
+        crate::account_avatar::restore(&app, id, p.join("self-avatar.json"));
         let activity = state.activity.clone();
         let h = app.clone();
         let account_id = id.to_string();
