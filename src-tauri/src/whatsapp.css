@@ -1,0 +1,21 @@
+/* Respect WhatsApp's theme choice. Unrecognized themes retain their original UI.
+   Change surfaces only, leaving message colors, focus, dialogs and geometry intact. */
+body.dark, html.dark, [data-theme="dark"] {
+  --panel-header-background: #1a1a1e !important;
+  --panel-background: #141416 !important;
+  --panel-background-lighter: #1a1a1e !important;
+  --background-default: #141416 !important;
+  --background-default-hover: #232127 !important;
+  --background-default-active: #2d2638 !important;
+  --background-lighter: #1a1a1e !important;
+  --background-lighter-hover: #232127 !important;
+  --intro-background: #141416 !important;
+  --search-container-background: #1a1a1e !important;
+  --search-input-background: #242228 !important;
+  --border-default: #303036 !important;
+  --border-strong: #38333f !important;
+}
+/* Only a documented structural pane, not hashed class names or message nodes. */
+body.dark #pane-side, html.dark #pane-side {
+  background-color: #141416 !important;
+}

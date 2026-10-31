@@ -205,11 +205,23 @@
         </div>
       </aside>
       <header class="topbar">
-        <div>
-          <span class="breadcrumb" id="workspace-breadcrumb">My workspace</span
-          ><span class="slash">/</span><strong id="page-title">Overview</strong>
+        <div class="channel-identity">
+          <span id="channel-avatar" class="channel-avatar" hidden aria-hidden="true"></span>
+          <div class="channel-heading">
+            <span class="breadcrumb" id="workspace-breadcrumb">My workspace</span
+            ><span class="slash">/</span><strong id="page-title">Overview</strong>
+            <span id="channel-service" class="channel-service" hidden>WhatsApp</span>
+          </div>
         </div>
         <div class="topbar-status">
+          <button
+            id="channel-settings"
+            class="channel-settings"
+            hidden
+            aria-label="Channel settings"
+            title="Channel settings"
+            data-icon="settings"
+          ></button>
           <span id="account-page-status" role="status">Vault open</span
           ><button id="retry-account" class="text-button" hidden>Retry</button>
           <button id="update-now" class="update-now" hidden>Restart to update</button>

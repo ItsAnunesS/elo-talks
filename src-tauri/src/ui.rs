@@ -81,12 +81,20 @@ fn select_account(
             return Err("Account not found".into());
         }
     }
-    for (label, v) in app.webviews() {
-        if label.starts_with("account-") {
-            let visible = id
+    // Reveal the destination before hiding its siblings so the GTK frame never
+    // exposes the empty shell between already loaded accounts.
+    if let Some(id) = &id {
+        if let Some(view) = app.get_webview(&format!("account-{id}")) {
+            ui_layout::set_account_visible(&view, true).map_err(|error| error.to_string())?;
+        }
+    }
+    for (label, view) in app.webviews() {
+        if label.starts_with("account-")
+            && !id
                 .as_ref()
-                .is_some_and(|id| label == format!("account-{id}"));
-            ui_layout::set_account_visible(&v, visible).map_err(|e| e.to_string())?;
+                .is_some_and(|id| label == format!("account-{id}"))
+        {
+            ui_layout::set_account_visible(&view, false).map_err(|error| error.to_string())?;
         }
     }
     {
@@ -304,6 +312,7 @@ fn sync_accounts(
                 settings.set_enable_developer_extras(false);
                 settings.set_enable_page_cache(false);
             }
+            crate::whatsapp_style::attach(&w);
             account_events::attach(&w, &h, &account_id);
             crate::account_readiness::attach(&w, &h, &account_id);
             crate::account_avatar::attach(&w, &h, &account_id);

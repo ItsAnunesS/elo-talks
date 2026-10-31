@@ -26,6 +26,8 @@ mod storage;
 mod ui_layout;
 #[path = "../src/whatsapp.rs"]
 mod whatsapp;
+#[path = "../src/whatsapp_style.rs"]
+mod whatsapp_style;
 use gtk::prelude::*;
 use std::{cell::Cell, rc::Rc, time::Duration};
 use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, Manager, WebviewUrl};
@@ -59,6 +61,7 @@ fn main() {
                         handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.insert(label.into(), account_runtime::AccountHealth::default());
                         account_events::attach(&webview, &handle, label);
                         account_permissions::attach(&webview);
+                        whatsapp_style::attach(&webview);
                         account_readiness::attach(&webview, &handle, label);
                         account_avatar::attach(&webview, &handle, label);
                     }
@@ -69,9 +72,9 @@ fn main() {
                         &format!("{}{}", if index == 0 {
                             "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
                         } else if index == 1 {
-                            "<body style='background:#243e38'>Synthetic notification source<script>setTimeout(() => { const side = document.createElement('div'); side.id = 'pane-side'; side.style.height = '20px'; document.body.append(side); }, 3000);Promise.all(['notifications','geolocation'].map(name => navigator.permissions.query({name}).then(result => result.state === 'granted' ? 'granted' : 'not-granted'))).then(states => document.title = states.join('|')); if(Notification.permission === 'granted') new Notification('Synthetic private sender', {body:'Synthetic private message'});</script>"
+                            "<body class='dark' style='background:#243e38'>Synthetic notification source<script>setTimeout(() => { const side = document.createElement('div'); side.id = 'pane-side'; side.style.height = '20px'; document.body.append(side); }, 3000);Promise.all(['notifications','geolocation'].map(name => navigator.permissions.query({name}).then(result => result.state === 'granted' ? 'granted' : 'not-granted'))).then(states => document.title = states.join('|') + '|' + getComputedStyle(document.body).getPropertyValue('--panel-header-background').trim()); if(Notification.permission === 'granted') new Notification('Synthetic private sender', {body:'Synthetic private message'});</script>"
                         } else {
-                            "<body style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data<div id=\"pane-side\">Untrusted structure</div><script>navigator.permissions.query({name:'notifications'}).then(result => document.title = Notification.permission + '|' + result.state);</script></body>"
+                            "<body class='dark' style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data<div id=\"pane-side\">Untrusted structure</div><script>navigator.permissions.query({name:'notifications'}).then(result => document.title = Notification.permission + '|' + result.state + '|' + getComputedStyle(document.body).getPropertyValue('--panel-header-background').trim());</script></body>"
                         }, avatar_html),
                         Some(match index { 1 => "https://web.whatsapp.com/", 2 => "https://untrusted.example/", _ => "about:blank" }),
                     );
@@ -120,7 +123,7 @@ fn main() {
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::Ready);
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].native_notifications, 1, "WhatsApp notification permission must be initialized before the page checks it");
                                 let native_view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
-                                assert_eq!(native_view.title().as_deref(), Some("granted|not-granted"), "Permissions API must grant WhatsApp notifications without granting geolocation");
+                                assert_eq!(native_view.title().as_deref(), Some("granted|not-granted|#1a1a1e"), "Permissions API must grant WhatsApp notifications without granting geolocation");
                                 native_view.emit_by_name::<()>("web-process-terminated", &[&webkit2gtk::WebProcessTerminationReason::Crashed]);
                                 native_view.emit_by_name::<()>("load-changed", &[&webkit2gtk::LoadEvent::Finished]);
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::ProcessStopped);
@@ -129,7 +132,7 @@ fn main() {
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-two"].readiness, account_runtime::Readiness::Preparing, "Untrusted origins cannot report readiness");
                                 // WebKit masks a denied query as prompt before the origin
                                 // has requested notifications; neither API may grant access.
-                                assert_eq!(second.clone().downcast::<webkit2gtk::WebView>().unwrap().title().as_deref(), Some("default|prompt"), "Other origins must not inherit WhatsApp notification permission");
+                                assert_eq!(second.clone().downcast::<webkit2gtk::WebView>().unwrap().title().as_deref(), Some("default|prompt|"), "Other origins must not inherit WhatsApp notification permission");
                                 check(&second); assert!(second.is_visible()); assert!(!first.is_visible()); native.resize(900, 640);
                             }
                             3 => { check(&second); assert_eq!(overlay.allocated_width(), 900); native.resize(1400, 900); }

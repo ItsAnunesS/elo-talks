@@ -19,6 +19,7 @@ import {
   revealChannel,
   updateAvatar,
   refreshAvatars,
+  renderChannelIdentity,
 } from "./workspace-navigation.js";
 import { placementFields, workspaceDialogs } from "./workspace-dialogs.js";
 import { hydrateIcons } from "./icons.js";
@@ -161,6 +162,7 @@ function renderState() {
   updateAccountStatus(null, selected, state.organization, activeWorkspace);
   getElement("page-title").textContent =
     state.accounts.find((a) => a.id === selected)?.name || "Overview";
+  renderChannelIdentity(state.accounts.find((account) => account.id === selected));
   getElement("dashboard").hidden = !!selected;
   getElement("overview-button").classList.toggle("active", !selected);
 }
@@ -203,6 +205,7 @@ async function activateAccount(id) {
   updateAccountStatus(null, selected);
   getElement("page-title").textContent =
     state.accounts.find((a) => a.id === id)?.name || "Overview";
+  renderChannelIdentity(state.accounts.find((account) => account.id === id));
   getElement("dashboard").hidden = !!id;
   getElement("overview-button").classList.toggle("active", !id);
   document
@@ -855,4 +858,9 @@ getElement("app-menu").addEventListener("click", () => {
     add("Quit Elo Talks", () => request("quit"));
     content.append(actions);
   }).catch((error) => showToast(errorMessage(error)));
+});
+
+getElement("channel-settings").addEventListener("click", () => {
+  const account = state.accounts.find((account) => account.id === selected);
+  if (account) editAccount(account).catch((error) => showToast(errorMessage(error)));
 });

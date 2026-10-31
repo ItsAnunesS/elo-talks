@@ -29,3 +29,19 @@ in VALIDATION.md; a stable label does not claim those checks are complete.
 
 0.4 is reserved for a separately scoped security review and improvements. No new
 security guarantees are introduced by this visual release.
+
+## WhatsApp presentation integration
+
+The channel header now includes the cached own-profile photo (or initials), service
+label and channel settings. The Discord-style workspace/category/channel layout
+and WhatsApp conversation layout stay intact. Loaded account switches reveal the
+destination before hiding siblings; an account still loading may show WhatsApp's
+own loader. No new readiness or connection-health claim is made.
+
+A top-frame WebKit user stylesheet is restricted to `https://web.whatsapp.com/*`.
+It aligns known dark-theme surface variables and the conversation-list background.
+Light or unrecognized themes retain their original presentation. It does not inspect
+messages, override message colors, alter dimensions, hide functional controls,
+relax permissions or request remote resources. WhatsApp may change these selectors;
+real-account visual validation is still needed. Promotional elements are left alone
+until an exact, safe target can be verified.

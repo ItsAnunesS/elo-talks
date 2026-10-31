@@ -96,7 +96,9 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
     ? health?.page === "ready"
       ? health?.readiness === "qr-code"
         ? "Scan QR code"
-        : "WhatsApp Web"
+        : health?.readiness === "chats"
+          ? ""
+          : "Opening WhatsApp…"
       : labels[health?.page] || "Opening account…"
     : "Vault open";
   getElement("retry-account").hidden = !selected || health?.page === "sandbox-unavailable";

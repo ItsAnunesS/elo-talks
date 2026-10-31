@@ -15,6 +15,22 @@ export function updateAvatar({ id, available }) {
     }
   }
 }
+export function renderChannelIdentity(account) {
+  const avatar = getElement("channel-avatar");
+  avatar.hidden = !account;
+  getElement("channel-service").hidden = !account;
+  getElement("channel-settings").hidden = !account;
+  document.querySelector(".topbar").classList.toggle("has-channel", !!account);
+  if (!account) {
+    delete avatar.dataset.avatarId;
+    avatar.replaceChildren();
+    return;
+  }
+  avatar.dataset.avatarId = account.id;
+  avatar.dataset.initials = account.name.slice(0, 2).toUpperCase();
+  avatar.textContent = avatar.dataset.initials;
+  void loadAvatar(account.id, avatar);
+}
 export function refreshAvatars() {
   for (const element of document.querySelectorAll("[data-avatar-id]")) {
     updateAvatar({ id: element.dataset.avatarId, available: true });
@@ -30,6 +46,7 @@ async function loadAvatar(id, element) {
       captured !== generation ||
       avatars.get(id) !== pending ||
       !element.isConnected ||
+      element.dataset.avatarId !== id ||
       !source?.startsWith("data:image/png;base64,") ||
       source.length > 44000
     )
@@ -51,6 +68,7 @@ async function loadAvatar(id, element) {
 }
 export function clearWorkspaceImages() {
   generation++;
+  renderChannelIdentity(null);
   images.clear();
   avatars.clear();
   collapsed.clear();

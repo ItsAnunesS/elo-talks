@@ -224,6 +224,12 @@ const http = require("node:http"),
     assert.equal(await page.locator("#account-list .service-icon").count(), 3);
     assert.equal(await page.locator("#account-list img:not(.service-icon)").count(), 0);
     await page.screenshot({ animations: "disabled", path: "/tmp/elo-workspace.png" });
+    assert.equal(await page.locator("#channel-service").textContent(), "WhatsApp");
+    assert.equal(await page.locator("#channel-avatar").isVisible(), true);
+    await page.getByRole("button", { name: "Channel settings", exact: true }).click();
+    await page.getByLabel("Account name", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+
     await page.evaluate(() => {
       window.originalAccountIcon = document.querySelector("#account-list button");
       window.originalAccountCard = document.querySelector("#cards button");
