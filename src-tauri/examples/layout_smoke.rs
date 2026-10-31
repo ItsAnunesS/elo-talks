@@ -79,7 +79,10 @@ fn main() {
                         return;
                     }
                     let overlay = webview.parent().unwrap().downcast::<gtk::Overlay>().unwrap();
-                    let children = overlay.children();
+                    let all_children = overlay.children();
+                    let handles: Vec<_> = all_children.iter().filter(|child| child.widget_name().starts_with("elo-resize-")).cloned().collect();
+                    assert_eq!(handles.len(), 8, "Every edge and corner has one native resize handle");
+                    let children: Vec<_> = all_children.into_iter().filter(|child| !child.widget_name().starts_with("elo-resize-")).collect();
                     assert_eq!(children.len(), 3);
                     let shell = children[0].clone();
                     let first = children[1].clone();
@@ -92,6 +95,15 @@ fn main() {
                     gtk::glib::timeout_add_local(Duration::from_millis(600), move || {
                         let check = |account: &gtk::Widget| {
                             let allocation = overlay.allocation();
+                            for handle in &handles {
+                                assert!(handle.is_visible());
+                                let bounds = handle.allocation();
+                                assert!(bounds.width() >= 5 && bounds.height() >= 5);
+                                assert!(bounds.x() >= 0 && bounds.y() >= 0);
+                                assert!(bounds.x() + bounds.width() <= allocation.width());
+                                assert!(bounds.y() + bounds.height() <= allocation.height());
+                            }
+
                             assert_eq!(shell.allocated_width(), allocation.width());
                             assert_eq!(shell.allocated_height(), allocation.height());
                             assert_eq!(account.translate_coordinates(&shell, 0, 0), Some((304, ui_layout::HEADER_HEIGHT)));

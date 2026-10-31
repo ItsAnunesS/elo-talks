@@ -370,6 +370,7 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
             let window = tauri::window::WindowBuilder::new(app, "main")
                 .title("Elo Talks")
                 .decorations(false)
+                .resizable(true)
                 .inner_size(1200., 800.)
                 .min_inner_size(900., 640.)
                 .build()?;
