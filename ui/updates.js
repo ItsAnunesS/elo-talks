@@ -3,12 +3,14 @@ import { request, invoke } from "./bridge.js";
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const button = document.getElementById("update-now");
 let busy = false;
-async function settled() {
-  for (;;) {
+async function settled(timeout = 320000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
     const status = await request("update.status");
     if (!["checking", "downloading", "installing"].includes(status.phase)) return status;
     await pause(600);
   }
+  throw new Error("The update took too long. Your current installation is still available.");
 }
 async function install() {
   if (busy) return;
@@ -19,35 +21,29 @@ async function install() {
     await invoke("select_account", { id: null });
     show("Downloading and verifying the update…");
     let status = await request("update.status");
+    if (["checking", "downloading"].includes(status.phase)) status = await settled();
     if (status.phase === "available") {
       await request("update.prepare");
       status = await settled();
     }
     if (status.phase !== "ready")
       throw new Error(status.error || "Update unavailable. Try again later.");
-    show("Closing your vault and restarting…");
+    show(
+      `Installing ${status.version || "the verified update"}. Closing your vault and restarting…`,
+    );
     await request("update.install");
   } catch (error) {
     hideLoading();
     window.dispatchEvent(new CustomEvent("ui-error", { detail: error.message }));
     busy = false;
     button.disabled = false;
+    window.dispatchEvent(new CustomEvent("update-failed"));
   }
 }
+// Install the verified artifact before restarting; reopening the old image alone
+// cannot guarantee an update, especially when the next startup check is offline.
 export async function restartForUpdate() {
-  if (busy) return;
-  busy = true;
-  button.disabled = true;
-  try {
-    await invoke("select_account", { id: null });
-    show("Closing your vault and restarting to update…");
-    await request("update.restart");
-  } catch (error) {
-    busy = false;
-    button.disabled = false;
-    hideLoading();
-    window.dispatchEvent(new CustomEvent("ui-error", { detail: error.message }));
-  }
+  await install();
 }
 export async function initializeUpdates(unlocked) {
   const startup = await request("update.startup");
@@ -69,17 +65,24 @@ export async function initializeUpdates(unlocked) {
       }),
     );
   }
-  if (startup.automatic && !unlocked) {
+  if (startup.automatic && !unlocked && !current.restartMismatch) {
     show("Checking for updates…");
     try {
       const initial = await request("update.status");
       if (initial.phase !== "unsupported") {
-        await request("update.check");
-        const status = await settled();
-        if (status.phase === "available") await install();
+        if (!["available", "ready", "checking", "downloading"].includes(initial.phase)) {
+          await request("update.check");
+        }
+        const status = await settled(20000);
+        if (["available", "ready"].includes(status.phase)) await install();
+        else if (status.phase === "error") throw new Error(status.error || "Update check failed.");
       }
-    } catch {
-      /* Offline startup must still allow vault access. */
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent("ui-error", {
+          detail: `${error.message || "Update check failed."} You can continue using the app.`,
+        }),
+      );
     }
     if (!busy) hideLoading();
   }

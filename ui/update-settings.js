@@ -43,7 +43,7 @@ export function updateSettings(parent, { preferences, version, restart, feedback
       available: `Version ${next.version || ""} is available.`,
       ready: `Version ${next.version || ""} is ready to install.`,
       unsupported: "Automatic updates are available in the installed AppImage.",
-      error: "The last update check failed. You can keep using the app.",
+      error: next.error || "The last update check failed. You can keep using the app.",
       downloading: "Downloading and verifying the update…",
       installing: "Installing the verified update…",
     };

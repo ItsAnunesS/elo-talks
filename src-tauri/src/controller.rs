@@ -424,18 +424,6 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                             Err(anyhow!("Invalid update interval"))
                         }
                     }
-                    "update.restart" => {
-                        if !installing
-                            && matches!(
-                                updater.status()["phase"].as_str(),
-                                Some("available" | "ready")
-                            )
-                        {
-                            Ok(Value::Null)
-                        } else {
-                            Err(anyhow!("No update is available to restart for"))
-                        }
-                    }
                     "update.check" => updater.command("check"),
                     "update.prepare" => updater.command("prepare"),
                     "update.install" => {
@@ -458,18 +446,6 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                 let _ = send_frame(&mut socket, &serde_json::to_vec(&response)?);
                 if success {
                     match r.op.as_str() {
-                        "update.restart" => {
-                            c.stop_ui()?;
-                            if let Err(error) = c.vault.unmount() {
-                                c.lock_error = Some(error.to_string());
-                                c.spawn_ui()?;
-                            } else {
-                                drop(listener);
-                                drop(guard);
-                                updater.restart()?;
-                                return Ok(());
-                            }
-                        }
                         "update.install" => {
                             c.stop_ui()?;
                             match c.vault.unmount() {

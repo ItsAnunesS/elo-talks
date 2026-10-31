@@ -643,10 +643,11 @@ const http = require("node:http"),
     await page.evaluate(() => localStorage.removeItem("startupScenario"));
     await page.addInitScript(() => {
       const original = window.__TAURI__.core.invoke;
-      let update =
-        localStorage.getItem("updateScenario") === "background"
-          ? { phase: "available", version: "0.1.99" }
-          : { phase: "idle" };
+      let update = ["background", "prepare-failure"].includes(
+        localStorage.getItem("updateScenario"),
+      )
+        ? { phase: "available", version: "0.1.99" }
+        : { phase: "idle" };
       window.updateOperations = [];
       window.__TAURI__.core.invoke = async (command, args) => {
         if (command === "request" && args.op.startsWith("update.")) {
@@ -660,7 +661,11 @@ const http = require("node:http"),
                 : { phase: "available", version: "0.1.99" };
             return update;
           }
-          if (args.op === "update.prepare") update = { phase: "ready", version: "0.1.99" };
+          if (args.op === "update.prepare")
+            update =
+              localStorage.getItem("updateScenario") === "prepare-failure"
+                ? { phase: "error", error: "Synthetic signature verification failure" }
+                : { phase: "ready", version: "0.1.99" };
           return update;
         }
         return original(command, args);
@@ -697,13 +702,35 @@ const http = require("node:http"),
     await page
       .getByRole("button", { name: "Restart to update", exact: false })
       .click({ timeout: 20000 });
-    await page.waitForFunction(() => window.updateOperations.includes("update.restart"));
+    await page.waitForFunction(() => window.updateOperations.includes("update.install"));
     assert.equal(
-      await page.evaluate(() => window.updateOperations.includes("update.prepare")),
+      await page.evaluate(() => window.updateOperations.includes("update.restart")),
       false,
     );
     assert.equal(
+      await page.evaluate(() => window.updateOperations.includes("update.prepare")),
+      true,
+    );
+    assert.deepEqual(
+      await page.evaluate(() =>
+        window.updateOperations.filter((op) => ["update.prepare", "update.install"].includes(op)),
+      ),
+      ["update.prepare", "update.install"],
+    );
+    await page.evaluate(() => localStorage.setItem("updateScenario", "prepare-failure"));
+    await page.reload();
+    await page.getByRole("button", { name: "Continue anyway" }).click();
+    await page
+      .getByRole("button", { name: "Restart to update", exact: false })
+      .click({ timeout: 20000 });
+    await page.waitForFunction(() => window.updateOperations.includes("update.prepare"));
+    await page.locator("#startup-screen[hidden]").waitFor({ state: "attached" });
+    assert.equal(
       await page.evaluate(() => window.updateOperations.includes("update.install")),
+      false,
+    );
+    assert.equal(
+      await page.evaluate(() => window.updateOperations.includes("update.restart")),
       false,
     );
     const readinessPage = await browser.newPage();

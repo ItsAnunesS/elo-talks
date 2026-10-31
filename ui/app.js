@@ -63,6 +63,11 @@ function showToast(text) {
     }, 5000);
 }
 window.addEventListener("ui-error", (event) => showToast(event.detail));
+window.addEventListener("update-failed", () => {
+  if (state.unlocked && !getElement("dialog").open) {
+    void selectAccount(selected).catch((error) => showToast(errorMessage(error)));
+  }
+});
 function clearSecrets() {
   getElement("secret").value = "";
   getElement("confirm-secret").value = "";

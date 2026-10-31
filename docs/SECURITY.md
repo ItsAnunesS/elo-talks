@@ -121,8 +121,11 @@ as an installed update that requires manually reopening the app.
 Settings → General offers background check intervals of 5, 10, 15, 30 or 60
 minutes. This non-sensitive device preference is saved privately in `updates.json`
 outside the vault so it is available before unlocking. Changing it cannot shorten
-an active error/server cooldown. Restart to update closes the vault and reopens
-the AppImage, which checks, downloads and verifies the update before unlocking.
+an active error/server cooldown. Restart to update downloads and verifies the available release first, then closes
+the vault, replaces the AppImage and restarts. It no longer reopens the old executable
+and relies on a second startup check. The new process checks its compiled version
+against the expected installed version and reports a mismatch instead of silently
+claiming success. A download or signature failure leaves the current app usable.
 
 Safe diagnostics includes `avatar`, `avatarAttempts` and `avatarProbeActive` for
 each account, without identifying the account or exposing image URLs/pixels.

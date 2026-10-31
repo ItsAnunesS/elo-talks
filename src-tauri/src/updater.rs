@@ -33,8 +33,19 @@ impl Updater {
             .parent()
             .context("Executable directory unavailable")?
             .join("elo-updater");
+        let expected = std::env::var("ELO_EXPECTED_UPDATE_VERSION").ok();
+        std::env::remove_var("ELO_EXPECTED_UPDATE_VERSION");
+        let mismatch = expected
+            .as_deref()
+            .is_some_and(|version| version != env!("CARGO_PKG_VERSION"));
+        let state = if mismatch {
+            json!({"phase":"error", "restartMismatch":true,
+                "error":"The app restarted without loading the installed version. Close Elo Talks completely and reopen the installed AppImage."})
+        } else {
+            json!({"phase": if target.is_some() {"idle"} else {"unsupported"}})
+        };
         Ok(Self {
-            state: json!({"phase": if target.is_some() {"idle"} else {"unsupported"}}),
+            state,
             target,
             helper,
             child: None,
@@ -183,12 +194,16 @@ impl Updater {
                 self.state = json!({"phase":"error", "error":"Update timed out. You can continue using the app."});
             } else if let Ok(Some(status)) = child.try_wait() {
                 self.child = None;
+                let expected_version = self.state["version"].clone();
                 self.state = std::fs::read(&self.output)
                     .ok()
                     .filter(|b| b.len() < 4096)
                     .and_then(|b| serde_json::from_slice(&b).ok())
                     .filter(|v: &Value| v["phase"].is_string())
                     .unwrap_or_else(|| json!({"phase":"error"}));
+                if self.state["phase"] == "installed" && expected_version.is_string() {
+                    self.state["version"] = expected_version;
+                }
                 if !status.success() {
                     let retry = self.state["retryAfter"].as_u64().unwrap_or(0);
                     self.state = json!({"phase":"error", "retryAfter":retry, "error":"The update could not be verified or installed. Try again later."});
@@ -272,6 +287,12 @@ impl Updater {
                 }
             }
         }
+        command.env_remove("ELO_EXPECTED_UPDATE_VERSION");
+        if self.state["phase"] == "installed" {
+            if let Some(version) = self.state["version"].as_str() {
+                command.env("ELO_EXPECTED_UPDATE_VERSION", version);
+            }
+        }
         // Replace the controller rather than leaving the new AppImage as a child
         // of the exiting old runtime. Success never returns to old application code.
         command.current_dir("/").stdin(Stdio::null());
@@ -328,6 +349,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let mut updater = Updater::new(dir.path()).unwrap();
             updater.target = Some(PathBuf::from(target));
+            updater.state = json!({"phase":"installed", "version":"0.2.999"});
             updater.restart().unwrap();
             panic!("Successful exec must never return");
         }
@@ -339,6 +361,7 @@ mod tests {
             r#"#!/bin/sh
 [ -z "${APPIMAGE+x}" ] && [ -z "${APPDIR+x}" ] && [ -z "${GIO_MODULE_DIR+x}" ] || exit 41
 [ "$PWD" = / ] || exit 42
+[ "$ELO_EXPECTED_UPDATE_VERSION" = "0.2.999" ] || exit 43
 printf '%s' "$$" > "$ELO_RESTART_TEST_RESULT"
 "#,
         )
@@ -359,6 +382,32 @@ printf '%s' "$$" > "$ELO_RESTART_TEST_RESULT"
         let pid = child.id();
         assert!(child.wait().unwrap().success());
         assert_eq!(std::fs::read_to_string(result).unwrap(), pid.to_string());
+    }
+
+    #[test]
+    fn install_retains_expected_version_for_restart_verification() {
+        let dir = tempfile::tempdir().unwrap();
+        let helper = dir.path().join("helper");
+        std::fs::write(
+            &helper,
+            "#!/bin/sh\nprintf '%s' '{\"phase\":\"installed\"}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut updater = Updater::new(dir.path()).unwrap();
+        updater.target = Some(dir.path().join("image"));
+        updater.helper = helper;
+        updater.state = json!({"phase":"ready", "version":"0.2.999"});
+        updater.stage = Some(dir.path().join("stage"));
+        updater.command("install").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while updater.child.is_some() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            updater.poll();
+        }
+        assert_eq!(updater.status()["phase"], "installed");
+        assert_eq!(updater.status()["version"], "0.2.999");
+        assert!(updater.status().get("stage").is_none());
     }
 
     #[test]
