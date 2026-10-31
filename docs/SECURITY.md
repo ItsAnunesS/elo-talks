@@ -69,7 +69,7 @@ An unexpected interface failure terminates the application and closes the vault,
 
 ## Built-in AppImage updates
 
-The controller checks the public GitHub latest release at startup and every five minutes while running (including while the window is hidden in the tray). Startup updates install before unlocking; updates found during use require **Update now**. Checks have a 15-second deadline; downloads/verification have a five-minute deadline. Offline or failed checks do not prevent unlocking.
+The controller checks the public GitHub latest release at startup and every five minutes by default while running (including while the window is hidden in the tray). Startup updates install before unlocking; updates found during use require **Restart to update**. Checks have a 15-second deadline; downloads/verification have a five-minute deadline. Offline or failed checks do not prevent unlocking.
 
 The bundled static Go helper uses Sigstore's official verification library, authenticated TUF trust metadata, certificate transparency, transparency-log evidence, and the exact release workflow certificate identity and GitHub OIDC issuer above. It authenticates SHA256SUMS and binds the versioned x86_64 AppImage to its signed digest. HTTPS, bounded downloads, strict release asset origins, and no downgrades are enforced. New releases use the standard Sigstore bundle format; publication verifies the bundle with the actual packaged helper before making the release public. No executable verifier is downloaded at runtime.
 
@@ -96,10 +96,10 @@ inside the encrypted profile. Card reads revalidate the profile control; failure
 uses initials. The bounded probe stops on success or after 40 seconds. This adapter
 does not grant remote pages any Tauri permissions or relax TLS, CORS or sandboxing.
 
-Update failures delay subsequent checks by 10, 20, 40, then 60 minutes. A longer
+Update failures double the configured interval, up to 60 minutes (10, 20, 40, then 60 minutes with the default). A longer
 GitHub `Retry-After` (seconds or HTTP date), or an exhausted quota
 `X-RateLimit-Reset`, takes precedence. A successful operation restores the normal
-five-minute schedule. The controller enforces this cooldown for retries while it
+configured schedule. The controller enforces this cooldown for retries while it
 is running; restarting the app resets the in-memory schedule.
 
 After installation, the controller stops the temporary UI, releases its listener
@@ -107,3 +107,9 @@ and instance lock, removes inherited AppImage mount paths from the launch
 environment, and uses Unix `exec` to replace itself with the updated AppImage.
 A successful restart cannot resume old controller code. An exec failure is reported
 as an installed update that requires manually reopening the app.
+
+Settings → General offers background check intervals of 5, 10, 15, 30 or 60
+minutes. This non-sensitive device preference is saved privately in `updates.json`
+outside the vault so it is available before unlocking. Changing it cannot shorten
+an active error/server cooldown. Restart to update closes the vault and reopens
+the AppImage, which checks, downloads and verifies the update before unlocking.

@@ -311,6 +311,8 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
     let listener = UnixListener::bind(socket)?;
     listener.set_nonblocking(true)?;
     let mut updater = crate::updater::Updater::new(&runtime)?;
+    storage::private_dir(&base)?;
+    updater.configure(base.join("updates.json"))?;
     let mut startup_check = true;
     let mut installing = false;
     let vault = Vault::new(base, &runtime)?;
@@ -412,6 +414,28 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                         Ok(json!({"automatic": first}))
                     }
                     "update.status" => Ok(updater.status()),
+                    "update.preferences" => Ok(updater.preferences()),
+                    "update.configure" => {
+                        if c.vault.master.is_none() || c.lock_error.is_some() {
+                            Err(anyhow!("Unlock the vault to change settings"))
+                        } else if let Some(minutes) = r.data["intervalMinutes"].as_u64() {
+                            updater.set_interval(minutes)
+                        } else {
+                            Err(anyhow!("Invalid update interval"))
+                        }
+                    }
+                    "update.restart" => {
+                        if !installing
+                            && matches!(
+                                updater.status()["phase"].as_str(),
+                                Some("available" | "ready")
+                            )
+                        {
+                            Ok(Value::Null)
+                        } else {
+                            Err(anyhow!("No update is available to restart for"))
+                        }
+                    }
                     "update.check" => updater.command("check"),
                     "update.prepare" => updater.command("prepare"),
                     "update.install" => {
@@ -434,6 +458,18 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                 let _ = send_frame(&mut socket, &serde_json::to_vec(&response)?);
                 if success {
                     match r.op.as_str() {
+                        "update.restart" => {
+                            c.stop_ui()?;
+                            if let Err(error) = c.vault.unmount() {
+                                c.lock_error = Some(error.to_string());
+                                c.spawn_ui()?;
+                            } else {
+                                drop(listener);
+                                drop(guard);
+                                updater.restart()?;
+                                return Ok(());
+                            }
+                        }
                         "update.install" => {
                             c.stop_ui()?;
                             match c.vault.unmount() {

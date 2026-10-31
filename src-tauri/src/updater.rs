@@ -17,6 +17,8 @@ pub struct Updater {
     started: Instant,
     next_check: Instant,
     failures: u32,
+    interval: Duration,
+    preferences: Option<PathBuf>,
     state: Value,
     stage: Option<PathBuf>,
     output: PathBuf,
@@ -38,9 +40,52 @@ impl Updater {
             started: Instant::now(),
             next_check: Instant::now() + BACKGROUND_CHECK_INTERVAL,
             failures: 0,
+            interval: BACKGROUND_CHECK_INTERVAL,
+            preferences: None,
             stage: None,
             output: runtime.join("update-result.json"),
         })
+    }
+    pub fn configure(&mut self, path: PathBuf) -> Result<()> {
+        if path.exists() {
+            let value: Value = crate::storage::read(&path)?;
+            let minutes = value["intervalMinutes"]
+                .as_u64()
+                .context("Invalid update interval")?;
+            Self::validate_interval(minutes)?;
+            self.interval = Duration::from_secs(minutes * 60);
+            self.next_check = Instant::now() + self.interval;
+        }
+        self.preferences = Some(path);
+        Ok(())
+    }
+    fn validate_interval(minutes: u64) -> Result<()> {
+        ensure!(
+            matches!(minutes, 5 | 10 | 15 | 30 | 60),
+            "Choose 5, 10, 15, 30 or 60 minutes"
+        );
+        Ok(())
+    }
+    pub fn preferences(&self) -> Value {
+        json!({"intervalMinutes": self.interval.as_secs() / 60})
+    }
+    pub fn set_interval(&mut self, minutes: u64) -> Result<Value> {
+        Self::validate_interval(minutes)?;
+        crate::storage::write(
+            self.preferences
+                .as_ref()
+                .context("Update settings unavailable")?,
+            &json!({"intervalMinutes": minutes}),
+        )?;
+        self.interval = Duration::from_secs(minutes * 60);
+        // A settings change must never shorten an active error/server cooldown.
+        let next = Instant::now() + self.interval;
+        self.next_check = if self.failures > 0 {
+            self.next_check.max(next)
+        } else {
+            next
+        };
+        Ok(self.preferences())
     }
     pub fn status(&self) -> Value {
         self.state.clone()
@@ -148,11 +193,11 @@ impl Updater {
     fn schedule_next_check(&mut self) {
         let delay = if self.state["phase"] == "error" {
             self.failures = self.failures.saturating_add(1);
-            let backoff = (300u64 * (1u64 << self.failures.min(4))).min(3600);
+            let backoff = (self.interval.as_secs() * (1u64 << self.failures.min(4))).min(3600);
             Duration::from_secs(backoff.max(self.state["retryAfter"].as_u64().unwrap_or(0)))
         } else {
             self.failures = 0;
-            BACKGROUND_CHECK_INTERVAL
+            self.interval
         };
         let now = Instant::now();
         // An unrepresentable server deadline must not result in immediate retries.
@@ -224,6 +269,33 @@ impl Drop for Updater {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn interval_persists_and_cannot_bypass_cooldown() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("updates.json");
+        let mut updater = Updater::new(dir.path()).unwrap();
+        updater.configure(path.clone()).unwrap();
+        assert!(updater.set_interval(1).is_err());
+        updater.set_interval(15).unwrap();
+        let mut restored = Updater::new(dir.path()).unwrap();
+        restored.configure(path).unwrap();
+        assert_eq!(restored.preferences()["intervalMinutes"], 15);
+        restored.state = json!({"phase":"error", "retryAfter":7200});
+        restored.schedule_next_check();
+        let deadline = restored.next_check;
+        restored.set_interval(5).unwrap();
+        assert_eq!(restored.next_check, deadline);
+        restored.state = json!({"phase":"current"});
+        restored.schedule_next_check();
+        assert_eq!(restored.failures, 0);
+        assert!(
+            restored
+                .next_check
+                .saturating_duration_since(Instant::now())
+                <= Duration::from_secs(300)
+        );
+    }
 
     #[test]
     fn restart_replaces_process_and_removes_old_mount_environment() {

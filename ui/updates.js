@@ -34,6 +34,21 @@ async function install() {
     button.disabled = false;
   }
 }
+async function restartForUpdate() {
+  if (busy) return;
+  busy = true;
+  button.disabled = true;
+  try {
+    await invoke("select_account", { id: null });
+    show("Closing your vault and restarting to update…");
+    await request("update.restart");
+  } catch (error) {
+    busy = false;
+    button.disabled = false;
+    hideLoading();
+    window.dispatchEvent(new CustomEvent("ui-error", { detail: error.message }));
+  }
+}
 export async function initializeUpdates(unlocked) {
   const startup = await request("update.startup");
   const current = await request("update.status");
@@ -68,13 +83,13 @@ export async function initializeUpdates(unlocked) {
     }
     if (!busy) hideLoading();
   }
-  button.addEventListener("click", install);
+  button.addEventListener("click", restartForUpdate);
   setInterval(async () => {
     if (busy) return;
     try {
       const status = await request("update.status");
       button.hidden = !["available", "ready"].includes(status.phase);
-      button.textContent = `Update now${status.version ? ` · ${status.version}` : ""}`;
+      button.textContent = `Restart to update${status.version ? ` · ${status.version}` : ""}`;
     } catch {
       /* The controller may be restarting the interface. */
     }

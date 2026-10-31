@@ -214,10 +214,16 @@ runtime dependencies, remote assets, content permissions or vault changes are re
 Browser regressions cover 900/1200/1600px windows, keyboard search, form errors,
 confirmations, pending saves and the fixed 304×72 native account viewport offsets.
 
-The AppImage checks GitHub releases before unlocking and installs verified updates automatically. While running, it checks every five minutes and offers **Update now**; restarting requires a click and closes the vault first. Updates require a writable AppImage directory. After unlocking, the last used account loads first behind one preparation screen. Other accounts start incrementally in the background. The screen waits for a visible chat list or QR container, with **Continue anyway** available after five seconds. Readiness checks stop after 40 seconds; if the page remains unrecognized, continuing is explicit. See [update security and recovery](docs/SECURITY.md#built-in-appimage-updates).
+The AppImage checks GitHub releases before unlocking and installs verified updates automatically. While running, it checks every five minutes by default and offers **Restart to update**; restarting requires a click and closes the vault first. Updates require a writable AppImage directory. After unlocking, the last used account loads first behind one preparation screen. Other accounts start incrementally in the background. The screen waits for a visible chat list or QR container, with **Continue anyway** available after five seconds. Readiness checks stop after 40 seconds; if the page remains unrecognized, continuing is explicit. See [update security and recovery](docs/SECURITY.md#built-in-appimage-updates).
 
-Update failures delay subsequent checks by 10, 20, 40, then 60 minutes. A longer
+Update failures double the configured interval, up to 60 minutes (10, 20, 40, then 60 minutes with the default). A longer
 GitHub `Retry-After` (seconds or HTTP date), or an exhausted quota
 `X-RateLimit-Reset`, takes precedence. A successful operation restores the normal
-five-minute schedule. The controller enforces this cooldown for retries while it
+configured schedule. The controller enforces this cooldown for retries while it
 is running; restarting the app resets the in-memory schedule.
+
+Settings → General offers background check intervals of 5, 10, 15, 30 or 60
+minutes. This non-sensitive device preference is saved privately in `updates.json`
+outside the vault so it is available before unlocking. Changing it cannot shorten
+an active error/server cooldown. Restart to update closes the vault and reopens
+the AppImage, which checks, downloads and verifies the update before unlocking.

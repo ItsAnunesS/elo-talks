@@ -483,6 +483,7 @@ async function showDiagnostics() {
 }
 
 async function openSettings() {
+  const updatePreferences = await request("update.preferences");
   await openDialog(
     "Settings",
     (p) => {
@@ -521,6 +522,32 @@ async function openSettings() {
           showToast("Lock timeout updated.");
         }),
       );
+      const updates = createElement("section", "dialog-section");
+      updates.append(createElement("h3", "", "Updates"));
+      const updateLabel = createElement("label", "", "Check for updates every");
+      const interval = createElement("select");
+      interval.id = `update-interval-${crypto.randomUUID()}`;
+      updateLabel.htmlFor = interval.id;
+      for (const minutes of [5, 10, 15, 30, 60]) {
+        const option = createElement("option", "", `${minutes} minutes`);
+        option.value = String(minutes);
+        interval.append(option);
+      }
+      interval.value = String(updatePreferences?.intervalMinutes || 5);
+      updates.append(
+        updateLabel,
+        interval,
+        createElement(
+          "p",
+          "hint",
+          "Checks run in the background. Updates install automatically when opening the app; during use, choose Restart to update. GitHub limits and errors can extend the interval.",
+        ),
+        createButton("Save update interval", async () => {
+          await request("update.configure", { intervalMinutes: Number(interval.value) });
+          showToast("Update interval saved.");
+        }),
+      );
+      general.append(updates);
       const support = createElement("section", "dialog-section");
       support.append(
         createElement("h3", "", "Troubleshooting"),

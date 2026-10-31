@@ -83,6 +83,12 @@ const http = require("node:http"),
                 await new Promise((resolve) => {
                   window.testReleaseRequest = resolve;
                 });
+              if (args.op === "update.preferences")
+                return { intervalMinutes: window.testUpdateInterval || 5 };
+              if (args.op === "update.configure") {
+                window.testUpdateInterval = args.data.intervalMinutes;
+                return { intervalMinutes: window.testUpdateInterval };
+              }
               if (args.op === "update.startup") return { automatic: false };
               if (args.op === "update.status") return { phase: "unsupported" };
               if (args.op === "status") return structuredClone(window.testState);
@@ -313,6 +319,14 @@ const http = require("node:http"),
       "preview",
     );
     await page.getByRole("tab", { name: "General", exact: true }).click();
+    assert.equal(
+      await page.getByLabel("Check for updates every", { exact: true }).inputValue(),
+      "5",
+    );
+    await page.getByLabel("Check for updates every", { exact: true }).selectOption("15");
+    await page.getByRole("button", { name: "Save update interval", exact: true }).click();
+    await page.getByRole("status").filter({ hasText: "Update interval saved" }).waitFor();
+    assert.equal(await page.evaluate(() => window.testUpdateInterval), 15);
     await page.getByRole("button", { name: "Safe diagnostics", exact: true }).click();
     const diagnosticReport = await page.getByLabel("Diagnostic report").inputValue();
     assert.ok(diagnosticReport.includes("load-failed"));
@@ -574,7 +588,10 @@ const http = require("node:http"),
     await page.evaluate(() => localStorage.removeItem("startupScenario"));
     await page.addInitScript(() => {
       const original = window.__TAURI__.core.invoke;
-      let update = { phase: "idle" };
+      let update =
+        localStorage.getItem("updateScenario") === "background"
+          ? { phase: "available", version: "0.1.99" }
+          : { phase: "idle" };
       window.updateOperations = [];
       window.__TAURI__.core.invoke = async (command, args) => {
         if (command === "request" && args.op.startsWith("update.")) {
@@ -610,6 +627,26 @@ const http = require("node:http"),
     await page.reload();
     await page.locator("#startup-screen[hidden]").waitFor({ state: "attached" });
     await page.locator("#unlock-submit").click();
+    assert.equal(
+      await page.evaluate(() => window.updateOperations.includes("update.install")),
+      false,
+    );
+    await page.evaluate(() => {
+      localStorage.setItem("updateScenario", "background");
+      const fixture = JSON.parse(localStorage.getItem("fixture"));
+      fixture.unlocked = true;
+      localStorage.setItem("fixture", JSON.stringify(fixture));
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "Continue anyway" }).click();
+    await page
+      .getByRole("button", { name: "Restart to update", exact: false })
+      .click({ timeout: 20000 });
+    await page.waitForFunction(() => window.updateOperations.includes("update.restart"));
+    assert.equal(
+      await page.evaluate(() => window.updateOperations.includes("update.prepare")),
+      false,
+    );
     assert.equal(
       await page.evaluate(() => window.updateOperations.includes("update.install")),
       false,
