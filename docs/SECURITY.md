@@ -131,3 +131,16 @@ Safe diagnostics includes `avatar`, `avatarAttempts` and `avatarProbeActive` for
 each account, without identifying the account or exposing image URLs/pixels.
 Retry reloads the WhatsApp page, preserves the cached photo and starts a new budget
 of at most seven attempts. Search stops earlier on success.
+
+## Session and local-state hardening (0.4)
+
+The Linux monitor requires logind's active, unlocked session state and requests
+vault closure on inactivity, including fast user switching. Authentication is
+followed by a second monitor-state check before account catalog initialization.
+Polling still has latency and suspend inhibitors have a system-imposed deadline;
+real suspend/lock acceptance is tracked separately in VALIDATION.md.
+
+JSON state reads reject final-component symlinks and nonregular files, and use a
+nonblocking open to avoid hanging on FIFOs. Atomic writes zeroize their temporary
+serialized buffer. These safeguards do not extend the threat model to a malicious
+process already running as the same user or erase copies managed by the OS.

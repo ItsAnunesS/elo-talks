@@ -195,6 +195,18 @@ impl Controller {
                         + Duration::from_secs((1u64 << self.failures.min(5)).min(30));
                 }
                 result?;
+                // Authentication/mounting can outlive a screen lock or session switch.
+                // Never initialize profiles when the monitor became unsafe meanwhile.
+                if !crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed) {
+                    if let Err(error) = self.vault.unmount() {
+                        self.lock_error = Some(error.to_string());
+                        return Err(error
+                            .context("Session became unsafe; vault closure requires attention"));
+                    }
+                    return Err(anyhow!(
+                        "Linux session became unsafe during unlock. Unlock the session and retry."
+                    ));
+                }
                 self.initialize_catalog()?;
                 self.failures = 0;
                 self.last_activity = Instant::now();

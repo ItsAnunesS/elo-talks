@@ -55,12 +55,14 @@ fn monitor(lock: &AtomicBool, shutdown: &AtomicBool) -> Result<(), Box<dyn std::
     while !shutdown.load(Ordering::Relaxed) {
         let sleep: bool = manager.get("org.freedesktop.login1.Manager", "PreparingForSleep")?;
         let locked: bool = session.get("org.freedesktop.login1.Session", "LockedHint")?;
+        let active: bool = session.get("org.freedesktop.login1.Session", "Active")?;
         let state: String = session.get("org.freedesktop.login1.Session", "State")?;
         if state == "closing" {
             shutdown.store(true, Ordering::Relaxed);
         }
-        SESSION_SAFE.store(!sleep && !locked && state != "closing", Ordering::Relaxed);
-        if sleep || locked {
+        let safe = session_safe(sleep, locked, active, &state);
+        SESSION_SAFE.store(safe, Ordering::Relaxed);
+        if !safe {
             lock.store(true, Ordering::Relaxed);
         }
         if sleep && inhibitor.is_some() {
@@ -83,4 +85,27 @@ fn monitor(lock: &AtomicBool, shutdown: &AtomicBool) -> Result<(), Box<dyn std::
         std::thread::sleep(Duration::from_millis(200));
     }
     Ok(())
+}
+
+fn session_safe(sleeping: bool, locked: bool, active: bool, state: &str) -> bool {
+    !sleeping && !locked && active && state == "active"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_safe;
+    #[test]
+    fn only_an_active_unlocked_session_is_safe() {
+        assert!(session_safe(false, false, true, "active"));
+        for state in ["online", "closing", "unknown", ""] {
+            assert!(!session_safe(false, false, true, state));
+        }
+        for (sleeping, locked, active) in [
+            (true, false, true),
+            (false, true, true),
+            (false, false, false),
+        ] {
+            assert!(!session_safe(sleeping, locked, active, "active"));
+        }
+    }
 }
