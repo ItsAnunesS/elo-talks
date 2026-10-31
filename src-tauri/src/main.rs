@@ -10,6 +10,7 @@ mod crypto;
 mod desktop_integration;
 mod desktop_notifications;
 mod ipc;
+mod launcher;
 mod notification_content;
 mod session_monitor;
 mod storage;
@@ -42,6 +43,11 @@ fn run() -> Result<()> {
     let args: Vec<_> = std::env::args_os().collect();
     if args.get(1).is_some_and(|s| s == "--fido-worker") {
         return auth::hardware_worker();
+    }
+    if args.get(1).is_some_and(|s| s == "--launcher") {
+        return launcher::run(PathBuf::from(
+            args.get(2).context("Missing runtime directory")?,
+        ));
     }
     if args.get(1).is_some_and(|s| s == "--ui") {
         return ui::run(

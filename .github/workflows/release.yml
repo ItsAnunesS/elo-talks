@@ -86,8 +86,11 @@ jobs:
           bash scripts/test-ui.sh
       - name: Native account and notification regressions
         run: |
-          cargo build --locked --example layout_smoke --example notifications_smoke
+          cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke
           dbus-run-session -- timeout 30s target/debug/examples/notifications_smoke
+          for scenario in current ready error installing closure; do
+            xvfb-run -a dbus-run-session -- timeout 15s target/debug/examples/launcher_smoke "$scenario"
+          done
           bash scripts/test-native-layout.sh
       - name: Audit dependencies
         run: |

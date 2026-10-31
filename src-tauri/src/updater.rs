@@ -138,6 +138,10 @@ impl Updater {
         status["intervalMinutes"] = json!(self.interval.as_secs() / 60);
         status
     }
+    pub fn install_start_failed(&mut self) {
+        self.state = json!({"phase":"error", "error":"Could not start installation. The current version remains available."});
+        self.schedule_next_check();
+    }
     pub fn command(&mut self, operation: &str) -> Result<Value> {
         // Startup and the background scheduler may observe the same available release.
         // Reuse the in-flight/verified preparation rather than racing another helper.
@@ -358,6 +362,16 @@ impl Drop for Updater {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn failed_install_start_cannot_loop_back_into_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut updater = Updater::new(dir.path()).unwrap();
+        updater.state = json!({"phase":"ready", "version":"0.4.1"});
+        updater.install_start_failed();
+        assert_eq!(updater.status()["phase"], "error");
+        assert!(updater.command("install").is_err());
+    }
 
     #[test]
     fn progress_exposes_only_bounded_public_sizes_during_download() {

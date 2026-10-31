@@ -74,6 +74,24 @@ impl Controller {
         self.child = Some(cmd.spawn()?);
         Ok(())
     }
+    fn spawn_launcher(&mut self) -> Result<()> {
+        let mut command = Command::new(std::env::current_exe()?);
+        command
+            .arg("--launcher")
+            .arg(&self.runtime)
+            .process_group(0);
+        for name in ["GTK_MODULES", "GTK3_MODULES", "GTK_PATH"] {
+            command.env_remove(name);
+        }
+        unsafe {
+            command.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                Ok(())
+            });
+        }
+        self.child = Some(command.spawn()?);
+        Ok(())
+    }
     fn stop_ui(&mut self) -> Result<()> {
         if let Some(mut c) = self.child.take() {
             let pg = c.id() as i32;
@@ -354,7 +372,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
     }
     let lock = Arc::new(AtomicBool::new(false));
     crate::session_monitor::start(lock.clone(), shutdown.clone());
-    c.spawn_ui()?;
+    c.spawn_launcher()?;
     loop {
         updater.poll();
         if installing && updater.status()["phase"] == "installed" {
@@ -426,6 +444,14 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                     lock.store(false, Ordering::Relaxed);
                 }
                 let result = match r.op.as_str() {
+                    "launcher.continue" => {
+                        if installing || updater.status()["phase"] == "installing" {
+                            Err(anyhow!("Wait for installation to finish"))
+                        } else {
+                            startup_check = false;
+                            Ok(Value::Null)
+                        }
+                    }
                     "update.startup" => {
                         let first = startup_check;
                         startup_check = false;
@@ -451,7 +477,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                             Err(anyhow!("No verified update is ready"))
                         }
                     }
-                    "create" | "unlock" if installing => {
+                    "create" | "unlock" | "quit" if installing => {
                         Err(anyhow!("Wait for the update to finish"))
                     }
                     _ => c.handle(&r),
@@ -464,20 +490,25 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                 let _ = send_frame(&mut socket, &serde_json::to_vec(&response)?);
                 if success {
                     match r.op.as_str() {
+                        "launcher.continue" => {
+                            c.stop_ui()?;
+                            c.spawn_ui()?;
+                        }
                         "update.install" => {
                             c.stop_ui()?;
                             match c.vault.unmount() {
                                 Ok(()) => {
                                     if updater.command("install").is_ok() {
                                         installing = true;
-                                        c.spawn_ui()?;
+                                        c.spawn_launcher()?;
                                     } else {
-                                        c.spawn_ui()?;
+                                        updater.install_start_failed();
+                                        c.spawn_launcher()?;
                                     }
                                 }
                                 Err(error) => {
                                     c.lock_error = Some(error.to_string());
-                                    c.spawn_ui()?;
+                                    c.spawn_launcher()?;
                                 }
                             }
                         }
