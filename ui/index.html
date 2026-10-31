@@ -200,6 +200,12 @@
             data-icon="plus"
           ></button>
         </div>
+        <label class="channel-filter-label" for="channel-filter">Show channels</label>
+        <select id="channel-filter" class="channel-filter">
+          <option value="all">All channels</option>
+          <option value="favorites">Favorites</option>
+          <option value="unread">Unread</option>
+        </select>
         <div id="account-list"></div>
         <button id="add-category" class="text-button add-category">
           <span data-icon="folder"></span>Add category
@@ -255,6 +261,7 @@
           </button>
         </div>
         <p id="workspace-health" class="workspace-health" role="status"></p>
+        <p id="filter-empty" class="hint" hidden>No channels match this filter.</p>
         <div id="cards" class="cards"></div>
         <div id="empty-workspace" class="empty-workspace" hidden>
           <span class="empty-icon" data-icon="grid"></span>

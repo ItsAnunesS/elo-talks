@@ -1,9 +1,10 @@
+import { readSpace, saveSpace, savedIds, isFavorite } from "./space-state.js";
 import { createButton, createElement, getElement } from "./dom.js";
 import { icon } from "./icons.js";
 import { request, invoke } from "./bridge.js";
 
 const images = new Map();
-const collapsed = new Set();
+const collapsed = savedIds("collapsed");
 let generation = 0;
 const avatars = new Map();
 export function updateAvatar({ id, available }) {
@@ -71,7 +72,7 @@ export function clearWorkspaceImages() {
   renderChannelIdentity(null);
   images.clear();
   avatars.clear();
-  collapsed.clear();
+
   getElement("workspace-icons").replaceChildren();
 }
 export function serviceIcon(service = "whatsapp") {
@@ -115,6 +116,7 @@ export function renderNavigation(state, workspaceId, selected, actions) {
       () => actions.selectWorkspace(item.id),
       "account-icon workspace-icon",
     );
+    button.addEventListener("contextmenu", (event) => actions.workspaceMenu(event, item));
     button.dataset.workspaceId = item.id;
     button.dataset.dropWorkspace = item.id;
     button.title = item.name;
@@ -141,6 +143,7 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   const appendChannels = (parent, categoryId) => {
     for (const account of accounts.filter((a) => placements[a.id].categoryId === categoryId)) {
       const row = createElement("div", "account-row");
+      row.addEventListener("contextmenu", (event) => actions.channelMenu(event, account));
       row.dataset.accountId = account.id;
       row.draggable = true;
       row.title = "Drag to a workspace or category. Manage channel also offers move controls.";
@@ -149,7 +152,11 @@ export function renderNavigation(state, workspaceId, selected, actions) {
       button.setAttribute("aria-label", account.name);
       button.append(
         serviceIcon(placements[account.id].service),
-        createElement("span", "channel-label", account.name),
+        createElement(
+          "span",
+          "channel-label",
+          `${isFavorite(account.id) ? "★ " : ""}${account.name}`,
+        ),
       );
       const menu = createButton("⋯", () => actions.editAccount(account), "account-menu");
       menu.setAttribute("aria-label", `Manage ${account.name}`);
@@ -171,6 +178,7 @@ export function renderNavigation(state, workspaceId, selected, actions) {
         channels.hidden = !channels.hidden;
         if (channels.hidden) collapsed.add(category.id);
         else collapsed.delete(category.id);
+        saveSpace({ collapsed: [...collapsed] });
         toggle.setAttribute("aria-expanded", String(!channels.hidden));
         caret.textContent = channels.hidden ? "▸" : "▾";
       },
@@ -196,6 +204,7 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   }
   for (const [index, account] of accounts.entries()) {
     const card = createButton("", () => actions.selectAccount(account.id), "account-card");
+    card.addEventListener("contextmenu", (event) => actions.channelMenu(event, account));
     card.dataset.accountId = account.id;
     card.style.setProperty("--entry-delay", `${Math.min(index, 4) * 25}ms`);
     const initials = createElement("span", "card-initials", account.name.slice(0, 2).toUpperCase());

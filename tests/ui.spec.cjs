@@ -523,6 +523,26 @@ const http = require("node:http"),
     await page.reload();
     await page.getByRole("button", { name: "Company", exact: true }).click();
     assert.equal(await page.locator("#account-list .account-row").count(), 2);
+    await page.locator('#account-list [data-account-id="account-3"]').click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Add to favorites", exact: true }).click();
+    await page.getByLabel("Show channels", { exact: true }).selectOption("favorites");
+    assert.equal(await page.locator("#account-list [data-account-id]:visible").count(), 1);
+    assert.equal(await page.locator("#cards [data-account-id]:visible").count(), 1);
+    await page.getByLabel("Show channels", { exact: true }).selectOption("all");
+    await page.getByRole("button", { name: "Project", exact: true }).click();
+    await page.reload();
+    await page.getByRole("button", { name: "Continue anyway" }).click();
+    await page.locator('#account-list [data-account-id="account-3"].selected').waitFor();
+    assert.equal(
+      await page
+        .locator('#workspace-icons [data-workspace-id="workspace-1"]')
+        .getAttribute("aria-pressed"),
+      "true",
+    );
+    await page.locator('#account-list [data-account-id="account-3"]').click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Remove from favorites", exact: true }).waitFor();
+    await page.keyboard.press("Escape");
+    assert.equal(await page.getByRole("menu").count(), 0);
     // Search crosses workspace boundaries and restores the chosen native account.
     await page.getByRole("button", { name: "Find a channel", exact: true }).click();
     assert.equal(
@@ -538,6 +558,9 @@ const http = require("node:http"),
     await page.keyboard.press("Enter");
     await page.locator('#account-list [data-account-id="account-4"].selected').waitFor();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByLabel("Text size", { exact: true }).selectOption("120");
+    assert.equal(await page.locator("html").getAttribute("data-text-size"), "120");
+    await page.getByLabel("Text size", { exact: true }).selectOption("100");
     await page.getByLabel("Layout density", { exact: true }).selectOption("compact");
     assert.equal(await page.locator("html").getAttribute("data-density"), "compact");
     await page.getByLabel("Interface animations", { exact: true }).uncheck();
@@ -622,6 +645,7 @@ const http = require("node:http"),
     await page.evaluate(() => {
       const fixture = JSON.parse(localStorage.getItem("fixture"));
       fixture.lastAccount = "b";
+      localStorage.removeItem("elo-space");
       localStorage.setItem("fixture", JSON.stringify(fixture));
       localStorage.setItem("startupScenario", "delayed");
     });
@@ -664,11 +688,10 @@ const http = require("node:http"),
     await page.evaluate(() => localStorage.removeItem("startupScenario"));
     await page.addInitScript(() => {
       const original = window.__TAURI__.core.invoke;
-      let update = ["background", "prepare-failure"].includes(
-        localStorage.getItem("updateScenario"),
-      )
-        ? { phase: "available", version: "0.1.99" }
-        : { phase: "idle" };
+      let update =
+        localStorage.getItem("updateScenario") === "background"
+          ? { phase: "ready", version: "0.1.99" }
+          : { phase: "idle" };
       window.updateOperations = [];
       window.__TAURI__.core.invoke = async (command, args) => {
         if (command === "request" && args.op.startsWith("update.")) {
@@ -730,30 +753,29 @@ const http = require("node:http"),
     );
     assert.equal(
       await page.evaluate(() => window.updateOperations.includes("update.prepare")),
-      true,
+      false,
     );
-    assert.deepEqual(
-      await page.evaluate(() =>
-        window.updateOperations.filter((op) => ["update.prepare", "update.install"].includes(op)),
-      ),
-      ["update.prepare", "update.install"],
-    );
-    await page.evaluate(() => localStorage.setItem("updateScenario", "prepare-failure"));
+    await page.evaluate(() => {
+      localStorage.setItem("updateScenario", "prepare-failure");
+      const fixture = JSON.parse(localStorage.getItem("fixture"));
+      fixture.unlocked = false;
+      localStorage.setItem("fixture", JSON.stringify(fixture));
+    });
     await page.reload();
-    await page.getByRole("button", { name: "Continue anyway" }).click();
-    await page
-      .getByRole("button", { name: "Restart to update", exact: false })
-      .click({ timeout: 20000 });
     await page.waitForFunction(() => window.updateOperations.includes("update.prepare"));
     await page.locator("#startup-screen[hidden]").waitFor({ state: "attached" });
     assert.equal(
       await page.evaluate(() => window.updateOperations.includes("update.install")),
       false,
     );
-    assert.equal(
-      await page.evaluate(() => window.updateOperations.includes("update.restart")),
-      false,
-    );
+    await page.evaluate(() => {
+      localStorage.setItem("updateScenario", "background");
+      const fixture = JSON.parse(localStorage.getItem("fixture"));
+      fixture.unlocked = true;
+      localStorage.setItem("fixture", JSON.stringify(fixture));
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "Continue anyway" }).click();
     await page.getByRole("button", { name: "Find a channel", exact: true }).click();
     await page.getByLabel("Search channels").fill("Settings");
     await page.getByLabel("Search channels").press("Enter");
@@ -808,6 +830,32 @@ const http = require("node:http"),
     assert.equal(await page.locator("#update-version").textContent(), "0.3.0 → 0.3.1");
     assert.equal(await page.locator("#update-detail").textContent(), "25.0 / 100.0 MB");
     await page.evaluate(async () => (await import("./loading-screen.js")).hideLoading());
+    await page.evaluate(() => {
+      window.testAccountStatus.accounts["account-3"] = {
+        page: "ready",
+        readiness: "chats",
+        unreadCount: 2,
+      };
+      window.testAccountStatus.accounts["account-4"] = {
+        page: "ready",
+        readiness: "chats",
+        unreadCount: 0,
+      };
+      window.testListeners["account-state"]({ payload: window.testAccountStatus });
+    });
+    await page.getByLabel("Show channels", { exact: true }).selectOption("unread");
+    assert.equal(await page.locator("#account-list [data-account-id]:visible").count(), 1);
+    await page.locator("#overview-button").click();
+    await page.reload();
+    await page.locator("#startup-screen[hidden]").waitFor({ state: "attached" });
+    assert.equal(await page.getByLabel("Show channels", { exact: true }).inputValue(), "unread");
+    assert.equal(await page.locator("#dashboard").isVisible(), true);
+    assert.equal(
+      await page
+        .locator('#workspace-icons [data-workspace-id="workspace-1"]')
+        .getAttribute("aria-pressed"),
+      "true",
+    );
     const readinessPage = await browser.newPage();
     const readinessScript = fs.readFileSync(
       path.resolve(__dirname, "../src-tauri/src/readiness.js"),

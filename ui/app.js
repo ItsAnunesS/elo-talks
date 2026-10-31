@@ -1,3 +1,5 @@
+import { readSpace, saveSpace, isFavorite, toggleFavorite } from "./space-state.js";
+import { openContextMenu } from "./context-menu.js";
 import { appearanceControls } from "./appearance.js";
 import { initializeChannelDrag } from "./channel-drag.js";
 import { updateSettings } from "./update-settings.js";
@@ -14,7 +16,7 @@ import {
   createDestructiveAction,
 } from "./dom.js";
 import { invoke, request, listen, isDesktop } from "./bridge.js";
-import { updateAccountStatus } from "./account-status.js";
+import { updateAccountStatus, applyChannelFilter } from "./account-status.js";
 import {
   renderNavigation,
   clearWorkspaceImages,
@@ -160,6 +162,8 @@ function renderState() {
     editAccount,
     editCategory,
     addAccount,
+    channelMenu,
+    workspaceMenu,
   });
   updateAccountStatus(null, selected, state.organization, activeWorkspace);
   getElement("page-title").textContent =
@@ -173,6 +177,7 @@ async function selectWorkspace(id) {
   activeWorkspace = id;
   selected = null;
   renderState();
+  saveSpace({ workspace: activeWorkspace, channel: null });
 }
 let selectionQueue = Promise.resolve();
 let selectionGeneration = 0;
@@ -202,8 +207,9 @@ async function activateAccount(id) {
     }
   }
   selected = id;
+  if (!startingAccounts) saveSpace({ workspace: activeWorkspace, channel: id });
   if (!id) refreshAvatars();
-  if (id) revealChannel(id);
+  if (id && !startingAccounts) revealChannel(id);
   updateAccountStatus(null, selected);
   getElement("page-title").textContent =
     state.accounts.find((a) => a.id === id)?.name || "Overview";
@@ -835,12 +841,26 @@ async function initializeDesktop() {
   showLoading("Opening Elo Talks…");
   state = await request("status");
   if (!(await initializeUpdates(state.unlocked))) return;
+  const savedSpace = state.unlocked ? readSpace() : {};
+  if (state.organization?.workspaces.some((workspace) => workspace.id === savedSpace.workspace))
+    activeWorkspace = savedSpace.workspace;
+  getElement("channel-filter").value = ["all", "favorites", "unread"].includes(savedSpace.filter)
+    ? savedSpace.filter
+    : "all";
   renderState();
   document.body.classList.remove("booting");
   if (state.unlocked) {
     startingAccounts = true;
     try {
-      await prepareAccounts(state.accounts, state.lastAccount, selectAccount);
+      await prepareAccounts(
+        state.accounts,
+        savedSpace.channel || state.lastAccount,
+        async (id) => {
+          if (savedSpace.channel === null && activeWorkspace) await selectAccount(null);
+          else await selectAccount(id);
+        },
+        savedSpace.channel !== null,
+      );
     } finally {
       startingAccounts = false;
     }
@@ -941,3 +961,55 @@ getElement("undo-move").addEventListener("click", async () => {
     button.disabled = false;
   }
 });
+
+getElement("channel-filter").addEventListener("change", (event) => {
+  saveSpace({ filter: event.target.value });
+  applyChannelFilter(event.target.value);
+});
+async function toggleChannelMute(id) {
+  const preferences = { ...state.notifications };
+  const ids = new Set(preferences.mutedAccounts || []);
+  if (ids.has(id)) ids.delete(id);
+  else ids.add(id);
+  await request("notifications", { ...preferences, mutedAccounts: [...ids] });
+  await refreshState();
+}
+function channelMenu(event, account) {
+  openContextMenu(event, [
+    { label: "Open channel", run: () => selectAccount(account.id) },
+    {
+      label: isFavorite(account.id) ? "Remove from favorites" : "Add to favorites",
+      run: () => {
+        toggleFavorite(account.id);
+        renderState();
+      },
+    },
+    {
+      label: state.notifications?.mutedAccounts?.includes(account.id)
+        ? "Unmute notifications"
+        : "Mute notifications",
+      run: () => toggleChannelMute(account.id),
+    },
+    { label: "Move or rename", run: () => editAccount(account) },
+    {
+      label: "Reload WhatsApp",
+      run: async () => {
+        await invoke("retry_account", { id: account.id });
+        await selectAccount(account.id);
+      },
+    },
+  ]);
+}
+function workspaceMenu(event, workspace) {
+  openContextMenu(event, [
+    { label: "Open workspace", run: () => selectWorkspace(workspace.id) },
+    { label: "Manage workspace", run: () => editWorkspace(workspace) },
+    {
+      label: "Add WhatsApp",
+      run: async () => {
+        await selectWorkspace(workspace.id);
+        await addAccount();
+      },
+    },
+  ]);
+}

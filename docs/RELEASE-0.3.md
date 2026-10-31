@@ -69,3 +69,22 @@ until an exact, safe target can be verified.
   native account viewport, header height or sidebar width.
 - Ctrl+, opens Settings and Ctrl+Shift+L locks the vault from the local interface;
   Ctrl+K remains the quick switcher. Remote WhatsApp focus retains its own shortcuts.
+
+## Workspace continuity and prepared updates
+
+- The unlocked shell remembers workspace/channel selection (including Overview),
+  collapsed categories, favorites and channel filter in its encrypted profile.
+  Invalid/deleted selections fall back to an existing workspace/channel. Window
+  size and maximized state are restored from the respective UI profile, with safe
+  minimum/maximum bounds and debounced writes; window position is not restored.
+- All/Favorites/Unread filters retain category organization. Unread uses the
+  existing WhatsApp counter or notification fallback, not a new message scanner.
+- Right-click channel/workspace menus support arrow keys, Home/End, Enter and
+  Escape. Channel placement remains available through the existing dialog.
+- Release checks now prepare and verify the public AppImage in the background.
+  A ready artifact is retained and waits for explicit installation during use;
+  startup still installs before unlock. Network cooldowns and signature checks
+  remain enforced. Manual checks cannot discard a prepared update.
+- Text size choices (100/110/120%) scale local reading text without changing the
+  native viewport geometry. WhatsApp retains its own text controls. Existing
+  reduced-motion support and higher-contrast system preference remain respected.

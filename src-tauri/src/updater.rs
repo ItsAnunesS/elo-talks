@@ -128,12 +128,24 @@ impl Updater {
                 }
             }
         }
-        status["canCheck"] = json!(self.target.is_some() && self.child.is_none() && wait.is_zero());
+        status["canCheck"] = json!(
+            self.target.is_some()
+                && self.child.is_none()
+                && wait.is_zero()
+                && self.state["phase"] != "ready"
+        );
         status["retryInSeconds"] = json!(wait.as_secs() + u64::from(wait.subsec_nanos() > 0));
         status["intervalMinutes"] = json!(self.interval.as_secs() / 60);
         status
     }
     pub fn command(&mut self, operation: &str) -> Result<Value> {
+        // Startup and the background scheduler may observe the same available release.
+        // Reuse the in-flight/verified preparation rather than racing another helper.
+        if operation == "prepare"
+            && matches!(self.state["phase"].as_str(), Some("downloading" | "ready"))
+        {
+            return Ok(self.status());
+        }
         ensure!(
             self.child.is_none(),
             "An update operation is already running"
@@ -150,6 +162,10 @@ impl Updater {
         command.arg(operation).arg(env!("CARGO_PKG_VERSION"));
         let phase = match operation {
             "check" => {
+                ensure!(
+                    self.state["phase"] != "ready",
+                    "A verified update is already ready"
+                );
                 ensure!(
                     self.last_check
                         .is_none_or(|last| last.elapsed() >= Duration::from_secs(60)),
@@ -238,6 +254,14 @@ impl Updater {
                 let _ = std::fs::remove_file(&self.output);
             }
             if self.child.is_none() {
+                self.schedule_next_check();
+            }
+        } else if self.target.is_some() && self.state["phase"] == "available" {
+            // Download and authenticate public artifacts while accounts remain open.
+            // Only an explicit install request may close the vault and replace the app.
+            if self.command("prepare").is_err() {
+                self.state =
+                    json!({"phase":"error", "error":"Could not start the background download."});
                 self.schedule_next_check();
             }
         } else if self.target.is_some()
@@ -516,7 +540,13 @@ printf '%s' "$$" > "$ELO_RESTART_TEST_RESULT"
         let helper = dir.path().join("helper");
         std::fs::write(
             &helper,
-            "#!/bin/sh\nprintf '%s' '{\"phase\":\"available\",\"version\":\"0.1.99\"}'\n",
+            r#"#!/bin/sh
+case "$1" in
+check) printf '%s' '{"phase":"available","version":"0.1.99"}' ;;
+prepare) printf '%s' '{"phase":"ready","version":"0.1.99","stage":"/synthetic/stage"}' ;;
+*) exit 44 ;;
+esac
+"#,
         )
         .unwrap();
         std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -537,19 +567,22 @@ printf '%s' "$$" > "$ELO_RESTART_TEST_RESULT"
         assert!(remaining > Duration::from_secs(295));
         assert!(remaining <= Duration::from_secs(300));
         updater.poll();
+        assert_eq!(updater.status()["phase"], "downloading");
+        assert_eq!(updater.command("prepare").unwrap()["phase"], "downloading");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while updater.child.is_some() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            updater.poll();
+        }
+        assert_eq!(updater.status()["phase"], "ready");
+        updater.poll();
         assert!(
             updater.child.is_none(),
-            "Do not check again before the deadline"
+            "A prepared update must wait for explicit installation"
         );
-        assert_eq!(updater.status()["phase"], "available");
-        assert!(updater.command("install").is_err());
-        assert!(
-            updater.command("check").is_err(),
-            "Manual checks must not bypass the one-minute minimum"
-        );
+        assert!(updater.command("check").is_err());
         assert_eq!(updater.status()["canCheck"], false);
-        assert!(updater.status()["retryInSeconds"].as_u64().unwrap() > 0);
-        assert!(updater.stage.is_none());
+        assert!(updater.stage.is_some());
         assert!(updater.status().get("stage").is_none());
     }
 }

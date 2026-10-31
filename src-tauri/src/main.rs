@@ -19,6 +19,7 @@ mod updater;
 mod vault;
 mod whatsapp;
 mod whatsapp_style;
+mod window_state;
 mod workspaces;
 use anyhow::{Context, Result};
 use std::path::PathBuf;

@@ -53,7 +53,7 @@ export function updateSettings(parent, { preferences, version, restart, feedback
     check.disabled =
       next.canCheck === false ||
       ["checking", "downloading", "installing", "unsupported"].includes(next.phase);
-    install.hidden = !["available", "ready"].includes(next.phase);
+    install.hidden = next.phase !== "ready";
   }
   async function refresh() {
     display(await request("update.status"));

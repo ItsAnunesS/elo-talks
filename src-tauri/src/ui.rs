@@ -376,13 +376,20 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
             test_notification
         ])
         .setup(move |app| {
+            let geometry = crate::window_state::load(&profile);
             let window = tauri::window::WindowBuilder::new(app, "main")
                 .title("Elo Talks")
                 .decorations(false)
                 .resizable(true)
-                .inner_size(1200., 800.)
+                .inner_size(geometry.width as f64, geometry.height as f64)
+                .maximized(geometry.maximized)
                 .min_inner_size(900., 640.)
                 .build()?;
+            crate::window_state::attach(
+                &window.gtk_window()?.into(),
+                profile.join("window.json"),
+                geometry,
+            );
             let local = WebviewBuilder::new("main", WebviewUrl::App("index.html".into()))
                 .data_directory(profile.join("shell"))
                 .devtools(false)

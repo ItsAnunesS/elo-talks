@@ -2,14 +2,14 @@ import { invoke } from "./bridge.js";
 import { showLoading, hideLoading } from "./loading-screen.js";
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function prepareAccounts(accounts, lastAccount, openAccount) {
+export async function prepareAccounts(accounts, lastAccount, openAccount, waitForAccount = true) {
   const priority = accounts.find((account) => account.id === lastAccount) || accounts[0];
   if (!priority) {
     hideLoading();
     return;
   }
   const proceed = document.getElementById("startup-continue");
-  let skipped = false;
+  let skipped = !waitForAccount;
   let resolveContinue;
   const continued = new Promise((resolve) => {
     resolveContinue = resolve;

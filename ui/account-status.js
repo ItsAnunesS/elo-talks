@@ -1,3 +1,4 @@
+import { isFavorite } from "./space-state.js";
 import { icon } from "./icons.js";
 import { createElement, getElement } from "./dom.js";
 
@@ -102,6 +103,7 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
   const total = totals.get(activeWorkspace) || 0;
   getElement("overview-badge").hidden = total === 0;
   getElement("overview-badge").textContent = total > 99 ? "99+" : String(total);
+  applyChannelFilter(document.getElementById("channel-filter").value);
   const health = snapshot.accounts[selected];
   getElement("account-page-status").textContent = selected
     ? health?.page === "ready"
@@ -121,4 +123,25 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
       : health?.page === "tls-failed"
         ? "Check your connection and system clock. Certificate validation remains enabled."
         : "";
+}
+
+export function applyChannelFilter(filter) {
+  for (const element of document.querySelectorAll(
+    "#account-list [data-account-id], #cards [data-account-id]",
+  )) {
+    const id = element.dataset.accountId;
+    element.hidden =
+      filter === "favorites"
+        ? !isFavorite(id)
+        : filter === "unread"
+          ? counter(snapshot.accounts[id]) === 0
+          : false;
+  }
+  for (const category of document.querySelectorAll(".channel-category")) {
+    category.hidden =
+      filter !== "all" && !category.querySelector("[data-account-id]:not([hidden])");
+  }
+  const empty = document.getElementById("filter-empty");
+  empty.hidden =
+    filter === "all" || !!document.querySelector("#cards [data-account-id]:not([hidden])");
 }

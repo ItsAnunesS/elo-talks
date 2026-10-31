@@ -522,3 +522,78 @@ select:focus {
   width: 14px;
   height: 14px;
 }
+
+.channel-filter-label {
+  margin: 4px 16px;
+  color: #b3aabb;
+  font-size: 11px;
+}
+.channel-filter {
+  margin: 0 14px 10px;
+  width: calc(100% - 28px);
+  padding: 7px 9px;
+  font-size: 11px;
+}
+.context-menu {
+  position: fixed;
+  z-index: 20000;
+  width: 220px;
+  padding: 5px;
+  border: 1px solid #51445d;
+  border-radius: 12px;
+  background: #211d28;
+  box-shadow: 0 12px 38px #0008;
+}
+.context-action {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  text-align: left;
+}
+.context-action:hover,
+.context-action:focus-visible {
+  background: #393044;
+}
+:root[data-text-size="110"] {
+  --readable-text: 14px;
+  --readable-small: 12px;
+}
+:root[data-text-size="120"] {
+  --readable-text: 16px;
+  --readable-small: 13px;
+}
+:root[data-text-size="110"] .channel-label,
+:root[data-text-size="120"] .channel-label,
+:root[data-text-size="110"] .channel-card-title,
+:root[data-text-size="120"] .channel-card-title,
+:root[data-text-size="110"] #dialog-content,
+:root[data-text-size="120"] #dialog-content {
+  font-size: var(--readable-text);
+}
+:root[data-text-size="110"] .hint,
+:root[data-text-size="120"] .hint,
+:root[data-text-size="110"] .card-health,
+:root[data-text-size="120"] .card-health {
+  font-size: var(--readable-small);
+}
+:root[data-text-size="120"] .account-row {
+  min-height: 44px;
+}
+.account-health,
+.workspace-health,
+.dashboard-note p {
+  color: #aca4b5;
+}
+@media (prefers-contrast: more) {
+  :root {
+    --muted: #d0c9da;
+    --line: #716778;
+  }
+  .account-card,
+  dialog,
+  .context-menu {
+    border-color: #9b8aab;
+  }
+}

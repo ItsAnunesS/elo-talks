@@ -6,14 +6,16 @@ function read() {
     return {
       density: value.density === "compact" ? "compact" : "comfortable",
       motion: value.motion !== false,
+      textSize: [100, 110, 120].includes(value.textSize) ? value.textSize : 100,
     };
   } catch {
-    return { density: "comfortable", motion: true };
+    return { density: "comfortable", motion: true, textSize: 100 };
   }
 }
 function apply(value) {
   document.documentElement.dataset.density = value.density;
   document.documentElement.dataset.motion = value.motion ? "system" : "off";
+  document.documentElement.dataset.textSize = String(value.textSize || 100);
 }
 apply(read());
 export function appearanceControls(parent) {
@@ -30,6 +32,16 @@ export function appearanceControls(parent) {
   }
   const current = read();
   density.value = current.density;
+  const sizeLabel = createElement("label", "", "Text size");
+  const textSize = createElement("select");
+  textSize.id = "appearance-text-size";
+  sizeLabel.htmlFor = textSize.id;
+  for (const size of [100, 110, 120]) {
+    const option = createElement("option", "", `${size}%`);
+    option.value = String(size);
+    textSize.append(option);
+  }
+  textSize.value = String(current.textSize);
   const toggle = createElement("label", "toggle-setting");
   const motion = createElement("input");
   motion.type = "checkbox";
@@ -38,7 +50,11 @@ export function appearanceControls(parent) {
   const feedback = createElement("p", "hint");
   feedback.setAttribute("role", "status");
   const save = () => {
-    const value = { density: density.value, motion: motion.checked };
+    const value = {
+      density: density.value,
+      motion: motion.checked,
+      textSize: Number(textSize.value),
+    };
     apply(value);
     try {
       localStorage.setItem(key, JSON.stringify(value));
@@ -49,9 +65,12 @@ export function appearanceControls(parent) {
   };
   density.addEventListener("change", save);
   motion.addEventListener("change", save);
+  textSize.addEventListener("change", save);
   section.append(
     label,
     density,
+    sizeLabel,
+    textSize,
     toggle,
     createElement("p", "hint", "Your system’s reduced-motion preference always takes priority."),
     feedback,

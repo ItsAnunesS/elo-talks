@@ -72,7 +72,7 @@ export async function initializeUpdates(unlocked) {
         if (!["available", "ready", "checking", "downloading"].includes(initial.phase)) {
           await request("update.check");
         }
-        const status = await settled(20000);
+        const status = await settled(320000, true);
         if (["available", "ready"].includes(status.phase)) await install();
         else if (status.phase === "error") throw new Error(status.error || "Update check failed.");
       }
@@ -91,8 +91,14 @@ export async function initializeUpdates(unlocked) {
     try {
       const status = await request("update.status");
       window.dispatchEvent(new CustomEvent("update-state", { detail: status }));
-      button.hidden = !["available", "ready"].includes(status.phase);
-      button.textContent = `Restart to update${status.version ? ` · ${status.version}` : ""}`;
+      button.hidden = !["available", "ready", "downloading"].includes(status.phase);
+      button.disabled = status.phase !== "ready";
+      button.textContent =
+        status.phase === "ready"
+          ? `Restart to update${status.version ? ` · ${status.version}` : ""} · Ready`
+          : status.progress?.step === "downloading" && status.progress.total > 0
+            ? `Downloading update · ${Math.floor((status.progress.downloaded / status.progress.total) * 100)}%`
+            : "Preparing update…";
     } catch {
       /* The controller may be restarting the interface. */
     }
