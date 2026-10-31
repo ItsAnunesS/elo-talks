@@ -186,6 +186,28 @@ const http = require("node:http"),
       };
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.evaluate(() => {
+      localStorage.setItem(
+        "fixture",
+        JSON.stringify({ ...window.testState, error: "Synthetic busy mount" }),
+      );
+    });
+    await page.reload();
+    await page.locator("#lock-recovery").waitFor();
+    assert.equal(await page.locator("#unlock-form").isVisible(), false);
+    assert.equal(await page.locator("#methods").isVisible(), false);
+    assert.equal(await page.locator("#lock-title").textContent(), "Securing your space.");
+    await page.getByRole("button", { name: "Finish locking", exact: true }).click();
+    assert.equal(await page.locator("#retry-lock").isDisabled(), true);
+    assert.equal(await page.locator("#recovery-status").textContent(), "Closing the vault safely…");
+    assert.equal(
+      await page.locator("#unlock-form").isVisible(),
+      false,
+      "RPC acknowledgment is not proof of closure",
+    );
+    await page.screenshot({ animations: "disabled", path: "/tmp/elo-lock-recovery.png" });
+    await page.evaluate(() => localStorage.removeItem("fixture"));
+    await page.reload();
     await page.locator(".wordmark img").evaluate((img) => img.decode());
     await page.screenshot({ animations: "disabled", path: "/tmp/elo-unlock-premium.png" });
     await page.getByRole("button", { name: "Minimize window", exact: true }).click();

@@ -204,19 +204,33 @@ impl Vault {
         Ok(())
     }
     pub fn unmount(&mut self) -> Result<()> {
-        if self.mounted() {
-            let status = Command::new("/usr/bin/fusermount3")
-                .arg("-u")
-                .arg(&self.mount)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .context("Could not unmount the vault")?;
-            ensure!(
-                status.success() && !self.mounted(),
-                "Vault is still mounted. Close the processes using it and retry."
-            );
-        }
+        // WebKit descendants can release descriptors shortly after the UI exits.
+        // Retry normal unmounts only; never detach a still-accessible mount lazily.
+        retry_unmount(
+            || {
+                if !self.mounted() {
+                    return Ok(true);
+                }
+                let mut child = Command::new("/usr/bin/fusermount3")
+                    .arg("-u")
+                    .arg(&self.mount)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .context("Could not unmount the vault")?;
+                let started = Instant::now();
+                while child.try_wait()?.is_none() {
+                    if started.elapsed() >= Duration::from_millis(400) {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Ok(!self.mounted())
+            },
+            Duration::from_millis(100),
+        )?;
         if let Some(mut child) = self.fuse.take() {
             let _ = child.wait();
         }
@@ -361,5 +375,50 @@ mod tests {
         );
         v.unmount().unwrap();
         assert!(!v.mounted());
+    }
+}
+
+fn retry_unmount(mut attempt: impl FnMut() -> Result<bool>, delay: Duration) -> Result<()> {
+    for index in 0..4 {
+        if attempt()? {
+            return Ok(());
+        }
+        if index < 3 {
+            std::thread::sleep(delay);
+        }
+    }
+    Err(anyhow!(
+        "Vault closure could not be confirmed. Access remains blocked; retry closing the vault."
+    ))
+}
+
+#[cfg(test)]
+mod closure_tests {
+    use super::*;
+    #[test]
+    fn retries_transient_busy_mounts_and_stops_after_success() {
+        let mut calls = 0;
+        retry_unmount(
+            || {
+                calls += 1;
+                Ok(calls == 3)
+            },
+            Duration::ZERO,
+        )
+        .unwrap();
+        assert_eq!(calls, 3);
+    }
+    #[test]
+    fn persistent_busy_mount_is_never_reported_as_closed() {
+        let mut calls = 0;
+        assert!(retry_unmount(
+            || {
+                calls += 1;
+                Ok(false)
+            },
+            Duration::ZERO
+        )
+        .is_err());
+        assert_eq!(calls, 4);
     }
 }

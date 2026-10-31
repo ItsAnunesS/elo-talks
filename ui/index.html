@@ -133,7 +133,21 @@
           <p class="hint" id="unlock-hint">
             Your password unlocks the encrypted vault on this computer.
           </p>
-          <button class="text-button" id="retry-lock" hidden>Retry closing the vault</button>
+          <section id="lock-recovery" hidden aria-labelledby="recovery-title">
+            <h3 id="recovery-title">Finishing a safe lock</h3>
+            <p>
+              WhatsApp has been stopped, but the vault has not finished closing. Unlocking is paused
+              until closure is confirmed.
+            </p>
+            <p id="recovery-status" role="status">
+              Try again. Elo Talks will safely retry without reopening your accounts.
+            </p>
+            <button class="primary" id="retry-lock" type="button">Finish locking</button>
+            <details>
+              <summary>Technical details</summary>
+              <p id="recovery-detail"></p>
+            </details>
+          </section>
         </div>
         <div class="panel-footer">
           <span><i class="status-dot"></i> Encrypted local storage</span

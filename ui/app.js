@@ -146,10 +146,18 @@ function renderState() {
         return o;
       }),
     );
-    if (state.error) {
-      getElement("unlock-error").textContent = state.error;
-      getElement("unlock-submit").disabled = true;
-      getElement("retry-lock").hidden = false;
+    const recovering = !!state.error;
+    getElement("lock-recovery").hidden = !recovering;
+    getElement("unlock-form").hidden = recovering;
+    getElement("unlock-hint").hidden = recovering;
+    getElement("methods").hidden = recovering || !state.created;
+    getElement("unlock-submit").disabled = recovering;
+    if (recovering) {
+      clearSecrets();
+      getElement("lock-title").textContent = "Securing your space.";
+      getElement("lock-description").textContent =
+        "Your accounts are unavailable while we finish closing the vault.";
+      getElement("recovery-detail").textContent = state.error;
     }
     return;
   }
@@ -247,9 +255,22 @@ getElement("unlock-form").addEventListener("submit", async (e) => {
     submit.disabled = false;
   }
 });
-getElement("retry-lock").addEventListener("click", () =>
-  request("lock").catch((e) => showToast(errorMessage(e))),
-);
+getElement("retry-lock").addEventListener("click", async () => {
+  const button = getElement("retry-lock");
+  if (button.disabled) return;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  getElement("recovery-status").textContent = "Closing the vault safely…";
+  try {
+    await request("lock");
+    // Acknowledgment precedes native closure. The controller replaces this UI;
+    // never label the vault as locked based only on the RPC response.
+  } catch {
+    getElement("recovery-status").textContent = "Could not request closure. Please try again.";
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+});
 async function openDialog(title, build, action, submit = "Save") {
   if (dialogOpening || getElement("dialog").open) return;
   dialogOpening = true;

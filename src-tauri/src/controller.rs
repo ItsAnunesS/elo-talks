@@ -374,6 +374,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
             .map(|m| m.idle_minutes)
             .unwrap_or(0);
         if c.vault.master.is_some()
+            && c.lock_error.is_none()
             && (lock.swap(false, Ordering::Relaxed)
                 || (timeout > 0 && c.last_activity.elapsed().as_secs() >= u64::from(timeout) * 60))
         {

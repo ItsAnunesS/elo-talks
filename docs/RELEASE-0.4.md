@@ -29,3 +29,16 @@ or replace the outstanding real-device acceptance checks in VALIDATION.md.
 
 Incoming-call experiments are outside this release. Windows/macOS feasibility
 remains planned for the 0.5 series.
+
+## Vault closure recovery
+
+Normal unmount now retries up to four times after UI termination to tolerate
+brief descriptor-release delays. Each fusermount subprocess has a 400 ms polling
+deadline, with 100 ms between attempts. No lazy/forced unmount is used, and master
+key state is retained until mount closure is confirmed.
+
+A closure failure opens a dedicated recovery screen instead of a password form.
+The action reports pending closure, prevents duplicate submissions, and does not
+interpret the RPC acknowledgment as proof of locking. Repeated session-lock events
+no longer tear down and restart this recovery interface. Persistent busy mounts
+still require recovery; the UI never claims protection that was not confirmed.

@@ -617,3 +617,23 @@ select:focus {
     border: 1px solid ButtonText;
   }
 }
+
+#lock-recovery {
+  padding: 20px;
+  border: 1px solid var(--border, #42404b);
+  border-radius: 16px;
+}
+#lock-recovery p {
+  line-height: 1.6;
+}
+#lock-recovery button {
+  width: 100%;
+  margin: 16px 0;
+}
+#lock-recovery details {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+#lock-recovery summary {
+  cursor: pointer;
+}
