@@ -124,7 +124,7 @@ Real WhatsApp markup and network behavior still need acceptance on the supported
 
 ## Account card avatar regression
 
-Synthetic coverage includes PNG normalization and input limits, profile host and
+Synthetic coverage includes PNG normalization and input limits, resource scheme and
 blob-origin rejection, self-control selection with a contact-position decoy,
 frontend photo/initials fallback, and exclusion from diagnostics. The isolated native
 layout fixture exercises the production blob adapter and a separate cross-origin
@@ -137,3 +137,18 @@ for missing or unsupported photos, logout and return to Overview, and vault lock
 The bounded adapter can miss a first QR login that takes longer than 40 seconds;
 reload the account after login to retry without signing out. Do not interpret a
 successful synthetic test as proof of compatibility with every WhatsApp rollout.
+
+
+Interactive avatar diagnosis uses `cargo run --locked --example avatar_probe --
+/path/to/private/report.json [optional-adapter-script]` on a user-authorized test
+desktop. Use a test account: this ephemeral WebKit session is lost on close. The
+report includes only structural flags, image format/size and conversion status,
+never source URLs, photo pixels, QR contents or conversation text. The small preview
+exists only in memory. It is a diagnostic example, not part of the AppImage runtime.
+
+A live test account reproduced the rejected-host problem: the self control and
+its loaded JPEG resource were found, but the two-host filter rejected the source.
+Native reading and 64×64 conversion succeeded while canvas remained unavailable.
+The fix accepts eligible HTTPS resources only when they exactly match the selected
+self control; it does not fetch URLs. Final overview-card confirmation in the
+packaged release remains a separate acceptance check.

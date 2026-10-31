@@ -18,6 +18,9 @@
   }
   if (matches.size !== 1) return '';
   const [source, image] = [...matches][0];
+  const url = new URL(source);
+  const remoteImage = url.protocol === 'https:' && !url.username && !url.password && (!url.port || url.port === '443');
+  if (!remoteImage && !source.startsWith('blob:https://web.whatsapp.com/')) return '';
   let png = null;
   // Blob images belong to the page origin. Use normal canvas rules; never
   // relax CORS or reload a remote image to obtain its pixels.

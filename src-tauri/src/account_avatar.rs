@@ -48,7 +48,9 @@ fn blob_image(candidate: &Candidate) -> Option<String> {
     normalized_image(&raw)
 }
 
-fn profile_resource(uri: &str) -> bool {
+// This is a filter for existing browser resources, never a URL download policy.
+// Only the exact source selected from WhatsApp's self control can be read below.
+fn eligible_image_resource(uri: &str) -> bool {
     let Ok(url) = tauri::Url::parse(uri) else {
         return false;
     };
@@ -56,7 +58,18 @@ fn profile_resource(uri: &str) -> bool {
         && url.username().is_empty()
         && url.password().is_none()
         && url.port_or_known_default() == Some(443)
-        && matches!(url.host_str(), Some("pps.whatsapp.net" | "pp.whatsapp.net"))
+        && url.host_str().is_some()
+}
+
+fn supported_image(resource: &webkit2gtk::WebResource) -> bool {
+    resource.response().is_some_and(|response| {
+        response.content_length() > 0
+            && response.content_length() <= MAX_BYTES as u64
+            && matches!(
+                response.mime_type().as_deref(),
+                Some("image/jpeg" | "image/png")
+            )
+    })
 }
 
 pub fn normalized_image(bytes: &[u8]) -> Option<String> {
@@ -161,17 +174,34 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
     let resources = Rc::new(RefCell::new(VecDeque::<webkit2gtk::WebResource>::new()));
     let generation = Rc::new(Cell::new(0u64));
     let collecting = Rc::new(Cell::new(false));
-    let cache = resources.clone();
+    let cache = Rc::downgrade(&resources);
     let active = collecting.clone();
+    let current_generation = generation.clone();
     view.connect_resource_load_started(move |_, resource, _| {
-        if !active.get() || !resource.uri().is_some_and(|uri| profile_resource(&uri)) {
+        if !active.get()
+            || !resource
+                .uri()
+                .is_some_and(|uri| eligible_image_resource(&uri))
+        {
             return;
         }
-        let mut cache = cache.borrow_mut();
-        if cache.len() == MAX_RESOURCES {
-            cache.pop_front();
-        }
-        cache.push_back(resource.clone());
+        let cache = cache.clone();
+        let active = active.clone();
+        let generation = current_generation.clone();
+        let epoch = generation.get();
+        resource.connect_finished(move |resource| {
+            if !active.get() || generation.get() != epoch || !supported_image(resource) {
+                return;
+            }
+            let Some(cache) = cache.upgrade() else {
+                return;
+            };
+            let mut cache = cache.borrow_mut();
+            if cache.len() == MAX_RESOURCES {
+                cache.pop_front();
+            }
+            cache.push_back(resource.clone());
+        });
     });
     let app = app.clone();
     let id = id.to_owned();
@@ -249,7 +279,7 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                         publish(&app, &id, Some(Avatar { source, image }));
                         return;
                     }
-                    if !profile_resource(&source) {
+                    if !eligible_image_resource(&source) {
                         pending.set(false);
                         return;
                     }
@@ -262,15 +292,7 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                         pending.set(false);
                         return;
                     };
-                    let supported = resource.response().is_some_and(|response| {
-                        response.content_length() > 0
-                            && response.content_length() <= MAX_BYTES as u64
-                            && matches!(
-                                response.mime_type().as_deref(),
-                                Some("image/jpeg" | "image/png")
-                            )
-                    });
-                    if !supported {
+                    if !supported_image(&resource) {
                         pending.set(false);
                         return;
                     }
@@ -298,16 +320,25 @@ mod tests {
     use super::*;
     #[test]
     fn resource_policy_and_raster_limits() {
-        assert!(profile_resource("https://pps.whatsapp.net/v/photo.jpg"));
+        assert!(eligible_image_resource(
+            "https://pps.whatsapp.net/v/photo.jpg"
+        ));
+        assert!(eligible_image_resource(
+            "https://web.whatsapp.com/profile-image"
+        ));
+        assert!(eligible_image_resource(
+            "https://avatar-cdn.example/photo.jpg"
+        ));
+        // Eligibility alone never authorizes reading: the resource must also match
+        // the unique self-profile control in the exact WhatsApp origin.
+
         for uri in [
             "http://pps.whatsapp.net/a",
-            "https://pps.whatsapp.net.evil.test/a",
             "file:///tmp/photo",
             "https://pps.whatsapp.net:8443/a",
             "https://user@pps.whatsapp.net/a",
-            "https://mmg.whatsapp.net/message",
         ] {
-            assert!(!profile_resource(uri));
+            assert!(!eligible_image_resource(uri));
         }
         assert!(normalized_image(b"<svg xmlns='http://www.w3.org/2000/svg'/>").is_none());
         assert!(normalized_image(&vec![0; MAX_BYTES + 1]).is_none());

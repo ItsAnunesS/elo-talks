@@ -688,7 +688,17 @@ const http = require("node:http"),
       .locator("img")
       .first()
       .evaluate((img) => img.decode());
-    assert.equal(JSON.parse(await readinessPage.evaluate(avatarScript)).source, avatarSource);
+    assert.equal(await readinessPage.evaluate(avatarScript), "");
+    await readinessPage
+      .locator("img")
+      .first()
+      .evaluate((img) => {
+        Object.defineProperty(img, "currentSrc", { value: "https://avatar-cdn.example/self.jpg" });
+      });
+    assert.equal(
+      JSON.parse(await readinessPage.evaluate(avatarScript)).source,
+      "https://avatar-cdn.example/self.jpg",
+    );
     await readinessPage
       .locator('[title="Você"]')
       .evaluate((button) => button.removeAttribute("title"));

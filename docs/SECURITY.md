@@ -85,7 +85,7 @@ The unread adapter observes the native WebKit title property only for the exact 
 The avatar adapter selects only an explicitly labeled self-profile control in the
 lower-left WhatsApp navigation. It accepts a unique image source, never conversation
 images or private WhatsApp APIs. Native extraction is restricted to the already
-loaded matching HTTPS `pp.whatsapp.net` / `pps.whatsapp.net` resource, with PNG/JPEG
+loaded HTTPS resource whose URL exactly matches the self control, with PNG/JPEG
 MIME and size checks; it makes no additional request. WhatsApp-origin blob images
 use normal origin-clean canvas access. A denied canvas remains denied.
 
@@ -93,7 +93,10 @@ The normalized 64×64 PNG is held only by the UI process and local frontend, out
 the catalog, logs and diagnostics. Locking terminates this process before vault
 unmount. This does not prevent WhatsApp itself from caching its original image
 inside the encrypted profile. Card reads revalidate the profile control; failure
-uses initials. The bounded probe stops on success or after 40 seconds. This adapter
+uses initials. Resource hostnames are not treated as proof of identity: selection
+requires the unique self-profile control in the exact WhatsApp origin, and only
+that already loaded browser resource is read. No URL is fetched by the native
+adapter. The bounded probe stops on success or after 40 seconds. This adapter
 does not grant remote pages any Tauri permissions or relax TLS, CORS or sandboxing.
 
 Update failures double the configured interval, up to 60 minutes (10, 20, 40, then 60 minutes with the default). A longer
