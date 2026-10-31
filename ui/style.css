@@ -1363,7 +1363,7 @@ body[data-unlocked="true"] > .toast {
   border-radius: inherit;
 }
 
-/* Release-candidate polish: status stays readable without adding another panel. */
+/* Status stays readable without adding another panel. */
 .workspace-health {
   margin: -2px 0 18px;
   color: #a7a5b5;

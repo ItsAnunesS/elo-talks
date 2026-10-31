@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Elo Talks</title>
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="design.css" />
     <script src="app.js" type="module"></script>
   </head>
   <body class="booting">
@@ -216,34 +217,33 @@
       </header>
       <section class="dashboard" id="dashboard">
         <div class="workspace-heading">
-          <span class="eyebrow">WORKSPACE</span>
-          <h1 id="dashboard-title">My workspace</h1>
-          <p class="lead" id="workspace-summary">Your channels, together.</p>
+          <div class="workspace-identity">
+            <span class="eyebrow">YOUR WORKSPACE</span>
+            <h1 id="dashboard-title">My workspace</h1>
+            <p class="lead" id="workspace-summary">Your channels, together.</p>
+          </div>
+          <button class="add-card" id="add-account-card">
+            <span class="add-card-icon" data-icon="plus"></span>
+            <span><strong>Add WhatsApp</strong><small>Connect an account</small></span>
+            <span data-icon="arrow"></span>
+          </button>
         </div>
         <div class="section-heading">
           <h2>Your channels</h2>
-          <span class="hint">Your private workspace</span>
+          <button id="workspace-quick-search" class="text-button">
+            Quick switch <kbd>Ctrl K</kbd>
+          </button>
         </div>
         <p id="workspace-health" class="workspace-health" role="status"></p>
         <div id="cards" class="cards"></div>
         <div id="empty-workspace" class="empty-workspace" hidden>
           <span class="empty-icon" data-icon="grid"></span>
           <h2>A space for your conversations.</h2>
-          <p>
-            Add your first WhatsApp channel. Give it a name, then scan the QR code with your phone.
-          </p>
+          <p>Connect WhatsApp to bring your conversations here.</p>
         </div>
-        <button class="add-card" id="add-account-card">
-          <span class="add-card-icon" data-icon="plus"></span>
-          <span
-            ><strong>Add WhatsApp</strong
-            ><small>Connect another account to this workspace</small></span
-          >
-          <span data-icon="arrow"></span>
-        </button>
         <div class="dashboard-note">
           <span data-icon="shield"></span>
-          <p>Separate sessions. One encrypted vault. Only on this device.</p>
+          <p>Private on this device.</p>
         </div>
       </section>
     </main>

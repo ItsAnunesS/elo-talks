@@ -169,9 +169,10 @@ export function renderNavigation(state, workspaceId, selected, actions) {
     section.append(heading, channels);
     getElement("account-list").append(section);
   }
-  for (const account of accounts) {
+  for (const [index, account] of accounts.entries()) {
     const card = createButton("", () => actions.selectAccount(account.id), "account-card");
     card.dataset.accountId = account.id;
+    card.style.setProperty("--entry-delay", `${Math.min(index, 4) * 25}ms`);
     const initials = createElement("span", "card-initials", account.name.slice(0, 2).toUpperCase());
     initials.dataset.avatarId = account.id;
     initials.dataset.initials = initials.textContent;

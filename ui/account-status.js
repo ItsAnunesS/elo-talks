@@ -83,10 +83,10 @@ export function updateAccountStatus(next, selected, groups, workspaceId) {
   }
   const summary = getElement("workspace-health");
   summary.textContent = attention
-    ? `${attention} ${attention === 1 ? "channel needs" : "channels need"} attention. Open a channel to retry.`
+    ? `${attention} ${attention === 1 ? "channel needs" : "channels need"} attention.`
     : preparing
-      ? `${preparing} ${preparing === 1 ? "channel is" : "channels are"} preparing in the background.`
-      : "Accounts stay open when you switch channels.";
+      ? `${preparing} ${preparing === 1 ? "channel is" : "channels are"} loading…`
+      : "";
   summary.classList.toggle("has-warning", attention > 0);
   const total = totals.get(activeWorkspace) || 0;
   getElement("overview-badge").hidden = total === 0;

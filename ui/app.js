@@ -326,17 +326,25 @@ async function addAccount(categoryId = null) {
   await openDialog(
     "Add WhatsApp",
     (p) => {
-      p.append(
-        createElement(
-          "p",
-          "",
-          "Choose a name and a place for this channel. Next, scan the QR code in WhatsApp to connect.",
-        ),
-      );
+      p.append(createElement("p", "", "Name your channel. Then scan the QR code."));
       name = createField(p, "Account name", "text", "", "E.g. Personal, Work…");
       name.maxLength = 40;
       name.required = true;
-      placement = placementFields(state, p, activeWorkspace, categoryId);
+      const workspace = state.organization.workspaces.find((item) => item.id === activeWorkspace);
+      const location = createElement("details", "channel-placement");
+      location.open = !!categoryId || workspace.categories.length > 0;
+      const locationLabel = createElement("summary", "", `Location · ${workspace.name}`);
+      location.append(locationLabel);
+      p.append(location);
+      placement = placementFields(state, location, activeWorkspace, categoryId);
+      location.addEventListener("change", () => {
+        const destination = placement();
+        const workspace = state.organization.workspaces.find(
+          (item) => item.id === destination.workspaceId,
+        );
+        const category = workspace.categories.find((item) => item.id === destination.categoryId);
+        locationLabel.textContent = `Location · ${workspace.name}${category ? ` / ${category.name}` : ""}`;
+      });
     },
     async () => {
       const result = await request("account.add", { name: name.value, ...placement() });
@@ -663,11 +671,35 @@ async function openSettings() {
   );
 }
 async function findChannel() {
-  await openChannelSearch(state, openDialog, async (id) => {
-    restoreSelected = id;
-    await closeDialog();
+  const action = (label, icon, run, hint = "Action") => ({
+    label,
+    icon,
+    hint,
+    run: async () => {
+      await closeDialog();
+      await run();
+    },
   });
+  await openChannelSearch(
+    state,
+    openDialog,
+    async (id) => {
+      restoreSelected = id;
+      await closeDialog();
+    },
+    [
+      action("Add WhatsApp", "plus", () => addAccount()),
+      action("Create workspace", "grid", () => editWorkspace()),
+      action("Settings", "settings", openSettings),
+      ...state.organization.workspaces.map((workspace) =>
+        action(workspace.name, "folder", () => selectWorkspace(workspace.id), "Workspace"),
+      ),
+    ],
+  );
 }
+getElement("workspace-quick-search").addEventListener("click", () =>
+  findChannel().catch((error) => showToast(errorMessage(error))),
+);
 getElement("find-channel").addEventListener("click", () =>
   findChannel().catch((error) => showToast(errorMessage(error))),
 );

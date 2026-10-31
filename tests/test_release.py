@@ -23,6 +23,9 @@ class VersionTests(unittest.TestCase):
                 target = root / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(ROOT / path, target)
+            (root / "release.json").write_text(
+                json.dumps({"version": "0.2.0", "first_run_number": 32})
+            )
             subprocess.run(
                 ["python3", str(root / "scripts/set-version.py"), "42"],
                 check=True,

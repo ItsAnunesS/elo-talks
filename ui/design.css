@@ -1,0 +1,403 @@
+/* 0.3 visual system. Local surfaces only; remote account geometry stays fixed. */
+:root {
+  --bg: #141416;
+  --panel: #1a1a1e;
+  --raised: #232328;
+  --line: #303036;
+  --text: #f1eff5;
+  --muted: #a5a2ae;
+  --accent: #c2b3f5;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+body {
+  -webkit-font-smoothing: antialiased;
+}
+.window-chrome {
+  background: #101012;
+  border-color: #29292e;
+}
+.app-menu {
+  letter-spacing: 0.02em;
+}
+.rail {
+  background: #101012;
+  border-right: 1px solid #27272c;
+}
+.sidebar {
+  background: var(--panel);
+  border-color: #2d2c32;
+}
+.sidebar-brand {
+  font-size: 23px;
+  letter-spacing: -1.2px;
+  border-color: #2d2c32;
+}
+.sidebar-brand > span {
+  color: #aaa6b5;
+}
+.topbar {
+  background: #141416;
+  border-color: #29292f;
+}
+.find-channel {
+  background: #141416;
+  border-color: #333139;
+  border-radius: 10px;
+  color: #b4afbf;
+}
+.overview {
+  border-radius: 10px;
+}
+.overview.active {
+  background: #302a3e;
+  color: #e2d8ff;
+}
+.account-row {
+  border-radius: 10px;
+  transition: background-color 160ms ease;
+}
+.account-row.selected {
+  background: #29262f;
+}
+.workspace-icon {
+  transition:
+    border-radius 180ms ease,
+    transform 180ms var(--ease-out);
+}
+.workspace-icon:hover {
+  transform: translateY(-2px);
+}
+.workspace-icon.selected {
+  border-radius: 17px;
+}
+.dashboard {
+  padding: 112px 40px 30px;
+  max-width: 1440px;
+}
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 44px;
+}
+.workspace-identity {
+  min-width: 0;
+}
+.workspace-heading .eyebrow {
+  color: #b6a8cd;
+  font-size: 10px;
+  letter-spacing: 0.17em;
+}
+.dashboard h1 {
+  font-size: clamp(28px, 2.8vw, 38px);
+  letter-spacing: -1.3px;
+  font-weight: 560;
+  margin: 12px 0 8px;
+}
+.workspace-heading .lead {
+  font-size: 12px;
+  color: #9994a4;
+}
+.workspace-heading .add-card {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 9px;
+  width: auto;
+  min-height: 42px;
+  margin: 0;
+  padding: 11px 16px;
+  border: 1px solid #d3c2ff;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #dacbff, #bca5ee);
+  color: #272031;
+  box-shadow:
+    0 3px 12px #0003,
+    inset 0 1px #ffffff50;
+}
+.workspace-heading .add-card strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+.workspace-heading .add-card small,
+.workspace-heading .add-card > [data-icon="arrow"] {
+  display: none;
+}
+.workspace-heading .add-card-icon {
+  width: 18px;
+  height: 18px;
+  background: none;
+  color: inherit;
+  border-radius: 0;
+}
+.workspace-heading .add-card:hover {
+  background: #e0d0ff;
+  transform: translateY(-1px);
+}
+.section-heading {
+  margin-bottom: 9px;
+}
+.section-heading h2 {
+  font-size: 14px;
+  color: #e5e1eb;
+  letter-spacing: -0.2px;
+}
+#workspace-quick-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: #b7afc5;
+}
+kbd {
+  font: inherit;
+  font-size: 10px;
+  padding: 2px 5px;
+  border: 1px solid #46404f;
+  border-radius: 4px;
+  color: #a8a1b2;
+}
+.workspace-health {
+  color: #938d9e;
+  font-size: 11px;
+  margin-bottom: 22px;
+}
+.cards {
+  gap: 16px;
+}
+.account-card {
+  min-height: 118px;
+  padding: 24px;
+  border-radius: 16px;
+  border: 1px solid #36323e;
+  background: linear-gradient(120deg, #242228, #1d1c21);
+  box-shadow:
+    inset 0 1px #ffffff05,
+    0 4px 12px #0000000a;
+  transition:
+    transform 180ms var(--ease-out),
+    border-color 180ms ease,
+    background-color 180ms ease;
+  animation: surface-enter 300ms var(--ease-out) backwards;
+  animation-delay: var(--entry-delay, 0ms);
+}
+.account-card:hover {
+  transform: translateY(-3px);
+  border-color: #736084;
+  background: #28242e;
+}
+.account-card:active {
+  transform: translateY(-1px) scale(0.995);
+}
+.card-initials {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: #393141;
+  border-color: #51445d;
+  color: #e1cfef;
+}
+.channel-card-title {
+  font-size: 14px;
+  letter-spacing: -0.15px;
+}
+.account-card small {
+  font-size: 11px;
+  color: #a59aaf;
+}
+.notification-badge {
+  background: #d2bffb;
+  color: #292033;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.dashboard-note {
+  margin-top: 30px;
+  opacity: 0.7;
+}
+.dashboard-note p {
+  font-size: 11px;
+}
+.dashboard-note .ui-icon {
+  width: 15px;
+  height: 15px;
+}
+.empty-workspace {
+  padding: 54px 24px;
+  border: 1px solid #333039;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #211d27, #17161b);
+}
+.empty-workspace h2 {
+  font-size: 24px;
+  letter-spacing: -0.7px;
+}
+.empty-workspace p {
+  font-size: 12px;
+}
+.empty-icon {
+  color: #c3acd9;
+  background: #30273c;
+}
+dialog {
+  background: #1d1b21;
+  border: 1px solid #49404f;
+  border-radius: 20px;
+  box-shadow:
+    0 30px 100px #0009,
+    inset 0 1px #ffffff08;
+}
+dialog[open] {
+  animation: dialog-enter 200ms var(--ease-out);
+}
+dialog::backdrop {
+  background: #08070bb3;
+  animation: backdrop-enter 180ms ease;
+}
+.dialog-heading {
+  padding: 24px 26px 18px;
+  border-color: #38313f;
+}
+.dialog-heading h2 {
+  font-weight: 550;
+  font-size: 20px;
+}
+#dialog-content {
+  padding: 8px 26px 26px;
+}
+.dialog-footer {
+  background: #19171d;
+  border-color: #38313f;
+  padding: 16px 26px;
+}
+input,
+select,
+textarea {
+  background: #161419;
+  border-color: #403747;
+  border-radius: 10px;
+}
+input:focus,
+select:focus {
+  border-color: #b09bc9;
+  box-shadow: 0 0 0 3px #b09bc912;
+}
+.primary {
+  background: #cfb9f0;
+  color: #291e36;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.primary:hover {
+  background: #dfcafb;
+}
+.secondary {
+  border-radius: 10px;
+  background: #302a37;
+  border-color: #48404f;
+}
+.settings-tabs {
+  gap: 5px;
+  padding: 5px;
+  background: #141217;
+  border: 1px solid #342c3d;
+  border-radius: 12px;
+}
+.settings-tab {
+  border-radius: 8px;
+}
+.settings-tab[aria-selected="true"] {
+  background: #383040;
+  color: #eadcfb;
+  box-shadow: 0 2px 5px #0002;
+}
+.settings-panel:not([hidden]) {
+  animation: surface-enter 200ms var(--ease-out);
+}
+.channel-placement {
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid #3b3244;
+  border-radius: 10px;
+  background: #19161e;
+}
+.channel-placement summary {
+  cursor: pointer;
+  color: #bdb0cb;
+  font-size: 12px;
+}
+.channel-placement[open] summary {
+  margin-bottom: 14px;
+}
+.switcher-result {
+  border-radius: 12px;
+  padding: 13px;
+  transition: background-color 140ms ease;
+}
+.switcher-result:focus-visible {
+  outline-offset: -2px;
+}
+.quick-action > .ui-icon {
+  color: #ba9bd8;
+  margin: 0 2px;
+}
+.quick-action small {
+  color: #95869f;
+}
+#toast:not([hidden]) {
+  animation: surface-enter 180ms var(--ease-out);
+}
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes backdrop-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (max-width: 1050px) {
+  .dashboard {
+    padding-left: 26px;
+    padding-right: 26px;
+  }
+  .workspace-heading {
+    gap: 16px;
+  }
+  .workspace-heading .add-card {
+    padding: 10px 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .account-card:hover,
+  .workspace-icon:hover,
+  .workspace-heading .add-card:hover {
+    transform: none;
+  }
+}

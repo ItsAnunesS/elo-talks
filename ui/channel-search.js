@@ -1,11 +1,18 @@
 import { createButton, createElement, createField } from "./dom.js";
+import { icon } from "./icons.js";
 import { serviceIcon } from "./workspace-navigation.js";
 
-export async function openChannelSearch(state, open, select) {
+export async function openChannelSearch(state, open, select, actions = []) {
   await open(
     "Find a channel",
     (parent) => {
-      const input = createField(parent, "Search channels", "search", "", "Search all workspaces…");
+      const input = createField(
+        parent,
+        "Search channels",
+        "search",
+        "",
+        "Channels, workspaces or actions…",
+      );
       input.className = "channel-search";
       input.maxLength = 80;
       const summary = createElement("p", "hint");
@@ -33,9 +40,26 @@ export async function openChannelSearch(state, open, select) {
           row.append(serviceIcon(placement.service), label);
           results.append(row);
         }
+        const channelCount = results.childElementCount;
+        for (const action of actions) {
+          if (
+            !normalize(`${action.label} ${action.hint || ""}`).includes(
+              normalize(input.value.trim()),
+            )
+          )
+            continue;
+          const row = createButton("", action.run, "switcher-result quick-action");
+          const label = createElement("span");
+          label.append(
+            createElement("strong", "", action.label),
+            createElement("small", "", action.hint || "Action"),
+          );
+          row.append(icon(action.icon || "arrow"), label);
+          results.append(row);
+        }
         summary.textContent = results.childElementCount
-          ? `${results.childElementCount} channels · Search stays on this device`
-          : "No channels found. Try another name or workspace.";
+          ? `${channelCount} channels · ${results.childElementCount - channelCount} shortcuts`
+          : "No matches. Try another name.";
       };
       input.addEventListener("input", render);
       input.addEventListener("keydown", (event) => {

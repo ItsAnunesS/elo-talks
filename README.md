@@ -1,6 +1,6 @@
 # Elo Talks
 
-**0.2.0 workflow improvements.** See [the release scope and validation checklist](docs/RELEASE-0.2.md). Releases are published directly to the stable update channel.
+**0.3.0 design and workflow improvements.** See [the release scope](docs/RELEASE-0.3.md). Releases are published directly to the stable update channel.
 
 A Linux desktop application built with Tauri 2 for multiple WhatsApp Web accounts, with persistent profiles stored in an encrypted local vault.
 
@@ -232,7 +232,7 @@ the AppImage, which checks, downloads and verifies the update before unlocking.
 
 Safe diagnostics includes `avatar`, `avatarAttempts` and `avatarProbeActive` for
 each account, without identifying the account or exposing image URLs/pixels.
-Retry reloads the WhatsApp page, clears the previous photo and starts a new budget
+Retry reloads the WhatsApp page, preserves the cached photo and starts a new budget
 of at most seven attempts. Search stops earlier on success.
 
 The Overview now shows per-channel counters and actionable page states. Use the

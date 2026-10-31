@@ -45,14 +45,14 @@ and [workflow scope enforcement](https://github.blog/changelog/2023-11-02-github
 
 Version selection comes from `release.json`, shared by the version setter and
 publisher through `scripts/release_version.py`. The patch number is the configured
-base patch plus `github.run_number - first_run_number`. Run 32 produces `0.2.0`,
-run 33 produces `0.2.1`. Reruns preserve the version. Builds before the configured
+base patch plus `github.run_number - first_run_number`. Run 37 produces `0.3.0`,
+run 38 produces `0.3.1`. Reruns preserve the version. Builds before the configured
 first run are rejected. When starting a new series, update both fields together.
 
 Every successful push publishes directly to the stable channel; no RC step is used.
 Tags/assets remain immutable. Latest reconciliation compares all stable
 major/minor/patch components so older builds cannot replace newer releases.
-See [RELEASE-0.2.md](RELEASE-0.2.md) for outstanding manual validation.
+See [RELEASE-0.3.md](RELEASE-0.3.md) for the current scope and validation limits.
 
 CI now runs the pinned Playwright browser workflow suite before packaging. On Ubuntu
 runners, a temporary profile grants user namespaces only to the test browser binary;
