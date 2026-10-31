@@ -215,3 +215,9 @@ Browser regressions cover 900/1200/1600px windows, keyboard search, form errors,
 confirmations, pending saves and the fixed 304×72 native account viewport offsets.
 
 The AppImage checks GitHub releases before unlocking and installs verified updates automatically. While running, it checks every five minutes and offers **Update now**; restarting requires a click and closes the vault first. Updates require a writable AppImage directory. After unlocking, the last used account loads first behind one preparation screen. Other accounts start incrementally in the background. The screen waits for a visible chat list or QR container, with **Continue anyway** available after five seconds. Readiness checks stop after 40 seconds; if the page remains unrecognized, continuing is explicit. See [update security and recovery](docs/SECURITY.md#built-in-appimage-updates).
+
+Update failures delay subsequent checks by 10, 20, 40, then 60 minutes. A longer
+GitHub `Retry-After` (seconds or HTTP date), or an exhausted quota
+`X-RateLimit-Reset`, takes precedence. A successful operation restores the normal
+five-minute schedule. The controller enforces this cooldown for retries while it
+is running; restarting the app resets the in-memory schedule.

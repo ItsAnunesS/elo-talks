@@ -15,6 +15,7 @@ pub struct Updater {
     child: Option<Child>,
     started: Instant,
     next_check: Instant,
+    failures: u32,
     state: Value,
     stage: Option<PathBuf>,
     output: PathBuf,
@@ -35,6 +36,7 @@ impl Updater {
             child: None,
             started: Instant::now(),
             next_check: Instant::now() + BACKGROUND_CHECK_INTERVAL,
+            failures: 0,
             stage: None,
             output: runtime.join("update-result.json"),
         })
@@ -46,6 +48,10 @@ impl Updater {
         ensure!(
             self.child.is_none(),
             "An update operation is already running"
+        );
+        ensure!(
+            self.failures == 0 || Instant::now() >= self.next_check,
+            "Update checks are paused after an error. Please try again later."
         );
         let target = self
             .target
@@ -114,7 +120,8 @@ impl Updater {
                     .filter(|v: &Value| v["phase"].is_string())
                     .unwrap_or_else(|| json!({"phase":"error"}));
                 if !status.success() {
-                    self.state = json!({"phase":"error", "error":"The update could not be verified or installed. Try again later."});
+                    let retry = self.state["retryAfter"].as_u64().unwrap_or(0);
+                    self.state = json!({"phase":"error", "retryAfter":retry, "error":"The update could not be verified or installed. Try again later."});
                 }
                 self.stage = self
                     .state
@@ -125,14 +132,32 @@ impl Updater {
                 self.state.as_object_mut().map(|o| o.remove("stage"));
                 let _ = std::fs::remove_file(&self.output);
             }
-            self.next_check = Instant::now() + BACKGROUND_CHECK_INTERVAL;
+            if self.child.is_none() {
+                self.schedule_next_check();
+            }
         } else if self.target.is_some()
             && Instant::now() >= self.next_check
             && !matches!(self.state["phase"].as_str(), Some("ready" | "installed"))
+            && self.command("check").is_err()
         {
-            self.next_check = Instant::now() + BACKGROUND_CHECK_INTERVAL;
-            let _ = self.command("check");
+            self.state = json!({"phase":"error"});
+            self.schedule_next_check();
         }
+    }
+    fn schedule_next_check(&mut self) {
+        let delay = if self.state["phase"] == "error" {
+            self.failures = self.failures.saturating_add(1);
+            let backoff = (300u64 * (1u64 << self.failures.min(4))).min(3600);
+            Duration::from_secs(backoff.max(self.state["retryAfter"].as_u64().unwrap_or(0)))
+        } else {
+            self.failures = 0;
+            BACKGROUND_CHECK_INTERVAL
+        };
+        let now = Instant::now();
+        // An unrepresentable server deadline must not result in immediate retries.
+        self.next_check = now
+            .checked_add(delay)
+            .unwrap_or_else(|| now + Duration::from_secs(315_360_000));
     }
     pub fn restart(&self) -> Result<()> {
         let mut command = Command::new(self.target.as_ref().context("AppImage path unavailable")?);
@@ -198,6 +223,62 @@ impl Drop for Updater {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn helper_failure_preserves_server_cooldown() {
+        let dir = tempfile::tempdir().unwrap();
+        let helper = dir.path().join("helper");
+        std::fs::write(
+            &helper,
+            "#!/bin/sh\nprintf '%s' '{\"phase\":\"error\",\"retryAfter\":7200}'\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut updater = Updater::new(dir.path()).unwrap();
+        updater.target = Some(dir.path().join("image"));
+        updater.helper = helper;
+        updater.command("check").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while updater.child.is_some() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            updater.poll();
+        }
+        assert!(updater.child.is_none());
+        assert_eq!(updater.status()["phase"], "error");
+        assert_eq!(updater.status()["retryAfter"], 7200);
+        assert!(
+            updater.next_check.saturating_duration_since(Instant::now())
+                > Duration::from_secs(7198)
+        );
+        assert!(updater.command("check").is_err());
+    }
+
+    #[test]
+    fn retries_back_off_respect_server_deadlines_and_recover() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut updater = Updater::new(dir.path()).unwrap();
+        for seconds in [600, 1200, 2400, 3600, 3600] {
+            updater.state = json!({"phase":"error"});
+            updater.schedule_next_check();
+            let remaining = updater.next_check.saturating_duration_since(Instant::now());
+            assert!(remaining > Duration::from_secs(seconds - 2));
+            assert!(remaining <= Duration::from_secs(seconds));
+            assert!(updater.command("check").is_err());
+        }
+        updater.state = json!({"phase":"error", "retryAfter":7200});
+        updater.schedule_next_check();
+        assert!(
+            updater.next_check.saturating_duration_since(Instant::now())
+                > Duration::from_secs(7198)
+        );
+        updater.state = json!({"phase":"current"});
+        updater.schedule_next_check();
+        assert_eq!(updater.failures, 0);
+        assert!(
+            updater.next_check.saturating_duration_since(Instant::now())
+                <= BACKGROUND_CHECK_INTERVAL
+        );
+    }
 
     #[test]
     fn background_check_never_installs_and_stage_is_not_exposed() {

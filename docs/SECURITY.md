@@ -95,3 +95,9 @@ unmount. This does not prevent WhatsApp itself from caching its original image
 inside the encrypted profile. Card reads revalidate the profile control; failure
 uses initials. The bounded probe stops on success or after 40 seconds. This adapter
 does not grant remote pages any Tauri permissions or relax TLS, CORS or sandboxing.
+
+Update failures delay subsequent checks by 10, 20, 40, then 60 minutes. A longer
+GitHub `Retry-After` (seconds or HTTP date), or an exhausted quota
+`X-RateLimit-Reset`, takes precedence. A successful operation restores the normal
+five-minute schedule. The controller enforces this cooldown for retries while it
+is running; restarting the app resets the in-memory schedule.

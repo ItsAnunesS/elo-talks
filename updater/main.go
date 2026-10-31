@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -45,10 +44,11 @@ type Release struct {
 	Assets     []Asset `json:"assets"`
 }
 type Result struct {
-	Phase   string `json:"phase"`
-	Version string `json:"version,omitempty"`
-	Stage   string `json:"stage,omitempty"`
-	Error   string `json:"error,omitempty"`
+	RetryAfter uint64 `json:"retryAfter,omitempty"`
+	Phase      string `json:"phase"`
+	Version    string `json:"version,omitempty"`
+	Stage      string `json:"stage,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 type Staged struct {
 	Version string `json:"version"`
@@ -118,7 +118,7 @@ func get(address string, limit int64) ([]byte, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
+		return nil, responseError(response, time.Now())
 	}
 	data, e := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if e != nil {
@@ -309,7 +309,7 @@ func prepare(current, target, expected string) (Result, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
-		return Result{}, errors.New("download failed")
+		return Result{}, responseError(response, time.Now())
 	}
 	path := filepath.Join(dir, "new.AppImage")
 	f, e := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -429,7 +429,7 @@ func main() {
 		err = errors.New("invalid operation")
 	}
 	if err != nil {
-		result = Result{Phase: "error", Error: "Update could not be completed. Your installed version was preserved unless installation had already completed."}
+		result = failureResult(err)
 	}
 	_ = json.NewEncoder(os.Stdout).Encode(result)
 	if err != nil {
