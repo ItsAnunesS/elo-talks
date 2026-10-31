@@ -94,9 +94,9 @@ fn main() {
                             let allocation = overlay.allocation();
                             assert_eq!(shell.allocated_width(), allocation.width());
                             assert_eq!(shell.allocated_height(), allocation.height());
-                            assert_eq!(account.translate_coordinates(&shell, 0, 0), Some((304, 72)));
+                            assert_eq!(account.translate_coordinates(&shell, 0, 0), Some((304, ui_layout::HEADER_HEIGHT)));
                             assert_eq!(account.allocated_width(), allocation.width() - 304);
-                            assert_eq!(account.allocated_height(), allocation.height() - 72);
+                            assert_eq!(account.allocated_height(), allocation.height() - ui_layout::HEADER_HEIGHT);
                             let view = account.clone().downcast::<webkit2gtk::WebView>().unwrap();
                             assert!(!WebViewExt::settings(&view).unwrap().enables_fullscreen());
                             assert!(view.emit_by_name::<bool>("enter-fullscreen", &[]));

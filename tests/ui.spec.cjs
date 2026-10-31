@@ -179,6 +179,16 @@ const http = require("node:http"),
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.locator(".wordmark img").evaluate((img) => img.decode());
     await page.screenshot({ path: "/tmp/elo-unlock-premium.png" });
+    await page.getByRole("button", { name: "Minimize window", exact: true }).click();
+    assert.equal(await page.evaluate(() => window.testRequests.at(-1).args.action), "minimize");
+    await page.getByRole("button", { name: "Open application menu", exact: true }).click();
+    await page.locator("#dialog").waitFor();
+    assert.equal(
+      await page.getByRole("button", { name: "Quit Elo Talks", exact: true }).count(),
+      1,
+    );
+    await page.locator("#dialog-cancel").click();
+
     assert.equal(await page.locator(".wordmark img").evaluate((img) => img.naturalWidth), 512);
     await page.getByRole("button", { name: "PIN", exact: true }).click();
     await page.getByLabel("Digit 1", { exact: true }).fill("1");
@@ -558,7 +568,7 @@ const http = require("node:http"),
           header: document.querySelector(".topbar").getBoundingClientRect().bottom,
           overflow: document.documentElement.scrollWidth > innerWidth,
         })),
-        { sidebar: 304, header: 72, overflow: false },
+        { sidebar: 304, header: 108, overflow: false },
       );
       await page.screenshot({ path: `/tmp/elo-premium-${width}.png` });
     }

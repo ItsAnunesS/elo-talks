@@ -8,6 +8,37 @@
     <script src="app.js" type="module"></script>
   </head>
   <body class="booting">
+    <header class="window-chrome" aria-label="Application toolbar">
+      <button
+        id="app-menu"
+        class="app-menu"
+        aria-label="Open application menu"
+        aria-haspopup="dialog"
+      >
+        ☰ <span>Elo Talks</span>
+      </button>
+      <div id="window-drag" class="window-drag" aria-hidden="true"></div>
+      <div class="window-controls">
+        <button data-window-action="minimize" aria-label="Minimize window" title="Minimize">
+          −
+        </button>
+        <button
+          data-window-action="maximize"
+          aria-label="Maximize or restore window"
+          title="Maximize or restore"
+        >
+          □
+        </button>
+        <button
+          data-window-action="close"
+          class="window-close"
+          aria-label="Close window"
+          title="Close"
+        >
+          ×
+        </button>
+      </div>
+    </header>
     <section id="startup-screen" class="startup-screen" hidden aria-live="polite" aria-busy="true">
       <img src="assets/elo-mark.svg" width="72" height="72" alt="Elo Talks" />
       <div class="startup-spinner"></div>

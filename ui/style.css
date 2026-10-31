@@ -12,6 +12,7 @@
   --rail: 72px;
   --shell: 304px;
   --topbar: 72px;
+  --chrome: 36px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 13px;
   line-height: 1.5;
@@ -21,6 +22,7 @@
 }
 body {
   margin: 0;
+  padding-top: var(--chrome);
   background: var(--bg);
   color: var(--text);
 }
@@ -195,7 +197,7 @@ label {
 .lock-screen {
   display: grid;
   grid-template-columns: 46% 54%;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--chrome));
 }
 .brand-story {
   padding: 44px 48px 28px;
@@ -409,7 +411,7 @@ label {
 /* These bounds match the native WebKit overlay: 304px left, 72px top. */
 .rail {
   position: fixed;
-  inset: 0 auto 0 0;
+  inset: var(--chrome) auto 0 0;
   width: var(--rail);
   background: #111217;
   border-right: 1px solid #23242b;
@@ -516,7 +518,7 @@ label {
 }
 .sidebar {
   position: fixed;
-  inset: 0 auto 0 var(--rail);
+  inset: var(--chrome) auto 0 var(--rail);
   width: calc(var(--shell) - var(--rail));
   display: flex;
   flex-direction: column;
@@ -787,7 +789,7 @@ label {
   position: fixed;
   left: var(--shell);
   right: 0;
-  top: 0;
+  top: var(--chrome);
   height: var(--topbar);
   border-bottom: 1px solid var(--line);
   background: var(--bg);
@@ -1310,7 +1312,7 @@ body[data-unlocked="true"] > .toast {
 
 .startup-screen {
   position: fixed;
-  inset: 0;
+  inset: var(--chrome) 0 0;
   z-index: 10000;
   display: flex;
   flex-direction: column;
@@ -1433,4 +1435,54 @@ body[data-unlocked="true"] > .toast {
   background: #302a40;
   color: #d0bdff;
   border-radius: 10px;
+}
+
+/* Trusted window controls remain available during startup and vault unlock. */
+.window-chrome {
+  position: fixed;
+  inset: 0 0 auto;
+  height: var(--chrome);
+  display: flex;
+  align-items: stretch;
+  background: #111216;
+  border-bottom: 1px solid #24252c;
+  z-index: 10001;
+  user-select: none;
+}
+.app-menu {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.window-drag {
+  flex: 1;
+}
+.window-controls {
+  display: flex;
+}
+.window-controls button {
+  width: 44px;
+  font-size: 19px;
+}
+.window-controls button:hover,
+.app-menu:hover {
+  background: #ffffff0c;
+  color: var(--text);
+}
+.window-controls .window-close:hover {
+  background: #b73349;
+  color: white;
+}
+.application-menu-actions {
+  display: grid;
+  gap: 8px;
+}
+.application-menu-actions button {
+  text-align: left;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--raised);
 }

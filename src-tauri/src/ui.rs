@@ -32,6 +32,30 @@ fn local(webview: &tauri::Webview) -> Result<(), String> {
     Ok(())
 }
 #[tauri::command]
+fn window_action(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    action: String,
+) -> Result<(), String> {
+    local(&webview)?;
+    let window = app.get_window("main").ok_or("Window unavailable")?;
+    match action.as_str() {
+        "drag" => window.start_dragging(),
+        "minimize" => window.minimize(),
+        "maximize" => {
+            if window.is_maximized().map_err(|error| error.to_string())? {
+                window.unmaximize()
+            } else {
+                window.maximize()
+            }
+        }
+        "close" => window.close(),
+        _ => return Err("Unsupported window action".into()),
+    }
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 async fn request(
     webview: tauri::Webview,
     state: tauri::State<'_, UiState>,
@@ -250,8 +274,14 @@ fn sync_accounts(
         let view = window
             .add_child(
                 builder,
-                LogicalPosition::new(304., 72.),
-                LogicalSize::new((size.width - 304.).max(1.), (size.height - 72.).max(1.)),
+                LogicalPosition::new(
+                    ui_layout::SIDEBAR_WIDTH as f64,
+                    ui_layout::HEADER_HEIGHT as f64,
+                ),
+                LogicalSize::new(
+                    (size.width - ui_layout::SIDEBAR_WIDTH as f64).max(1.),
+                    (size.height - ui_layout::HEADER_HEIGHT as f64).max(1.),
+                ),
             )
             .map_err(|e| e.to_string())?;
         view.hide().map_err(|e| e.to_string())?;
@@ -327,6 +357,7 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
         })
         .invoke_handler(tauri::generate_handler![
             request,
+            window_action,
             select_account,
             sync_accounts,
             account_snapshot,
@@ -338,6 +369,7 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
         .setup(move |app| {
             let window = tauri::window::WindowBuilder::new(app, "main")
                 .title("Elo Talks")
+                .decorations(false)
                 .inner_size(1200., 800.)
                 .min_inner_size(900., 640.)
                 .build()?;

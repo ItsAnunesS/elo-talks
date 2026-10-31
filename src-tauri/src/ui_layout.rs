@@ -3,7 +3,7 @@ use gtk::prelude::*;
 use webkit2gtk::{SettingsExt, WebViewExt};
 
 pub const SIDEBAR_WIDTH: i32 = 304;
-pub const HEADER_HEIGHT: i32 = 72;
+pub const HEADER_HEIGHT: i32 = 108;
 
 // Wry's Linux WindowChild uses a GtkBox, where set_position/set_size do not
 // establish child bounds. GtkOverlay allocates the shell and account viewport

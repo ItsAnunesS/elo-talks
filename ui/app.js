@@ -786,3 +786,36 @@ if (isDesktop) {
   getElement("unlock-error").textContent =
     "Visual preview. The vault is only available in the desktop application.";
 }
+
+for (const control of document.querySelectorAll("[data-window-action]")) {
+  control.addEventListener("click", () => {
+    invoke("window_action", { action: control.dataset.windowAction }).catch((error) =>
+      showToast(errorMessage(error)),
+    );
+  });
+}
+getElement("window-drag").addEventListener("mousedown", (event) => {
+  if (event.button !== 0) return;
+  invoke("window_action", { action: event.detail === 2 ? "maximize" : "drag" }).catch(() => {});
+});
+getElement("app-menu").addEventListener("click", () => {
+  openDialog("Elo Talks", (content) => {
+    const actions = createElement("div", "application-menu-actions");
+    const add = (label, action) =>
+      actions.append(
+        createButton(label, async () => {
+          await closeDialog();
+          await action();
+        }),
+      );
+    if (state.unlocked) {
+      add("Overview", () => selectAccount(null));
+      add("Settings", openSettings);
+      add("Lock vault", () => request("lock"));
+    }
+    add("Minimize", () => invoke("window_action", { action: "minimize" }));
+    add("Close window", () => invoke("window_action", { action: "close" }));
+    add("Quit Elo Talks", () => request("quit"));
+    content.append(actions);
+  }).catch((error) => showToast(errorMessage(error)));
+});
