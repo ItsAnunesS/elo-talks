@@ -2,6 +2,7 @@
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 use std::{
+    os::unix::process::CommandExt,
     path::PathBuf,
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -202,12 +203,12 @@ impl Updater {
                 }
             }
         }
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-        Ok(())
+        // Replace the controller rather than leaving the new AppImage as a child
+        // of the exiting old runtime. Success never returns to old application code.
+        command.current_dir("/").stdin(Stdio::null());
+        Err(command.exec()).context(
+            "The update was installed, but restarting the AppImage failed. Reopen Elo Talks.",
+        )
     }
 }
 impl Drop for Updater {
@@ -223,6 +224,46 @@ impl Drop for Updater {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn restart_replaces_process_and_removes_old_mount_environment() {
+        const WORKER: &str = "ELO_RESTART_TEST_TARGET";
+        if let Some(target) = std::env::var_os(WORKER) {
+            let dir = tempfile::tempdir().unwrap();
+            let mut updater = Updater::new(dir.path()).unwrap();
+            updater.target = Some(PathBuf::from(target));
+            updater.restart().unwrap();
+            panic!("Successful exec must never return");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("new.AppImage");
+        let result = dir.path().join("result");
+        std::fs::write(
+            &target,
+            r#"#!/bin/sh
+[ -z "${APPIMAGE+x}" ] && [ -z "${APPDIR+x}" ] && [ -z "${GIO_MODULE_DIR+x}" ] || exit 41
+[ "$PWD" = / ] || exit 42
+printf '%s' "$$" > "$ELO_RESTART_TEST_RESULT"
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "updater::tests::restart_replaces_process_and_removes_old_mount_environment",
+            ])
+            .env(WORKER, &target)
+            .env("ELO_RESTART_TEST_RESULT", &result)
+            .env("APPIMAGE", "/tmp/old.AppImage")
+            .env("APPDIR", "/tmp/old-mount")
+            .env("GIO_MODULE_DIR", "/tmp/old-mount/modules")
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(std::fs::read_to_string(result).unwrap(), pid.to_string());
+    }
 
     #[test]
     fn helper_failure_preserves_server_cooldown() {

@@ -101,3 +101,9 @@ GitHub `Retry-After` (seconds or HTTP date), or an exhausted quota
 `X-RateLimit-Reset`, takes precedence. A successful operation restores the normal
 five-minute schedule. The controller enforces this cooldown for retries while it
 is running; restarting the app resets the in-memory schedule.
+
+After installation, the controller stops the temporary UI, releases its listener
+and instance lock, removes inherited AppImage mount paths from the launch
+environment, and uses Unix `exec` to replace itself with the updated AppImage.
+A successful restart cannot resume old controller code. An exec failure is reported
+as an installed update that requires manually reopening the app.
