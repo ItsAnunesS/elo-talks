@@ -152,3 +152,8 @@ Native reading and 64×64 conversion succeeded while canvas remained unavailable
 The fix accepts eligible HTTPS resources only when they exactly match the selected
 self control; it does not fetch URLs. Final overview-card confirmation in the
 packaged release remains a separate acceptance check.
+
+Safe diagnostics includes `avatar`, `avatarAttempts` and `avatarProbeActive` for
+each account, without identifying the account or exposing image URLs/pixels.
+Retry reloads the WhatsApp page, clears the previous photo and starts a new budget
+of at most seven attempts. Search stops earlier on success.

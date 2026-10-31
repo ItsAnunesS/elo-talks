@@ -148,12 +148,22 @@ fn main() {
                                 native.show();
                             }
                             6 => {
+                                // Avatar probes run every five seconds; the earlier layout stages finish sooner.
+                                if !handle.state::<account_events::AccountEvents>().avatars.lock().unwrap().contains_key("account-one") { return gtk::glib::ControlFlow::Continue; }
                                 assert!(handle.state::<account_events::AccountEvents>().avatars.lock().unwrap().contains_key("account-one"), "Own blob avatar must reach the memory-only store");
                                 assert!(!handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().diagnostics().to_string().contains("base64"));
                                 assert!(avatar_complete.load(std::sync::atomic::Ordering::Relaxed), "Native avatar extraction must work without granting canvas access");
                                 assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].unread_count, Some(0));
                                 assert!(shell.is_visible());
                                 assert!(!first.is_visible() && !second.is_visible());
+                                first.clone().downcast::<webkit2gtk::WebView>().unwrap().load_html("<body>Reloaded synthetic account</body>", Some("https://web.whatsapp.com/"));
+                            }
+                            7 => {
+                                let events = handle.state::<account_events::AccountEvents>();
+                                assert!(!events.avatars.lock().unwrap().contains_key("account-one"));
+                                let runtime = events.runtime.lock().unwrap();
+                                assert_eq!(runtime.accounts["account-one"].avatar_attempts, 0, "Reload resets the avatar search budget");
+                                assert!(runtime.accounts["account-one"].avatar_probe_active);
                                 println!("PASS: shell bounds, account switching, fullscreen denial, consistent notification permissions with origin/feature restrictions and notification events from a hidden account/window");
                                 std::process::exit(0);
                             }

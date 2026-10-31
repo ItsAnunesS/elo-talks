@@ -47,11 +47,28 @@ pub enum Readiness {
     QrCode,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AvatarState {
+    #[default]
+    Waiting,
+    Searching,
+    ControlNotFound,
+    ResourceUnavailable,
+    UnsupportedImage,
+    DecodeFailed,
+    ReadFailed,
+    Ready,
+}
+
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountHealth {
     pub page: PageState,
     pub readiness: Readiness,
+    pub avatar: AvatarState,
+    pub avatar_probe_active: bool,
+    pub avatar_attempts: u8,
     pub pending_notifications: u32,
     pub unread_count: Option<u32>,
     pub native_notifications: u64,

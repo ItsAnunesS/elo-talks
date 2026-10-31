@@ -128,7 +128,7 @@ is uploaded automatically. TLS failures never create certificate exceptions.
 
 Account cards use the signed-in WhatsApp user's photo when an explicitly labeled
 self-profile control can be identified; otherwise they keep the channel initials.
-A bounded probe runs every two seconds for up to 40 seconds after page navigation,
+A bounded probe makes at most seven attempts, five seconds apart, after page navigation,
 stopping after success. It does not inspect conversations or click profile controls.
 
 For HTTPS profile images, the adapter reads an already loaded
@@ -227,3 +227,8 @@ minutes. This non-sensitive device preference is saved privately in `updates.jso
 outside the vault so it is available before unlocking. Changing it cannot shorten
 an active error/server cooldown. Restart to update closes the vault and reopens
 the AppImage, which checks, downloads and verifies the update before unlocking.
+
+Safe diagnostics includes `avatar`, `avatarAttempts` and `avatarProbeActive` for
+each account, without identifying the account or exposing image URLs/pixels.
+Retry reloads the WhatsApp page, clears the previous photo and starts a new budget
+of at most seven attempts. Search stops earlier on success.

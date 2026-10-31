@@ -96,7 +96,9 @@ inside the encrypted profile. Card reads revalidate the profile control; failure
 uses initials. Resource hostnames are not treated as proof of identity: selection
 requires the unique self-profile control in the exact WhatsApp origin, and only
 that already loaded browser resource is read. No URL is fetched by the native
-adapter. The bounded probe stops on success or after 40 seconds. This adapter
+adapter. The bounded probe stops on success or after seven attempts spaced five
+seconds apart (with a 40-second cancellation deadline). Retry reloads the page and
+resets this budget; selecting a channel does not. This adapter
 does not grant remote pages any Tauri permissions or relax TLS, CORS or sandboxing.
 
 Update failures double the configured interval, up to 60 minutes (10, 20, 40, then 60 minutes with the default). A longer
@@ -116,3 +118,8 @@ minutes. This non-sensitive device preference is saved privately in `updates.jso
 outside the vault so it is available before unlocking. Changing it cannot shorten
 an active error/server cooldown. Restart to update closes the vault and reopens
 the AppImage, which checks, downloads and verifies the update before unlocking.
+
+Safe diagnostics includes `avatar`, `avatarAttempts` and `avatarProbeActive` for
+each account, without identifying the account or exposing image URLs/pixels.
+Retry reloads the WhatsApp page, clears the previous photo and starts a new budget
+of at most seven attempts. Search stops earlier on success.

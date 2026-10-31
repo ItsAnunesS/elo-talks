@@ -1,5 +1,5 @@
 //! Memory-only self-avatar adapter. Never downloads a URL or reads other resource bodies.
-use crate::account_events::AccountEvents;
+use crate::{account_events::AccountEvents, account_runtime::AvatarState};
 use gtk::{gdk_pixbuf::PixbufLoader, glib, prelude::*};
 use javascriptcore::ValueExt;
 use std::{
@@ -19,6 +19,23 @@ pub struct Avatar {
 
 const MAX_BYTES: usize = 256 * 1024;
 const MAX_RESOURCES: usize = 64;
+const MAX_ATTEMPTS: u8 = 7;
+#[derive(Default)]
+struct ProbeBudget {
+    attempts: u8,
+}
+impl ProbeBudget {
+    fn exhausted(&self) -> bool {
+        self.attempts >= MAX_ATTEMPTS
+    }
+    fn begin(&mut self) -> bool {
+        if self.exhausted() {
+            return false;
+        }
+        self.attempts += 1;
+        true
+    }
+}
 
 #[derive(serde::Deserialize)]
 struct Candidate {
@@ -103,8 +120,39 @@ pub fn normalized_image(bytes: &[u8]) -> Option<String> {
     ))
 }
 
+fn report(app: &tauri::AppHandle, id: &str, status: AvatarState, active: Option<bool>) {
+    if let Some(health) = app
+        .state::<AccountEvents>()
+        .runtime
+        .lock()
+        .unwrap()
+        .accounts
+        .get_mut(id)
+    {
+        health.avatar = status;
+        if let Some(active) = active {
+            health.avatar_probe_active = active;
+        }
+    }
+}
+fn stop_report(app: &tauri::AppHandle, id: &str) {
+    if let Some(health) = app
+        .state::<AccountEvents>()
+        .runtime
+        .lock()
+        .unwrap()
+        .accounts
+        .get_mut(id)
+    {
+        health.avatar_probe_active = false;
+    }
+}
+
 fn publish(app: &tauri::AppHandle, id: &str, image: Option<Avatar>) {
     let available = image.is_some();
+    if available {
+        report(app, id, AvatarState::Ready, Some(false));
+    }
     let events = app.state::<AccountEvents>();
     let mut avatars = events.avatars.lock().unwrap();
     if let Some(image) = image {
@@ -163,6 +211,7 @@ pub fn current(
             if same {
                 reply(Some(saved.image));
             } else {
+                report(&app, &id, AvatarState::ControlNotFound, None);
                 publish(&app, &id, None);
                 reply(None);
             }
@@ -214,6 +263,7 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
         resources.borrow_mut().clear();
         collecting.set(true);
         publish(&app, &id, None);
+        report(&app, &id, AvatarState::Searching, Some(true));
         let weak = view.downgrade();
         let app = app.clone();
         let id = id.clone();
@@ -223,17 +273,35 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
         let pending = Rc::new(Cell::new(false));
         let done = Rc::new(Cell::new(false));
         let started = Instant::now();
+        let mut budget = ProbeBudget::default();
+        if let Some(health) = app
+            .state::<AccountEvents>()
+            .runtime
+            .lock()
+            .unwrap()
+            .accounts
+            .get_mut(&id)
+        {
+            health.avatar_attempts = 0;
+        }
         let cancellation = gtk::gio::Cancellable::new();
-        glib::timeout_add_local(Duration::from_secs(2), move || {
+        glib::timeout_add_local(Duration::from_secs(5), move || {
             if generation.get() != epoch {
                 cancellation.cancel();
                 return glib::ControlFlow::Break;
             }
             let view = weak.upgrade();
-            if view.is_none() || done.get() || started.elapsed() >= Duration::from_secs(40) {
+            if view.is_none()
+                || done.get()
+                || (budget.exhausted() && !pending.get())
+                || started.elapsed() >= Duration::from_secs(40)
+            {
                 cancellation.cancel();
                 collecting.set(false);
-                resources.borrow_mut().clear();
+                if !done.get() {
+                    resources.borrow_mut().clear();
+                }
+                stop_report(&app, &id);
                 return glib::ControlFlow::Break;
             }
             let view = view.unwrap();
@@ -244,6 +312,19 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                     .is_some_and(|url| crate::whatsapp::is_origin(&url))
             {
                 return glib::ControlFlow::Continue;
+            }
+            if !budget.begin() {
+                return glib::ControlFlow::Continue;
+            }
+            if let Some(health) = app
+                .state::<AccountEvents>()
+                .runtime
+                .lock()
+                .unwrap()
+                .accounts
+                .get_mut(&id)
+            {
+                health.avatar_attempts = budget.attempts;
             }
             pending.set(true);
             let pending = pending.clone();
@@ -268,6 +349,7 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                         .filter(|v| v.is_string())
                         .and_then(|v| candidate(&v.to_string()))
                     else {
+                        report(&app, &id, AvatarState::ControlNotFound, None);
                         pending.set(false);
                         return;
                     };
@@ -280,6 +362,7 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                         return;
                     }
                     if !eligible_image_resource(&source) {
+                        report(&app, &id, AvatarState::UnsupportedImage, None);
                         pending.set(false);
                         return;
                     }
@@ -289,10 +372,12 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                         .find(|resource| resource.uri().as_deref() == Some(source.as_str()))
                         .cloned();
                     let Some(resource) = resource else {
+                        report(&app, &id, AvatarState::ResourceUnavailable, None);
                         pending.set(false);
                         return;
                     };
                     if !supported_image(&resource) {
+                        report(&app, &id, AvatarState::UnsupportedImage, None);
                         pending.set(false);
                         return;
                     }
@@ -302,10 +387,19 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
                         if generation.get() != epoch || finished_cancel.is_cancelled() {
                             return;
                         }
+                        let status = if data.is_err() {
+                            AvatarState::ReadFailed
+                        } else {
+                            AvatarState::DecodeFailed
+                        };
                         if let Some(image) = data.ok().and_then(|data| normalized_image(&data)) {
                             done.set(true);
-                            resources.borrow_mut().clear();
+                            resources.borrow_mut().retain(|resource| {
+                                resource.uri().as_deref() == Some(source.as_str())
+                            });
                             publish(&app, &id, Some(Avatar { source, image }));
+                        } else {
+                            report(&app, &id, status, None);
                         }
                     });
                 },
@@ -318,6 +412,21 @@ pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn seven_attempts_stop_until_a_new_navigation_cycle() {
+        let mut cycle = ProbeBudget::default();
+        for expected in 1..=7 {
+            assert!(cycle.begin());
+            assert_eq!(cycle.attempts, expected);
+        }
+        assert!(cycle.exhausted());
+        assert!(!cycle.begin());
+        assert_eq!(cycle.attempts, 7);
+        let mut reloaded = ProbeBudget::default();
+        assert!(reloaded.begin());
+        assert_eq!(reloaded.attempts, 1);
+    }
+
     #[test]
     fn resource_policy_and_raster_limits() {
         assert!(eligible_image_resource(
