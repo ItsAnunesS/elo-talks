@@ -121,9 +121,11 @@ fn main() {
                     }
                 }
                 if let Some(container) = widget.downcast_ref::<gtk::Container>() {
-                    return container.children().iter().fold(false, |found, child| {
-                        click(child, action, installing) || found
-                    });
+                    let mut found = false;
+                    for child in container.children() {
+                        found |= click(&child, action, installing);
+                    }
+                    return found;
                 }
                 false
             }
