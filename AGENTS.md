@@ -63,8 +63,10 @@ Do not silently include all untracked files in a release commit.
 - Reuse the controller's private PID/UID-checked IPC and bundled verifier.
 - Verify release identity, signature and checksum before installation. Do not
   weaken verification to recover from network or packaging errors.
-- Offer the current version after failed checks or preparation. During actual
-  installation, do not permit continuation or voluntary shutdown to interrupt it.
+- Require startup verification and available updates before opening the account UI.
+  Failed checks or preparation offer retry or quit, never a current-version bypass.
+  Keep vault closure recovery available without bypassing the update requirement.
+  During actual installation, do not permit voluntary shutdown to interrupt it.
 - Only replace the AppImage after confirmed vault closure. Preserve expected-version
   restart verification and recovery from installer-start failures.
 - Background checks/downloads must not close active accounts or install without

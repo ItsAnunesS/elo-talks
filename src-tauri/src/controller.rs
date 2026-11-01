@@ -445,10 +445,22 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                 }
                 let result = match r.op.as_str() {
                     "launcher.continue" => {
-                        if installing || updater.status()["phase"] == "installing" {
-                            Err(anyhow!("Wait for installation to finish"))
+                        if installing
+                            || c.lock_error.is_some()
+                            || updater.status()["phase"] != "current"
+                        {
+                            Err(anyhow!(
+                                "Complete the required update check before opening Elo Talks"
+                            ))
                         } else {
                             startup_check = false;
+                            Ok(Value::Null)
+                        }
+                    }
+                    "launcher.recover" => {
+                        if installing || c.lock_error.is_none() {
+                            Err(anyhow!("Vault closure recovery is not available"))
+                        } else {
                             Ok(Value::Null)
                         }
                     }
@@ -493,6 +505,14 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                         "launcher.continue" => {
                             c.stop_ui()?;
                             c.spawn_ui()?;
+                        }
+                        "launcher.recover" => {
+                            c.stop_ui()?;
+                            match c.vault.unmount() {
+                                Ok(()) => c.lock_error = None,
+                                Err(error) => c.lock_error = Some(error.to_string()),
+                            }
+                            c.spawn_launcher()?;
                         }
                         "update.install" => {
                             c.stop_ui()?;

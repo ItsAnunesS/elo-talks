@@ -29,8 +29,28 @@ fn main() {
                 "status" => {
                     json!({"unlocked":false,"error": if *phase.lock().unwrap() == "closure" { Some("Synthetic busy mount") } else { None }})
                 }
-                "update.status" => json!({"phase":*phase.lock().unwrap(),"canCheck":false}),
-                "launcher.continue" | "update.install" => serde_json::Value::Null,
+                "update.status" => {
+                    let phase = phase.lock().unwrap();
+                    json!({
+                        "phase": if *phase == "cooldown" { "error" } else { phase.as_str() },
+                        "canCheck": *phase != "cooldown",
+                        "progress": if *phase == "downloading" {
+                            json!({"downloaded": 42, "total": 100})
+                        } else {
+                            serde_json::Value::Null
+                        }
+                    })
+                }
+                "launcher.continue" => {
+                    assert_eq!(*phase.lock().unwrap(), "current");
+                    serde_json::Value::Null
+                }
+                "update.check" => {
+                    assert_eq!(*phase.lock().unwrap(), "error");
+                    *phase.lock().unwrap() = "current".into();
+                    serde_json::Value::Null
+                }
+                "launcher.recover" | "quit" | "update.install" => serde_json::Value::Null,
                 other => panic!("Unexpected operation {other}"),
             };
             ipc::send_frame(
@@ -38,35 +58,78 @@ fn main() {
                 &serde_json::to_vec(&json!({"result":result})).unwrap(),
             )
             .unwrap();
-            if matches!(request.op.as_str(), "launcher.continue" | "update.install") {
+            if matches!(
+                request.op.as_str(),
+                "launcher.continue" | "launcher.recover" | "quit" | "update.install"
+            ) {
                 gtk::glib::MainContext::default().invoke(gtk::main_quit);
                 break;
             }
         }
     });
-    if matches!(scenario.as_str(), "error" | "closure" | "installing") {
+    // Optional visual QA uses only the synthetic launcher window under Xvfb.
+    if let Ok(path) = std::env::var("LAUNCHER_SCREENSHOT") {
+        if std::env::var("LAUNCHER_MIN_SIZE").is_ok() {
+            gtk::glib::timeout_add_local_once(Duration::from_millis(200), || {
+                for widget in gtk::Window::list_toplevels() {
+                    if let Some(window) = widget.downcast_ref::<gtk::Window>() {
+                        window.resize(460, 380);
+                    }
+                }
+            });
+        }
+        gtk::glib::timeout_add_local_once(Duration::from_millis(700), move || {
+            use gtk::gdk::prelude::*;
+            let widget = gtk::Window::list_toplevels().into_iter().next().unwrap();
+            let window = widget.window().unwrap();
+            window
+                .pixbuf(0, 0, widget.allocated_width(), widget.allocated_height())
+                .unwrap()
+                .savev(&path, "png", &[])
+                .unwrap();
+        });
+    }
+    if matches!(
+        scenario.as_str(),
+        "error"
+            | "cooldown"
+            | "unsupported"
+            | "closure"
+            | "installing"
+            | "checking"
+            | "downloading"
+    ) {
+        let action = match scenario.as_str() {
+            "closure" => "Retry vault closure",
+            "error" => "Try again",
+            _ => "Quit",
+        };
         let installing = scenario == "installing";
         gtk::glib::timeout_add_local_once(Duration::from_millis(1000), move || {
-            fn click(widget: &gtk::Widget, installing: bool) {
+            fn click(widget: &gtk::Widget, action: &str, installing: bool) -> bool {
                 if let Some(button) = widget.downcast_ref::<gtk::Button>() {
-                    if button.label().as_deref() == Some("Open current version") {
+                    assert_ne!(button.label().as_deref(), Some("Open current version"));
+                    if button.label().as_deref() == Some(action) {
+                        assert!(button.is_visible());
                         if installing {
                             assert!(!button.is_sensitive());
                         } else {
                             assert!(button.is_sensitive());
                             button.emit_clicked();
                         }
+                        return true;
                     }
                 }
                 if let Some(container) = widget.downcast_ref::<gtk::Container>() {
-                    for child in container.children() {
-                        click(&child, installing);
-                    }
+                    return container.children().iter().fold(false, |found, child| {
+                        click(child, action, installing) || found
+                    });
                 }
+                false
             }
-            for window in gtk::Window::list_toplevels() {
-                click(&window, installing);
-            }
+            assert!(gtk::Window::list_toplevels()
+                .iter()
+                .any(|window| click(window, action, installing)));
             if installing {
                 *next_phase.lock().unwrap() = "current".into();
             }
@@ -77,10 +140,11 @@ fn main() {
     let operations = operations.lock().unwrap();
     assert_eq!(
         operations.last().unwrap(),
-        if scenario == "ready" {
-            "update.install"
-        } else {
-            "launcher.continue"
+        match scenario.as_str() {
+            "ready" => "update.install",
+            "closure" => "launcher.recover",
+            "checking" | "downloading" | "cooldown" | "unsupported" => "quit",
+            _ => "launcher.continue",
         }
     );
     assert!(!operations

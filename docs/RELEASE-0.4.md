@@ -50,18 +50,18 @@ the Tauri/WebKit shell. It has no account profiles, web content or credential
 fields. It uses the existing private PID/UID-checked socket and the same bundled
 signature-verifying updater; no external launcher is installed.
 
-Startup checks and preparation display progress. A failed check or verification
-leaves an explicit Open current version action. A check exceeding 20 seconds stops
-blocking startup behind the progress screen; the user can continue. The existing
-controller may finish a download in the background after continuation, but cannot
-install it without another explicit restart request. Closing the launcher requests
-normal controller shutdown.
+Startup checks and preparation display progress. Startup verification and available
+updates are mandatory: only a confirmed current version opens the account UI.
+Failed or offline checks offer retry (after the controller cooldown) or quit,
+never a bypass. Unsupported launches explain that the installed AppImage is
+required. Closing the launcher requests normal controller shutdown. Background
+updates during an existing session still require an explicit restart request.
 
-Installation disables continuation. The controller stops the current interface,
+Installation disables voluntary shutdown. The controller stops the current interface,
 confirms normal vault unmount, and only then starts the installation helper and
-launcher progress window. Closure failure instead offers entry to the existing
-vault-recovery interface; it never allows unlocking or installing over an open
-vault. The existing expected-version restart check still detects a stale launch.
+launcher progress window. Closure failure offers a dedicated retry-closure action in the launcher. It
+stops the launcher, retries normal unmount, retains any closure error and restarts
+the launcher; it never opens the account UI or bypasses the required update. The existing expected-version restart check still detects a stale launch.
 
 CI exercises the native launcher under Xvfb with synthetic IPC for current,
 verified-ready, failed-update, installation-in-progress and vault-closure failure
