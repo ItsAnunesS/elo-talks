@@ -333,18 +333,41 @@ label {
   width: 100%;
   max-width: 360px;
 }
-.lock-icon {
-  width: 46px;
-  height: 46px;
-  border-radius: 13px;
-  border: 1px solid #494352;
-  background: #282330;
-  color: var(--accent);
-  margin-bottom: 28px;
+.unlock-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 32px;
 }
-.lock-icon .ui-icon {
-  width: 22px;
-  height: 22px;
+.unlock-brand-mark {
+  display: block;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+}
+.unlock-brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.unlock-brand-name {
+  color: #eeedf3;
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.unlock-brand-name span {
+  color: #b9b3ca;
+  font-weight: 400;
+}
+.unlock-brand-caption {
+  color: #aaa5b7;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.35px;
 }
 .unlock-card h2 {
   font-size: 30px;
@@ -1263,8 +1286,8 @@ dialog::backdrop {
   .orbit-caption {
     display: none;
   }
-  .lock-icon {
-    margin-bottom: 16px;
+  .unlock-brand {
+    margin-bottom: 20px;
   }
   .unlock-panel {
     padding-top: 28px;
