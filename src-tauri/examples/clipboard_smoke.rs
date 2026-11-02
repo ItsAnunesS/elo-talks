@@ -85,8 +85,27 @@ fn main() {
     let view = webkit2gtk::WebView::with_context(&context);
     let key_events = Rc::new(Cell::new(0usize));
     let observed_keys = key_events.clone();
-    view.connect_key_press_event(move |_, _| {
+    view.connect_key_press_event(move |_, event| {
+        eprintln!(
+            "Synthetic key: {:?}, modifier={}, state={:?}, time={}",
+            event.keyval(),
+            event.is_modifier(),
+            event.state(),
+            event.time()
+        );
         observed_keys.set(observed_keys.get() + 1);
+        glib::Propagation::Proceed
+    });
+    view.connect_button_press_event(|_, event| {
+        eprintln!(
+            "Synthetic pointer: button={}, time={}",
+            event.button(),
+            event.time()
+        );
+        glib::Propagation::Proceed
+    });
+    view.connect_focus_out_event(|_, _| {
+        eprintln!("Synthetic focus out");
         glib::Propagation::Proceed
     });
     let native = std::env::args().any(|argument| argument == "--native");
@@ -103,7 +122,7 @@ fn main() {
     .unwrap();
     let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title("Elo Talks — Clipboard fixture");
+    window.set_title("Elo Talks Clipboard fixture");
     window.set_default_size(480, 320);
     window.add(&view);
     window.show_all();

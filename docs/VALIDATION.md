@@ -128,8 +128,10 @@ registration itself. Focus, origin, generation and target-identity guards remain
 Modifier-only key events no longer cancel an in-flight paste. WebKitGTK can
 asynchronously propagate an unhandled modifier back through GTK after the paste
 shortcut; the previous unconditional cancellation made image delivery depend on
-event ordering. Editing/navigation keys, pointer events, focus loss, hiding and
-navigation still cancel, and delivery still verifies the original target. The
+event ordering. Native reproduction also showed Control/Shift arriving with
+`GdkEventKey.is_modifier()` false, so the adapter classifies their key symbols.
+Editing/navigation keys, pointer events, focus loss, hiding and navigation still
+cancel, and delivery still verifies the original target. The
 fixture now queues a short synthetic web-process task and sends an extra Shift
 key after each shortcut, exercising a modifier while target capture is pending.
 
@@ -137,10 +139,14 @@ Run `bash scripts/test-native-layout.sh clipboard_smoke` in the same documented
 compatible environment as the layout fixture. `--native` bypasses the adapter
 for comparison with the engine's own paste behavior.
 
-The example compiles with the pinned toolchain. Local execution was blocked by
-the container's nested-sandbox restrictions (`bwrap` namespace/pivot-root denial);
-WebKit sandboxing was not disabled. Native execution is pending in CI and a
-compatible graphical environment. Actual WhatsApp attachment preview and sending
+The example compiles with the pinned toolchain. Native execution used a disposable
+non-root container with private Xvfb/D-Bus, no network or host mounts and WebKit's
+sandbox enabled. Namespace and proc allowances were scoped to that test container;
+no host protection settings changed. The original implementation, rebuilt against
+the strengthened fixture, failed image paste as expected; the key-symbol fix passed
+the complete fixture twenty times (ten runs each at GDK scales 1 and 2). The
+Rust suite passed 63 tests (three explicit host/integration
+fixtures remain ignored), and Clippy passed. Actual WhatsApp attachment preview and sending
 from a screenshot, including GNOME/Wayland clipboard behavior, remain manual
 acceptance checks; no real account was accessed for this change.
 

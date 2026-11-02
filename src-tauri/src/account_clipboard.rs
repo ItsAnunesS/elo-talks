@@ -149,7 +149,30 @@ pub fn attach(view: &webkit2gtk::WebView, error: impl Fn(&str) + 'static) {
         } else {
             // WebKit may asynchronously propagate an unhandled modifier again
             // after the paste key. Modifiers do not edit or move the target.
-            if !event.is_modifier() {
+            // GDK's is_modifier flag is not reliably set on forwarded/XTest
+            // events, so classify the actual key symbol instead.
+            if !matches!(
+                event.keyval(),
+                gdk::keys::constants::Control_L
+                    | gdk::keys::constants::Control_R
+                    | gdk::keys::constants::Shift_L
+                    | gdk::keys::constants::Shift_R
+                    | gdk::keys::constants::Alt_L
+                    | gdk::keys::constants::Alt_R
+                    | gdk::keys::constants::Meta_L
+                    | gdk::keys::constants::Meta_R
+                    | gdk::keys::constants::Super_L
+                    | gdk::keys::constants::Super_R
+                    | gdk::keys::constants::Hyper_L
+                    | gdk::keys::constants::Hyper_R
+                    | gdk::keys::constants::Caps_Lock
+                    | gdk::keys::constants::Shift_Lock
+                    | gdk::keys::constants::Num_Lock
+                    | gdk::keys::constants::Scroll_Lock
+                    | gdk::keys::constants::ISO_Level3_Shift
+                    | gdk::keys::constants::ISO_Level5_Shift
+                    | gdk::keys::constants::Mode_switch
+            ) {
                 keys.cancel();
             }
             glib::Propagation::Proceed
