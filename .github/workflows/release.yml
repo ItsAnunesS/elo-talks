@@ -86,12 +86,13 @@ jobs:
           bash scripts/test-ui.sh
       - name: Native account and notification regressions
         run: |
-          cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke
+          cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke --example clipboard_smoke
           dbus-run-session -- timeout 30s target/debug/examples/notifications_smoke
           for scenario in current ready error installing closure; do
             xvfb-run -a dbus-run-session -- timeout 15s target/debug/examples/launcher_smoke "$scenario"
           done
           bash scripts/test-native-layout.sh
+          bash scripts/test-native-layout.sh clipboard_smoke
       - name: Audit dependencies
         run: |
           # Only this locally corrected advisory is excepted; its source hash is tested above.

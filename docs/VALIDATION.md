@@ -27,6 +27,23 @@ This document distinguishes completed checks from outstanding acceptance criteri
 
 Do not mark these complete based on simulated interface tests. They require real desktop sessions, hardware, and accounts. Disabling sandboxing or installing dependencies does not satisfy clean-system acceptance.
 
+## Clipboard regression (2026-11-02)
+
+`clipboard_smoke` uses an ephemeral WebKit context and a synthetic PNG under an
+isolated Xvfb/D-Bus session. It covers Ctrl+V image delivery without duplicate
+events, Shift+Insert text fallback, invalid PNG rejection, cancellation when the
+account is hidden during a clipboard request, and exclusion of other origins.
+Run `bash scripts/test-native-layout.sh clipboard_smoke` in the same documented
+compatible environment as the layout fixture. `--native` bypasses the adapter
+for comparison with the engine's own paste behavior.
+
+The example compiles with the pinned toolchain. Local execution was blocked by
+the container's nested-sandbox restrictions (`bwrap` namespace/pivot-root denial);
+WebKit sandboxing was not disabled. Native execution is pending in CI and a
+compatible graphical environment. Actual WhatsApp attachment preview and sending
+from a screenshot, including GNOME/Wayland clipboard behavior, remain manual
+acceptance checks; no real account was accessed for this change.
+
 ## FUSE procedure
 
 Build the test binary and bundled helper. Run `vault::tests::fuse_persistence_and_ciphertext` with `--ignored --exact` and `ELO_TEST_HELPER` pointing to the helper. The test uses temporary directories and synthetic data, never the user's vault.

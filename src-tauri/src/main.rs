@@ -1,5 +1,6 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod account_avatar;
+mod account_clipboard;
 mod account_events;
 mod account_permissions;
 mod account_readiness;

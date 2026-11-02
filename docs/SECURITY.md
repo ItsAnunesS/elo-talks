@@ -38,6 +38,19 @@ diagnostics, frontend account events or an application notification-history file
 Preferences remain inside the encrypted vault. Existing preferences without a
 detail level keep private mode.
 
+## Clipboard images
+
+Account views bridge PNG clipboard images only after the user invokes Paste with
+Ctrl+V, Shift+Insert or the native context menu. The destination must be a focused
+editable element at the exact WhatsApp HTTPS origin. The bridge uses an isolated
+JavaScript world and the standard DOM paste event; it grants no remote IPC,
+filesystem or persistent clipboard permission. Text uses WebKit's normal paste.
+PNG data is limited to 20 MiB, kept in memory and never logged or written to a
+temporary file. Requests have a three-second deadline and are cancelled on
+navigation, account hiding, focus loss or subsequent input. Changing the focused
+DOM element also prevents image delivery. Clipboard contents remain subject to
+the operating system and any clipboard manager, outside the vault's protection.
+
 ## Distribution
 
 Actions are pinned by SHA; Cargo.lock pins transitive dependencies. Builds use cargo-audit to check known vulnerabilities. This does not prove the absence of defects or automatically cover all native components. Published inventories include Rust and Go dependencies and build-system packages.

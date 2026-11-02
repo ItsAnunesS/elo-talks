@@ -318,6 +318,10 @@ fn sync_accounts(
             crate::account_avatar::attach(&w, &h, &account_id);
             w.connect_create(|_, _| None);
             crate::account_permissions::attach(&w);
+            let clipboard_handle = h.clone();
+            crate::account_clipboard::attach(&w, move |error| {
+                let _ = clipboard_handle.emit_to("main", "account-error", error);
+            });
             let last = std::rc::Rc::new(std::cell::RefCell::new(Instant::now()));
             w.connect_event(move |_, event| {
                 if !matches!(

@@ -3,8 +3,13 @@
 # This profile is never packaged or installed by the application.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-binary="$(realpath target/debug/examples/layout_smoke)"
-profile='elo-talks-ci-layout'
+example="${1:-layout_smoke}"
+case "$example" in
+  layout_smoke|clipboard_smoke) ;;
+  *) echo 'Unsupported native fixture.' >&2; exit 1 ;;
+esac
+binary="$(realpath "target/debug/examples/$example")"
+profile="elo-talks-ci-$example"
 profile_file="$(mktemp)"
 loaded=false
 cleanup() {
