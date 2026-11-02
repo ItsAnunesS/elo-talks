@@ -39,12 +39,13 @@ PROFILE
   loaded=true
 fi
 
+mkdir -p tests/test-results/native
 for scale in 1 2; do
   echo "Running $example at scale $scale"
   xvfb-run -a -s '-screen 0 3200x2000x24' \
     env -u WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS \
     GDK_SCALE="$scale" WEBKIT_FORCE_SANDBOX=1 LIBGL_ALWAYS_SOFTWARE=1 \
-    dbus-run-session -- timeout 30s "$binary" || {
+    dbus-run-session -- timeout 30s "$binary" 2>&1 | tee "tests/test-results/native/$example-scale-$scale.log" || {
       code=$?
       echo "::error::Native $example failed at scale $scale (exit $code)"
       exit "$code"

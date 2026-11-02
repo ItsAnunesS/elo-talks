@@ -113,7 +113,7 @@ Do not silently include all untracked files in a release commit.
 
 ## Validation
 
-Run checks appropriate to changed behavior. The release workflow is the canonical
+Run checks appropriate to changed behavior. The reusable Checks workflow is the canonical
 full-check list; use pinned toolchains and lockfiles rather than upgrading tools
 incidentally. Common checks from the repository root:
 
@@ -159,6 +159,12 @@ suspend/resume or a real AppImage upgrade. Report those limits explicitly.
   claim a cryptographic signature unless verified.
 - Commit/push when authorized in the task or conversation. Do not rewrite history,
   force-push or alter published tags without authorization for that operation.
+- Diagnose and validate changes on a `codex/**` branch or the manual Checks
+  workflow before promoting the same checked source to `release`. Checks run the
+  native/browser/security gates and AppImage packaging without publishing.
+  Never use repeated release pushes as a substitute for collecting diagnostics.
+- PR commit checks use the event's base/head SHAs. Do not validate GitHub's
+  synthetic merge message as if it were the contributor's source commit.
 - `release.json` and `scripts/release_version.py` define version numbering. Check
   the current workflow run number before changing the start of a release series.
 - Desktop CI sets build versions; do not add automated version-bump commits here.

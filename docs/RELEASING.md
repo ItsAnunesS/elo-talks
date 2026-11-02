@@ -1,5 +1,30 @@
 # Release authentication
 
+## Validate before publication
+
+The `Checks` workflow runs on pull requests, pushes to `codex/**`, and manual
+dispatch. It is also the reusable implementation called by `AppImage release`.
+All Rust, native clipboard/launcher/layout/notification, browser, Python and
+security checks run in both paths, including AppImage packaging. The check-only
+path has read-only permissions, uses the source manifest version and never
+creates a tag, release or version commit.
+
+Push a focused change to a `codex/**` branch, inspect the named failing step and
+its diagnostics, and wait for a green Checks run before fast-forwarding the same
+source commit onto `release`. Native fixture failures attach their synthetic
+logs with stage/scale annotations. Keep source revisions and signed artifacts
+unchanged when retrying a failed publication.
+
+PR commit checks inspect `base.sha..head.sha`, not the temporary merge commit
+GitHub creates for testing. Invalid contributor commit messages still fail.
+The release path retains the full-history Conventional Commit check.
+
+The release workflow's existing run counter remains the sole version input;
+running Checks does not consume a release version. Only the release caller asks
+the reusable workflow to set that version and export artifacts for publication.
+Signature creation/verification and privileged publication remain in
+`release.yml`, retaining the updater's expected Sigstore identity.
+
 The build uses the read-only `GITHUB_TOKEN`. Only the publication step receives
 `RELEASE_TOKEN`, when configured; otherwise it uses `GITHUB_TOKEN` with
 `contents: write`. Sigstore continues to use GitHub OIDC, independently of this token.
@@ -45,14 +70,14 @@ and [workflow scope enforcement](https://github.blog/changelog/2023-11-02-github
 
 Version selection comes from `release.json`, shared by the version setter and
 publisher through `scripts/release_version.py`. The patch number is the configured
-base patch plus `github.run_number - first_run_number`. Run 37 produces `0.3.0`,
-run 38 produces `0.3.1`. Reruns preserve the version. Builds before the configured
+base patch plus `github.run_number - first_run_number`. In the current 0.5 series,
+run 52 produces `0.5.0` and run 62 produces `0.5.10`. Reruns preserve the version. Builds before the configured
 first run are rejected. When starting a new series, update both fields together.
 
-Every successful push publishes directly to the stable channel; no RC step is used.
+Every successful push to `release` publishes directly to the stable channel; no RC step is used.
 Tags/assets remain immutable. Latest reconciliation compares all stable
 major/minor/patch components so older builds cannot replace newer releases.
-See [RELEASE-0.3.md](RELEASE-0.3.md) for the current scope and validation limits.
+See [RELEASE-0.5.md](RELEASE-0.5.md) for the current scope and validation limits.
 
 CI now runs the pinned Playwright browser workflow suite before packaging. On Ubuntu
 runners, a temporary profile grants user namespaces only to the test browser binary;
