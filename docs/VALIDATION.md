@@ -125,6 +125,14 @@ target capture and image delivery: WebKit's shared named-world map uses weak
 references, so two standalone evaluations can otherwise get different worlds
 and silently lose `eloPaste`. No page bridge or clipboard data is injected by the
 registration itself. Focus, origin, generation and target-identity guards remain.
+Modifier-only key events no longer cancel an in-flight paste. WebKitGTK can
+asynchronously propagate an unhandled modifier back through GTK after the paste
+shortcut; the previous unconditional cancellation made image delivery depend on
+event ordering. Editing/navigation keys, pointer events, focus loss, hiding and
+navigation still cancel, and delivery still verifies the original target. The
+fixture now queues a short synthetic web-process task and sends an extra Shift
+key after each shortcut, exercising a modifier while target capture is pending.
+
 Run `bash scripts/test-native-layout.sh clipboard_smoke` in the same documented
 compatible environment as the layout fixture. `--native` bypasses the adapter
 for comparison with the engine's own paste behavior.

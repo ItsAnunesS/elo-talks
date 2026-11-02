@@ -57,6 +57,8 @@ fn paste(key: &'static str) {
                 "key",
                 "--clearmodifiers",
                 key,
+                "key",
+                "Shift_L",
             ])
             .status();
         if !result.is_ok_and(|status| status.success()) {
@@ -154,6 +156,16 @@ fn main() {
                 if native {
                     view.execute_editing_command("Paste");
                 } else {
+                    // Keep the web process busy while real X11 events send the
+                    // paste shortcut followed by a modifier-only key. The paste
+                    // must survive that key while its target capture is pending.
+                    view.evaluate_javascript(
+                        "(() => { const until = performance.now() + 250; while (performance.now() < until) {} })()",
+                        None,
+                        None,
+                        gtk::gio::Cancellable::NONE,
+                        |_| {},
+                    );
                     paste("ctrl+v");
                 }
             }
@@ -229,7 +241,7 @@ fn main() {
                 assert_ne!(view.title().as_deref(), Some("false"));
                 assert_eq!(errors.borrow().len(), 1);
                 stage(8);
-                println!("PASS: PNG paste, text fallback, invalid image rejection, hidden-account cancellation and origin restriction");
+                println!("PASS: PNG paste with an in-flight modifier, text fallback, invalid image rejection, hidden-account cancellation and origin restriction");
                 // This standalone fixture tests paste, not WebKit teardown. Match
                 // layout_smoke: exit only after every behavioral assertion passed.
                 std::process::exit(0);

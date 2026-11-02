@@ -147,7 +147,11 @@ pub fn attach(view: &webkit2gtk::WebView, error: impl Fn(&str) + 'static) {
             keys.begin(view, key_error.clone());
             glib::Propagation::Stop
         } else {
-            keys.cancel();
+            // WebKit may asynchronously propagate an unhandled modifier again
+            // after the paste key. Modifiers do not edit or move the target.
+            if !event.is_modifier() {
+                keys.cancel();
+            }
             glib::Propagation::Proceed
         }
     });
