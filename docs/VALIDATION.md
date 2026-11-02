@@ -27,6 +27,38 @@ This document distinguishes completed checks from outstanding acceptance criteri
 
 Do not mark these complete based on simulated interface tests. They require real desktop sessions, hardware, and accounts. Disabling sandboxing or installing dependencies does not satisfy clean-system acceptance.
 
+## Encrypted backup validation (2026-11-02)
+
+- Rust suite: 59 passed, two ignored (host-FUSE fixtures). Snapshot tests cover
+  password separation, preserved multi-record profile data and empty files,
+  independent restored vault identity, PIN removal, wrong-password rejection,
+  authenticated tampering/truncation/trailing-data rejection, record reordering,
+  bounded lengths, unsafe paths, links, cancellation and no-clobber publication.
+- Controller tests reject export/import while unlocked or in closure recovery,
+  serialize backup work against create/unlock and discard canceled restore staging.
+- `cargo clippy --locked --all-targets -- -D warnings` passed with the pinned
+  Rust 1.99.1 toolchain in the existing isolated build container. Existing vendored
+  GLib compiler warnings remain; no vendor source was changed. For compile/test
+  only, `TAURI_CONFIG` omitted external packaging binaries unavailable locally;
+  production configuration retains all bundled helpers.
+- The complete synthetic Playwright interface suite passed with the installed
+  Chrome and its sandbox enabled, using a fresh temporary profile. It includes
+  password confirmation errors, locked-only backup actions, import on a new
+  installation, busy-state unlock prevention, completion feedback and cleared
+  dialog secrets. Export/import screens were inspected at 900×640, with an
+  additional export capture at 1200×800. Chromium could not start inside the
+  nested Docker sandbox; host protections were not altered.
+- Fourteen Python tests, frontend formatting, JavaScript syntax, commit-subject
+  conventions and whitespace checks passed.
+
+The new `backup::tests::fuse_backup_restores_readable_catalog_and_profile_data`
+fixture requires host FUSE and `ELO_TEST_HELPER`, like the existing vault fixture.
+It remains ignored in ordinary runs. Actual migration of WebKit/WhatsApp profiles
+between two Linux PCs, no-QR login preservation, native file chooser interaction,
+removable-filesystem behavior, full-disk/power-loss behavior and a packaged 0.5
+AppImage upgrade remain manual acceptance checks. No live account was accessed,
+and no commit, push or new release publication is implied by these results.
+
 ## Clipboard regression (2026-11-02)
 
 `clipboard_smoke` uses an ephemeral WebKit context and a synthetic PNG under an

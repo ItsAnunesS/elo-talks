@@ -35,6 +35,23 @@ pub struct Vault {
 impl Vault {
     pub fn new(base: PathBuf, runtime: &Path) -> Result<Self> {
         storage::private_dir(&base)?;
+        // Imported snapshots are published as a whole directory, never as a pair
+        // of independently committed manifest/profile paths.
+        let base = if base.join("restored-vault").exists() {
+            ensure!(
+                !base.join("vault.json").exists() && !base.join("cipher").exists(),
+                "Conflicting vault directories require recovery"
+            );
+            let restored = base.join("restored-vault");
+            storage::private_dir(&restored)?;
+            ensure!(
+                restored.join("vault.json").is_file(),
+                "Imported vault is incomplete"
+            );
+            restored
+        } else {
+            base
+        };
         let mount = runtime.join("vault");
         storage::private_dir(&mount)?;
         let manifest = if base.join("vault.json").exists() {

@@ -12,6 +12,26 @@ The six-digit PIN is combined with a 256-bit secret in the persistent Linux Secr
 
 Hardware keys require FIDO2 hmac-secret, user presence, and user verification. Connect only one key during an operation. The authenticator secret unwraps a key envelope; an authentication signature is not used as an encryption key. The hardware helper is canceled when the Linux session becomes unsafe. The master password remains a recovery alternative. There is no recovery server.
 
+## Local encrypted backups
+
+Backup export is available only after confirmed normal vault closure, with no
+account processes running. The current master password authorizes export; a
+separate password protects a random archive key using the existing Argon2id
+parameters. AES-256-GCM authenticates bounded archive records, their order and
+header, including an explicit final marker. Profiles remain gocryptfs ciphertext
+throughout export, validation and import staging. Backup archives do not contain
+the original password envelope, PIN envelope or hardware-key enrollments.
+
+Import is restricted to an installation without a vault. It authenticates the
+entire archive, rejects unsafe paths and excessive sizes, and atomically publishes
+the prepared directory. The backup password becomes the new master password.
+Import does not merge accounts or synchronize devices, and preserving WhatsApp
+login after machine migration remains an unverified compatibility requirement.
+A backup is an additional recoverable copy of account credentials: protect its
+password and revoke linked devices from the phone if that copy is compromised.
+Screen/session safety changes cancel background backup work without opening the
+vault. Interrupted operations may leave private ciphertext temporary files.
+
 ## Limitations
 
 - Decrypted content exists in memory and the mounted filesystem while the vault is open.

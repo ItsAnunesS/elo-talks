@@ -70,6 +70,66 @@ async fn request(
         .map_err(|e| e.to_string())
 }
 #[tauri::command]
+async fn choose_backup(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    export: bool,
+) -> Result<Option<String>, String> {
+    local(&webview)?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let parent = handle
+            .get_window("main")
+            .and_then(|window| window.gtk_window().ok());
+        let dialog = gtk::FileChooserDialog::new(
+            Some(if export {
+                "Export encrypted backup"
+            } else {
+                "Import encrypted backup"
+            }),
+            parent.as_ref(),
+            if export {
+                gtk::FileChooserAction::Save
+            } else {
+                gtk::FileChooserAction::Open
+            },
+        );
+        dialog.add_buttons(&[
+            ("Cancel", gtk::ResponseType::Cancel),
+            (
+                if export { "Export" } else { "Import" },
+                gtk::ResponseType::Accept,
+            ),
+        ]);
+        if export {
+            dialog.set_current_name(&format!("elo-talks-{}.elobackup", uuid::Uuid::new_v4()));
+        }
+        let filter = gtk::FileFilter::new();
+        filter.set_name(Some("Elo Talks encrypted backup"));
+        filter.add_pattern("*.elobackup");
+        dialog.add_filter(filter);
+        let path = if dialog.run() == gtk::ResponseType::Accept {
+            dialog
+                .filename()
+                .map(|path| path.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+        dialog.close();
+        let _ = sender.send(path);
+    })
+    .map_err(|_| "Could not open the file chooser".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv()
+            .map_err(|_| "File chooser closed".to_string())
+    })
+    .await
+    .map_err(|_| "File chooser failed".to_string())?
+}
+
+#[tauri::command]
 fn select_account(
     webview: tauri::Webview,
     app: tauri::AppHandle,
@@ -377,7 +437,8 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
             account_avatar,
             retry_account,
             diagnostics,
-            test_notification
+            test_notification,
+            choose_backup
         ])
         .setup(move |app| {
             let geometry = crate::window_state::load(&profile);

@@ -6,6 +6,7 @@ mod account_permissions;
 mod account_readiness;
 mod account_runtime;
 mod auth;
+mod backup;
 mod controller;
 mod crypto;
 mod desktop_integration;

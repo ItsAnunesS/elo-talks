@@ -2,6 +2,7 @@ import { readSpace, saveSpace, isFavorite, toggleFavorite } from "./space-state.
 import { openContextMenu } from "./context-menu.js";
 import { appearanceControls } from "./appearance.js";
 import { initializeChannelDrag } from "./channel-drag.js";
+import { backupDialog, watchBackup } from "./backup.js";
 import { updateSettings } from "./update-settings.js";
 import { initializeUpdates, restartForUpdate } from "./updates.js";
 import { prepareAccounts } from "./startup.js";
@@ -151,7 +152,13 @@ function renderState() {
     getElement("unlock-form").hidden = recovering;
     getElement("unlock-hint").hidden = recovering;
     getElement("methods").hidden = recovering || !state.created;
-    getElement("unlock-submit").disabled = recovering;
+    const backingUp = state.backup?.phase === "running";
+    getElement("unlock-submit").disabled = recovering || backingUp;
+    getElement("backup-button").hidden = recovering;
+    getElement("backup-button").disabled = backingUp;
+    watchBackup(state.backup, async () => {
+      await refreshState();
+    });
     if (recovering) {
       clearSecrets();
       getElement("lock-title").textContent = "Securing your space.";
@@ -564,6 +571,12 @@ async function showDiagnostics() {
   );
 }
 
+getElement("backup-button").addEventListener("click", () => {
+  backupDialog({ created: state.created, openDialog, feedback: showToast }).catch((error) =>
+    showToast(errorMessage(error)),
+  );
+});
+
 async function openSettings() {
   const updatePreferences = await request("update.preferences");
   await openDialog(
@@ -584,6 +597,17 @@ async function openSettings() {
           "",
           "Your workspaces and sessions are stored inside your encrypted vault.",
         ),
+      );
+      general.append(
+        createElement("h3", "", "Encrypted backup"),
+        createElement(
+          "p",
+          "",
+          "Export your workspaces and account profiles from the lock screen. Import is available before creating a vault on another Linux computer.",
+        ),
+        createButton("Lock to export backup", async () => {
+          await request("lock");
+        }),
       );
       const timeout = createField(
         general,

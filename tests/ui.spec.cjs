@@ -70,6 +70,7 @@ const http = require("node:http"),
         core: {
           invoke: async (cmd, args) => {
             window.testRequests.push({ cmd, args });
+            if (cmd === "choose_backup") return window.testBackupPath ?? "/tmp/synthetic.elobackup";
             if (cmd === "test_notification" && window.testNotificationError)
               throw Error("Linux notification service unavailable");
             if (
@@ -107,6 +108,22 @@ const http = require("node:http"),
               if (args.op === "update.check") {
                 window.testUpdateStatus = { phase: "current", canCheck: false, retryInSeconds: 60 };
                 return window.testUpdateStatus;
+              }
+              if (args.op === "backup.export" || args.op === "backup.import") {
+                window.testState.backup = {
+                  phase: "running",
+                  operation: args.op.endsWith("export") ? "export" : "import",
+                };
+                return structuredClone(window.testState.backup);
+              }
+              if (args.op === "backup.status") {
+                if (window.testBackupComplete) {
+                  window.testState.created = true;
+                  window.testState.pin = false;
+                  window.testState.keys = [];
+                  window.testState.backup.phase = "complete";
+                }
+                return structuredClone(window.testState.backup);
               }
               if (args.op === "status") return structuredClone(window.testState);
               if (args.op === "notifications") {
@@ -225,6 +242,64 @@ const http = require("node:http"),
       1,
     );
     await page.locator("#dialog-cancel").click();
+
+    // Backup workflow remains available while locked and never unlocks accounts.
+    await page.getByRole("button", { name: "Encrypted backup", exact: true }).click();
+    await page
+      .getByLabel("Current master password", { exact: true })
+      .fill("original master password");
+    await page.getByLabel("Backup password", { exact: true }).fill("different backup password");
+    await page.getByLabel("Confirm backup password", { exact: true }).fill("does not match");
+    await page.getByRole("button", { name: "Choose destination", exact: true }).click();
+    await page.locator("#dialog-error").filter({ hasText: "do not match" }).waitFor();
+    assert.equal(
+      await page.evaluate(() => window.testRequests.some((r) => r.args?.op === "backup.export")),
+      false,
+    );
+    await page
+      .getByLabel("Confirm backup password", { exact: true })
+      .fill("different backup password");
+    await page.screenshot({ path: "/tmp/elo-backup-export.png", animations: "disabled" });
+    await page.setViewportSize({ width: 900, height: 640 });
+    await page.screenshot({ path: "/tmp/elo-backup-export-min.png", animations: "disabled" });
+    assert.equal(await page.locator("#dialog-submit").isVisible(), true);
+    await page.getByRole("button", { name: "Choose destination", exact: true }).click();
+    await page.locator("#dialog").waitFor({ state: "hidden" });
+    assert.equal(await page.locator("#unlock-submit").isDisabled(), true);
+    assert.equal(await page.locator("#backup-button").isDisabled(), true);
+    assert.equal(await page.locator('#dialog input[type="password"]').count(), 0);
+    assert.equal(await page.evaluate(() => window.testState.unlocked), false);
+    await page.evaluate(() => {
+      window.testBackupComplete = true;
+    });
+    await page.locator("#backup-status").filter({ hasText: "saved" }).waitFor();
+    assert.equal(await page.locator("#unlock-submit").isDisabled(), false);
+    // New installations offer import, and explain the destination credentials.
+    await page.evaluate(() => {
+      window.testState.created = false;
+      window.testState.backup = { phase: "idle" };
+      localStorage.setItem("fixture", JSON.stringify(window.testState));
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "Encrypted backup", exact: true }).click();
+    await page.getByLabel("Backup password", { exact: true }).fill("different backup password");
+    assert.equal(await page.getByLabel("Current master password", { exact: true }).count(), 0);
+    await page.screenshot({ path: "/tmp/elo-backup-import-min.png", animations: "disabled" });
+    await page.getByRole("button", { name: "Choose backup", exact: true }).click();
+    await page.locator("#dialog").waitFor({ state: "hidden" });
+    await page.evaluate(() => {
+      window.testBackupComplete = true;
+    });
+    await page.locator("#backup-status").filter({ hasText: "Backup imported" }).waitFor();
+    assert.equal(await page.locator("#unlock-submit").textContent(), "Unlock my space →");
+    await page.evaluate(() => {
+      window.testState.pin = true;
+      window.testState.keys = [{ id: "key-one", name: "My key" }];
+      window.testState.backup = { phase: "idle" };
+      localStorage.setItem("fixture", JSON.stringify(window.testState));
+    });
+    await page.reload();
+    await page.setViewportSize({ width: 1200, height: 800 });
 
     assert.equal(await page.locator(".wordmark img").evaluate((img) => img.naturalWidth), 512);
     await page.getByRole("button", { name: "PIN", exact: true }).click();
@@ -1016,7 +1091,7 @@ const http = require("node:http"),
     await readinessPage.close();
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: credentials, safe labels, account switching, workspaces, raster uploads, category moves, notification badges and private diagnostics.",
+      "PASS: encrypted backup workflows, credentials, safe labels, account switching, workspaces, raster uploads, category moves, notification badges and private diagnostics.",
     );
   } finally {
     await browser.close();

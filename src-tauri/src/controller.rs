@@ -1,5 +1,6 @@
 use crate::{
     account_runtime::NotificationPreferences,
+    backup,
     ipc::{receive_frame, send_frame, Request},
     storage,
     vault::Vault,
@@ -18,7 +19,7 @@ use std::{
     process::{Child, Command},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc, Arc,
     },
     time::{Duration, Instant},
 };
@@ -32,6 +33,17 @@ pub struct Controller {
     retry_at: Instant,
     failures: u32,
     lock_error: Option<String>,
+    backup_job: Option<BackupJob>,
+    backup_status: Value,
+}
+struct BackupJob {
+    receiver: mpsc::Receiver<Result<Option<backup::Restore>>>,
+    cancel: Arc<AtomicBool>,
+}
+impl Drop for BackupJob {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
 }
 fn required_text<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
     value
@@ -41,6 +53,114 @@ fn required_text<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
 }
 
 impl Controller {
+    fn start_backup(&mut self, operation: &str, data: &Value) -> Result<Value> {
+        ensure!(
+            self.backup_job.is_none(),
+            "A backup operation is already running"
+        );
+        ensure!(
+            self.lock_error.is_none() && self.vault.master.is_none() && !self.vault.mounted(),
+            "Lock the vault before starting a backup operation"
+        );
+        ensure!(
+            crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed),
+            "Unlock your Linux session before starting a backup operation"
+        );
+        ensure!(
+            Instant::now() >= self.retry_at,
+            "Wait a few seconds before trying again"
+        );
+        let exporting = operation == "backup.export";
+        if exporting {
+            ensure!(
+                self.vault.manifest.is_some(),
+                "Create a vault before exporting"
+            );
+        } else {
+            ensure!(
+                self.vault.manifest.is_none()
+                    && !self.vault.base.join("cipher").exists()
+                    && !self.vault.base.join("restored-vault").exists(),
+                "Import requires a new installation without an existing vault"
+            );
+        }
+        let path = PathBuf::from(required_text(data, "path")?);
+        ensure!(
+            path.is_absolute() && path.as_os_str().len() <= 4096,
+            "Choose an absolute backup path"
+        );
+        let password = Zeroizing::new(required_text(data, "password")?.to_owned());
+        ensure!(password.len() <= 1024, "Password is too long");
+        let backup_password =
+            Zeroizing::new(data["backupPassword"].as_str().unwrap_or("").to_owned());
+        if exporting {
+            backup::validate_password(&backup_password)?;
+        }
+        let base = self.vault.base.clone();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("vault-backup".into())
+            .spawn(move || {
+                let result = if exporting {
+                    backup::export(&base, &path, &password, &backup_password, worker_cancel)
+                        .map(|()| None)
+                } else {
+                    backup::prepare_restore(&base, &path, &password, worker_cancel).map(Some)
+                };
+                let _ = sender.send(result);
+            })?;
+        self.backup_job = Some(BackupJob { receiver, cancel });
+        self.backup_status =
+            json!({"phase": "running", "operation": if exporting { "export" } else { "import" }});
+        Ok(self.backup_status.clone())
+    }
+    fn poll_backup(&mut self) -> Result<()> {
+        let Some(job) = &self.backup_job else {
+            return Ok(());
+        };
+        if !crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed) {
+            job.cancel.store(true, Ordering::Relaxed);
+        }
+        let result = match job.receiver.try_recv() {
+            Ok(result) => result,
+            Err(mpsc::TryRecvError::Empty) => return Ok(()),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Err(anyhow!("Backup worker stopped. Retry the operation."))
+            }
+        };
+        let canceled = job.cancel.load(Ordering::Relaxed);
+        self.backup_job = None;
+        let result = result.and_then(|restore| {
+            ensure!(
+                !canceled,
+                "Backup canceled because the Linux session became unsafe. Retry after unlocking."
+            );
+            if let Some(restore) = restore {
+                let base = self.vault.base.clone();
+                let installed = backup::install_restore(&base, &restore);
+                // Reconcile even if directory fsync failed after atomic publication.
+                self.vault = Vault::new(base, &self.runtime)?;
+                installed?;
+            }
+            Ok(())
+        });
+        match result {
+            Ok(()) => {
+                self.failures = 0;
+                self.backup_status["phase"] = json!("complete");
+            }
+            Err(error) => {
+                self.failures = self.failures.saturating_add(1);
+                self.retry_at =
+                    Instant::now() + Duration::from_secs((1u64 << self.failures.min(5)).min(30));
+                self.backup_status["phase"] = json!("error");
+                self.backup_status["error"] = json!(error.to_string());
+            }
+        }
+        Ok(())
+    }
     fn spawn_ui(&mut self) -> Result<()> {
         let profile = if self.vault.master.is_some() && self.lock_error.is_none() {
             self.vault.mount.clone()
@@ -180,6 +300,7 @@ impl Controller {
             "notifications": self.notification_preferences()?,
             "idleMinutes": manifest.map(|vault| vault.idle_minutes).unwrap_or(0),
             "error": self.lock_error,
+            "backup": self.backup_status,
             "version": env!("CARGO_PKG_VERSION"),
         }))
     }
@@ -187,12 +308,18 @@ impl Controller {
     fn handle(&mut self, r: &Request) -> Result<Value> {
         let d = &r.data;
         match r.op.as_str() {
+            "backup.status" => return Ok(self.backup_status.clone()),
+            "backup.export" | "backup.import" => return self.start_backup(&r.op, d),
             "status" => return self.status(),
             "activity" => {
                 self.last_activity = Instant::now();
                 return Ok(Value::Null);
             }
             "create" | "unlock" => {
+                ensure!(
+                    self.backup_job.is_none(),
+                    "Wait for the backup operation to finish"
+                );
                 ensure!(crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed), "Linux session locked or security monitor unavailable. Unlock the session and retry.");
                 ensure!(
                     self.lock_error.is_none(),
@@ -359,6 +486,8 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
         retry_at: Instant::now(),
         failures: 0,
         lock_error: None,
+        backup_job: None,
+        backup_status: json!({"phase": "idle"}),
     };
     // An interrupted previous run is never implicitly adopted.
     if c.vault.mounted() {
@@ -374,6 +503,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
     crate::session_monitor::start(lock.clone(), shutdown.clone());
     c.spawn_launcher()?;
     loop {
+        c.poll_backup()?;
         updater.poll();
         if installing && updater.status()["phase"] == "installed" {
             c.stop_ui()?;
@@ -483,13 +613,17 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
                     "update.check" => updater.command("check"),
                     "update.prepare" => updater.command("prepare"),
                     "update.install" => {
-                        if updater.status()["phase"] == "ready" {
+                        if c.backup_job.is_some() {
+                            Err(anyhow!("Wait for the backup operation to finish"))
+                        } else if updater.status()["phase"] == "ready" {
                             Ok(Value::Null)
                         } else {
                             Err(anyhow!("No verified update is ready"))
                         }
                     }
-                    "create" | "unlock" | "quit" if installing => {
+                    "create" | "unlock" | "quit" | "backup.export" | "backup.import"
+                        if installing =>
+                    {
                         Err(anyhow!("Wait for the update to finish"))
                     }
                     _ => c.handle(&r),
@@ -558,6 +692,66 @@ mod tests {
     use super::*;
     use crate::workspaces::Account;
     #[test]
+    fn backup_requires_closure_serializes_work_and_discards_canceled_restore() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        let mut controller = Controller {
+            vault: Vault::new(directory.path().into(), runtime.path()).unwrap(),
+            child: None,
+            runtime: runtime.path().into(),
+            last_activity: Instant::now(),
+            retry_at: Instant::now(),
+            failures: 0,
+            lock_error: None,
+            backup_job: None,
+            backup_status: json!({"phase": "running"}),
+        };
+        controller.vault.master = Some(crate::crypto::random());
+        for op in ["backup.export", "backup.import"] {
+            assert!(controller
+                .start_backup(op, &Value::Null)
+                .unwrap_err()
+                .to_string()
+                .contains("Lock the vault"));
+        }
+        controller.vault.master = None;
+        controller.lock_error = Some("Closure failed".into());
+        assert!(controller
+            .start_backup("backup.export", &Value::Null)
+            .is_err());
+        controller.lock_error = None;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let cancel = Arc::new(AtomicBool::new(true));
+        controller.backup_job = Some(BackupJob { receiver, cancel });
+        assert!(controller
+            .start_backup("backup.import", &Value::Null)
+            .unwrap_err()
+            .to_string()
+            .contains("already running"));
+        for op in ["create", "unlock"] {
+            assert!(controller
+                .handle(&Request {
+                    op: op.into(),
+                    data: Value::Null
+                })
+                .unwrap_err()
+                .to_string()
+                .contains("Wait for the backup"));
+        }
+        let staged = directory.path().join(".backup-import-synthetic");
+        storage::private_dir(&staged).unwrap();
+        assert!(sender
+            .send(Ok(Some(backup::Restore {
+                path: staged.clone()
+            })))
+            .is_ok());
+        controller.poll_backup().unwrap();
+        assert_eq!(controller.backup_status["phase"], "error");
+        assert!(!staged.exists());
+        assert!(!directory.path().join("restored-vault").exists());
+        assert!(controller.vault.manifest.is_none());
+    }
+    #[test]
     fn rejects_mutations_while_locked() {
         let dir = tempfile::tempdir().unwrap();
         let runtime = tempfile::tempdir().unwrap();
@@ -570,6 +764,8 @@ mod tests {
             retry_at: Instant::now(),
             failures: 0,
             lock_error: None,
+            backup_job: None,
+            backup_status: json!({"phase": "idle"}),
         };
         for op in [
             "workspace.add",
@@ -613,6 +809,8 @@ mod tests {
             retry_at: Instant::now(),
             failures: 0,
             lock_error: None,
+            backup_job: None,
+            backup_status: json!({"phase": "idle"}),
         };
         assert!(controller.initialize_catalog().is_err());
         assert!(controller.vault.master.is_none());
@@ -642,6 +840,8 @@ mod tests {
             retry_at: Instant::now(),
             failures: 0,
             lock_error: None,
+            backup_job: None,
+            backup_status: json!({"phase": "idle"}),
         };
         assert!(c
             .handle(&Request {
@@ -670,6 +870,8 @@ mod tests {
             retry_at: Instant::now(),
             failures: 0,
             lock_error: None,
+            backup_job: None,
+            backup_status: json!({"phase": "idle"}),
         };
         controller
             .handle(&Request {

@@ -27,8 +27,8 @@ or replace the outstanding real-device acceptance checks in VALIDATION.md.
 - Broader isolation, dependency and updater review. Existing unit tests do not
   constitute a completed independent security audit.
 
-Incoming-call experiments are outside this release. Windows/macOS feasibility
-remains planned for the 0.5 series.
+Incoming-call experiments are outside this release. Windows/macOS feasibility remains a future portability study. The 0.5 series
+introduces encrypted local backups on Linux.
 
 ## Vault closure recovery
 
