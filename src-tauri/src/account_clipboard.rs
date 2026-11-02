@@ -6,7 +6,7 @@ use std::{
     rc::Rc,
     time::Instant,
 };
-use webkit2gtk::{ContextMenuExt, ContextMenuItemExt, WebViewExt};
+use webkit2gtk::{ContextMenuExt, ContextMenuItemExt, UserContentManagerExt, WebViewExt};
 
 const WORLD: &str = "elo-clipboard";
 const MAX_PNG_BYTES: usize = 20 * 1024 * 1024;
@@ -117,6 +117,19 @@ impl Paste {
 }
 
 pub fn attach(view: &webkit2gtk::WebView, error: impl Fn(&str) + 'static) {
+    // Named evaluation worlds are weakly cached by WebKit. A registered script
+    // retains the world so eloPaste survives from target capture to delivery.
+    // It exposes no bridge or page-world globals, and injects no clipboard data.
+    if let Some(manager) = view.user_content_manager() {
+        manager.add_script(&webkit2gtk::UserScript::for_world(
+            "void 0;",
+            webkit2gtk::UserContentInjectedFrames::TopFrame,
+            webkit2gtk::UserScriptInjectionTime::Start,
+            WORLD,
+            &["https://web.whatsapp.com/*"],
+            &[],
+        ));
+    }
     let state = Rc::new(Paste::default());
     let error: Rc<dyn Fn(&str)> = Rc::new(error);
     let keys = state.clone();

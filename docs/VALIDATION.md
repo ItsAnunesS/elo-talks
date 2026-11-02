@@ -116,8 +116,15 @@ account is hidden during a clipboard request, and exclusion of other origins.
 The fixture requires `xdotool` and sends actual X11 shortcuts from a separate
 process to its own PID's window. The deprecated synchronous GTK key helper
 stalled during image paste on the Ubuntu runner. A separate watchdog reports
-the last stage instead of leaving an unexplained outer timeout. This changes
-the synthetic input mechanism only; the app's clipboard adapter is unchanged.
+the last stage instead of leaving an unexplained outer timeout. All original
+paste, text, cancellation and origin assertions remain required.
+
+The clipboard adapter now registers a top-frame no-op user script restricted to
+the WhatsApp origin. This retains the named isolated JavaScript world between
+target capture and image delivery: WebKit's shared named-world map uses weak
+references, so two standalone evaluations can otherwise get different worlds
+and silently lose `eloPaste`. No page bridge or clipboard data is injected by the
+registration itself. Focus, origin, generation and target-identity guards remain.
 Run `bash scripts/test-native-layout.sh clipboard_smoke` in the same documented
 compatible environment as the layout fixture. `--native` bypasses the adapter
 for comparison with the engine's own paste behavior.
