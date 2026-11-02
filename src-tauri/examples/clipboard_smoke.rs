@@ -5,11 +5,42 @@ mod account_clipboard;
 #[path = "../src/whatsapp.rs"]
 mod whatsapp;
 use gtk::{glib, prelude::*};
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 use webkit2gtk::{WebContextExt, WebViewExt};
 
+static STAGE: AtomicUsize = AtomicUsize::new(0);
+const STAGES: [&str; 9] = [
+    "GTK initialization",
+    "WebKit initialization",
+    "document loading",
+    "image paste",
+    "text paste",
+    "invalid image",
+    "hidden account cancellation",
+    "untrusted origin",
+    "finished",
+];
+fn stage(index: usize) {
+    STAGE.store(index, Ordering::Relaxed);
+    println!("Clipboard fixture: {}", STAGES[index]);
+}
+
 fn main() {
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_secs(15));
+        eprintln!(
+            "::error::Clipboard fixture stalled during {}",
+            STAGES[STAGE.load(Ordering::Relaxed)]
+        );
+        std::process::exit(1);
+    });
     gtk::init().unwrap();
+    stage(1);
     let context = webkit2gtk::WebContext::new_ephemeral();
     context.set_sandbox_enabled(true);
     assert!(context.is_sandbox_enabled());
@@ -26,6 +57,7 @@ fn main() {
     window.add(&view);
     window.show_all();
     window.present();
+    stage(2);
     view.load_html(
         "<div contenteditable id='editor'>Synthetic editor</div><script>editor.focus(); let count=0; document.addEventListener('paste', async e => { e.preventDefault(); count++; const file=e.clipboardData.files[0]; document.title = file ? 'image:' + file.type + ':' + ((bytes) => bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80)(new Uint8Array(await file.arrayBuffer())) + ':' + count : 'text:' + e.clipboardData.getData('text/plain') + ':' + count; });</script>",
         Some("https://web.whatsapp.com/"),
@@ -35,6 +67,7 @@ fn main() {
         view.grab_focus();
         let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
         let image = gtk::gdk_pixbuf::Pixbuf::from_read(std::io::Cursor::new(include_bytes!("../icons/32x32.png"))).unwrap();
+        stage(3);
         clipboard.set_image(&image);
         if native {
             view.execute_editing_command("Paste");
@@ -47,12 +80,14 @@ fn main() {
             println!("Native image paste: {:?}", view.title());
         } else {
             assert_eq!(view.title().as_deref(), Some("image:image/png:true:1"));
+            stage(4);
             clipboard.set_text("Synthetic clipboard text");
             #[allow(deprecated)]
             gtk::test_widget_send_key(&view, *gtk::gdk::keys::constants::Insert, gtk::gdk::ModifierType::SHIFT_MASK);
             glib::timeout_future(Duration::from_secs(1)).await;
             assert_eq!(view.title().as_deref(), Some("text:Synthetic clipboard text:2"));
             assert!(errors.borrow().is_empty());
+            stage(5);
             let target = gtk::TargetEntry::new("image/png", gtk::TargetFlags::empty(), 0);
             assert!(clipboard.set_with_data(std::slice::from_ref(&target), |_, selection, _| {
                 selection.set(&gtk::gdk::Atom::intern("image/png"), 8, b"Invalid synthetic PNG");
@@ -62,6 +97,7 @@ fn main() {
             glib::timeout_future(Duration::from_secs(1)).await;
             assert_eq!(errors.borrow().len(), 1, "Invalid images must report an error");
             assert_eq!(view.title().as_deref(), Some("text:Synthetic clipboard text:2"));
+            stage(6);
             let hidden = view.clone();
             assert!(clipboard.set_with_data(&[target], move |_, selection, _| {
                 hidden.hide();
@@ -75,6 +111,7 @@ fn main() {
             assert_eq!(errors.borrow().len(), 1);
             view.show();
             view.grab_focus();
+            stage(7);
             view.load_html("<div contenteditable id='editor'></div><script>editor.focus(); document.addEventListener('paste', e => {e.preventDefault(); document.title=String(e.isTrusted);});</script>", Some("https://untrusted.example/"));
             glib::timeout_future(Duration::from_secs(1)).await;
             clipboard.set_image(&image);
@@ -84,6 +121,7 @@ fn main() {
             assert_ne!(view.title().as_deref(), Some("false"));
             println!("PASS: PNG paste, text fallback, invalid image rejection, hidden-account cancellation and origin restriction");
         }
+        stage(8);
         gtk::main_quit();
     });
     gtk::main();
