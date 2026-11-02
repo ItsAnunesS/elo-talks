@@ -125,6 +125,39 @@ const http = require("node:http"),
                 }
                 return structuredClone(window.testState.backup);
               }
+              if (args.op === "server.connect") {
+                window.testState.server = {
+                  phase: "syncing",
+                  domain: args.data.domain,
+                  username: args.data.username,
+                  organizationId: null,
+                  organizations: [],
+                };
+                return structuredClone(window.testState.server);
+              }
+              if (args.op === "server.status") {
+                if (window.testServerComplete)
+                  window.testState.server = {
+                    ...window.testState.server,
+                    phase: "connected",
+                    organizations: [
+                      {
+                        id: "11111111-1111-4111-8111-111111111111",
+                        name: "Company",
+                        role: "member",
+                      },
+                    ],
+                  };
+                return structuredClone(window.testState.server || { phase: "local" });
+              }
+              if (args.op === "server.select") {
+                window.testState.server = {
+                  ...window.testState.server,
+                  phase: "syncing",
+                  organizationId: args.data.organizationId,
+                };
+                return structuredClone(window.testState.server);
+              }
               if (args.op === "status") return structuredClone(window.testState);
               if (args.op === "notifications") {
                 window.testState.notifications = args.data;
@@ -430,6 +463,48 @@ const http = require("node:http"),
     );
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.screenshot({ animations: "disabled", path: "/tmp/elo-settings-premium.png" });
+    await page.getByLabel("Server domain", { exact: true }).fill("https://panel.example.test");
+    await page.getByLabel("Server username", { exact: true }).fill("member");
+    await page.getByLabel("Server password", { exact: true }).fill("synthetic server password");
+    await page.getByRole("button", { name: "Connect and sign in", exact: true }).click();
+    assert.equal(await page.getByLabel("Server password", { exact: true }).inputValue(), "");
+    await page.evaluate(() => {
+      window.testServerComplete = true;
+    });
+    await page
+      .getByRole("status")
+      .filter({ hasText: "Choose an organization to synchronize" })
+      .waitFor();
+    await page
+      .getByLabel("Organization", { exact: true })
+      .selectOption({ label: "Company · member" });
+    await page.getByRole("button", { name: "Use organization", exact: true }).click();
+    await page
+      .getByRole("status")
+      .filter({ hasText: "Connected. Access and workspace changes" })
+      .waitFor();
+    assert.ok(
+      await page.evaluate(() => window.testRequests.some((r) => r.args?.op === "server.select")),
+    );
+    await page.setViewportSize({ width: 900, height: 640 });
+    await page.getByLabel("Server domain", { exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ animations: "disabled", path: "/tmp/elo-server-settings-min.png" });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.evaluate(() => {
+      window.testState.managedWorkspaces = ["personal"];
+    });
+    await page.getByRole("button", { name: "Save lock timeout", exact: true }).click();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Manage workspace", exact: true }).click();
+    await page.getByRole("heading", { name: "Managed by your server", exact: true }).waitFor();
+    assert.equal(await page.getByLabel("Workspace name", { exact: true }).count(), 0);
+    await page.locator("#dialog-cancel").click();
+    await page.evaluate(() => {
+      window.testState.managedWorkspaces = [];
+    });
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Save lock timeout", exact: true }).click();
+
     await page.getByRole("tab", { name: "Notifications", exact: true }).click();
     assert.equal(
       await page.getByLabel("Notification content", { exact: true }).inputValue(),

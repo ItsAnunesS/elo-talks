@@ -13,8 +13,8 @@ A Linux desktop app for managing multiple WhatsApp accounts in one place. Organi
 personal and work accounts into workspaces, keep them connected in the background,
 and protect their local profiles with an encrypted vault.
 
-Built with **Tauri 2, Rust and WebKitGTK**. No account with Elo Talks, no application
-backend, no telemetry.
+Built with **Tauri 2, Rust and WebKitGTK**. No mandatory hosted account or telemetry. Local mode works without a server;
+organization metadata can use your own self-hosted server.
 
 ## What it does
 
@@ -24,6 +24,9 @@ backend, no telemetry.
   profile. Switching channels keeps other accounts running.
 - **Local protection.** Unlock with a master password, an optional device PIN or a
   compatible FIDO2 key. Account processes stop before the vault is unmounted.
+- **Connect your server.** Sign in to an HTTPS server and synchronize authorized
+  organizations, workspaces, categories and channel slots. WhatsApp profiles stay
+  local. See [server synchronization](docs/SERVER-SYNC.md).
 - **Encrypted backups.** Export a closed vault with a separate password and
   restore workspaces and account profiles into a new Linux installation. See
   [backup instructions and limitations](docs/RELEASE-0.5.md).

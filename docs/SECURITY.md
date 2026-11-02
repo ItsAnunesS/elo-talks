@@ -177,3 +177,22 @@ JSON state reads reject final-component symlinks and nonregular files, and use a
 nonblocking open to avoid hanging on FIFOs. Atomic writes zeroize their temporary
 serialized buffer. These safeguards do not extend the threat model to a malicious
 process already running as the same user or erase copies managed by the OS.
+
+## Server metadata connection
+
+The controller performs bounded HTTPS metadata requests on one background worker.
+Remote WhatsApp pages receive no new capabilities or network/vault commands.
+Tokens and connection settings are stored inside the encrypted catalog; server
+passwords are not persisted. TLS is verified, redirects are rejected, and private
+CA trust requires explicit PEM configuration. Profile identifiers are bound to
+origin, username, organization, workspace and channel, so remote UUID reuse cannot
+select another context's local profile.
+
+Managed structure is server-authoritative and desktop mutations are rejected.
+Periodic authorization failure blocks managed views; verified removal is applied
+after stopping account processes, with atomic catalog persistence. Unchanged
+snapshots do not restart accounts or rewrite state. Linux session monitoring
+continues during requests, and results are discarded after locking. This is
+bounded polling rather than instantaneous revocation. Previously downloaded data
+and user-owned backups cannot be remotely erased by an ACL change. See
+SERVER-SYNC.md for lifecycle details and explicit manual acceptance limits.

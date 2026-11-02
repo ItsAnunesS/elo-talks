@@ -2,6 +2,7 @@ import { readSpace, saveSpace, isFavorite, toggleFavorite } from "./space-state.
 import { openContextMenu } from "./context-menu.js";
 import { appearanceControls } from "./appearance.js";
 import { initializeChannelDrag } from "./channel-drag.js";
+import { serverSettings } from "./server-settings.js";
 import { backupDialog, watchBackup } from "./backup.js";
 import { updateSettings } from "./update-settings.js";
 import { initializeUpdates, restartForUpdate } from "./updates.js";
@@ -118,6 +119,11 @@ function renderState() {
   document.body.dataset.unlocked = String(state.unlocked);
   getElement("lock-screen").hidden = state.unlocked;
   getElement("workspace").hidden = !state.unlocked;
+  const serverNotice = getElement("server-notice");
+  serverNotice.hidden = !state.unlocked || !state.server?.error;
+  serverNotice.textContent = state.server?.error
+    ? `${state.server.error} Server workspaces are hidden until access can be verified. Open Settings to reconnect.`
+    : "";
   getElement("version").textContent = `v${state.version || "development"}`;
   const quiet = !!state.notifications?.doNotDisturb;
   getElement("quiet-button").setAttribute("aria-pressed", String(quiet));
@@ -360,7 +366,25 @@ getElement("dialog-form").addEventListener("submit", async (e) => {
     dialogSubmitting = false;
   }
 });
+function serverManaged(id) {
+  return state.managedWorkspaces?.includes(id);
+}
+async function serverWorkspaceNotice() {
+  await openDialog(
+    "Managed by your server",
+    (parent) =>
+      parent.append(
+        createElement(
+          "p",
+          "",
+          "Manage this workspace's categories, channel names and access in the server panel. WhatsApp sessions remain local to this computer.",
+        ),
+      ),
+    null,
+  );
+}
 async function addAccount(categoryId = null) {
+  if (serverManaged(activeWorkspace)) return serverWorkspaceNotice();
   let name, placement;
   await openDialog(
     "Add WhatsApp",
@@ -396,6 +420,35 @@ async function addAccount(categoryId = null) {
   );
 }
 async function editAccount(a) {
+  if (serverManaged(state.organization.placements[a.id]?.workspaceId)) {
+    return openDialog(
+      "Server channel",
+      (parent) => {
+        parent.append(
+          createElement(
+            "p",
+            "",
+            "The channel name and placement are managed in your server panel. This WhatsApp session is local to this computer.",
+          ),
+          createButton("Reload WhatsApp", () => invoke("retry_account", { id: a.id })),
+        );
+        const muted = state.notifications?.mutedAccounts?.includes(a.id);
+        parent.append(
+          createButton(muted ? "Unmute notifications" : "Mute notifications", async () => {
+            const preferences = {
+              ...state.notifications,
+              mutedAccounts: (state.notifications?.mutedAccounts || []).filter((id) => id !== a.id),
+            };
+            if (!muted) preferences.mutedAccounts.push(a.id);
+            await request("notifications", preferences);
+            await refreshState();
+            await closeDialog();
+          }),
+        );
+      },
+      null,
+    );
+  }
   let name, placement;
   await openDialog(
     "Manage account",
@@ -631,6 +684,12 @@ async function openSettings() {
         }),
       );
       const updateEvents = new AbortController();
+      serverSettings(general, {
+        status: state.server,
+        refresh: refreshState,
+        feedback: showToast,
+        signal: updateEvents.signal,
+      });
       getElement("dialog").addEventListener("close", () => updateEvents.abort(), { once: true });
       updateSettings(updates, {
         preferences: updatePreferences,

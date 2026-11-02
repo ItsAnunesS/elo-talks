@@ -24,10 +24,19 @@ export function placementFields(state, parent, workspaceId, categoryId = null) {
     item.value = value;
     return item;
   };
-  workspace.replaceChildren(...state.organization.workspaces.map((w) => option(w.name, w.id)));
+  workspace.replaceChildren(
+    ...state.organization.workspaces
+      .filter((w) => !state.managedWorkspaces?.includes(w.id))
+      .map((w) => option(w.name, w.id)),
+  );
   workspace.value = workspaceId;
+  if (!workspace.value) workspace.selectedIndex = 0;
   const update = () => {
     const selected = state.organization.workspaces.find((w) => w.id === workspace.value);
+    if (!selected) {
+      category.replaceChildren(option("No category", ""));
+      return;
+    }
     category.replaceChildren(
       option("No category", ""),
       ...selected.categories.map((c) => option(c.name, c.id)),
@@ -39,7 +48,22 @@ export function placementFields(state, parent, workspaceId, categoryId = null) {
   return () => ({ workspaceId: workspace.value, categoryId: category.value || null });
 }
 export function workspaceDialogs({ state, active, open, close, refresh, created }) {
+  function managedNotice() {
+    return open(
+      "Managed by your server",
+      (parent) =>
+        parent.append(
+          createElement(
+            "p",
+            "",
+            "Edit this workspace's structure and access in your server panel. Local workspace editing remains available separately.",
+          ),
+        ),
+      null,
+    );
+  }
   async function editWorkspace(workspace) {
+    if (state().managedWorkspaces?.includes(workspace?.id)) return managedNotice();
     let name,
       pixels,
       imageTask = Promise.resolve();
@@ -123,7 +147,12 @@ export function workspaceDialogs({ state, active, open, close, refresh, created 
             },
           );
           remove.querySelector("button").disabled =
-            occupied || state().organization.workspaces.length === 1;
+            occupied ||
+            state().organization.workspaces.length === 1 ||
+            (!!state().server?.domain &&
+              state().organization.workspaces.filter(
+                (workspace) => !state().managedWorkspaces?.includes(workspace.id),
+              ).length <= 1);
           parent.append(
             createElement(
               "p",
@@ -145,6 +174,7 @@ export function workspaceDialogs({ state, active, open, close, refresh, created 
     );
   }
   async function editCategory(category) {
+    if (state().managedWorkspaces?.includes(active())) return managedNotice();
     let name;
     const workspaceId = active();
     await open(

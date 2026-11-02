@@ -29,6 +29,8 @@ fs2 = "0.4"
 secret-service = { version = "5", features = ["rt-async-io-crypto-rust"] }
 dbus = "0.9"
 signal-hook = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"

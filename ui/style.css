@@ -1509,3 +1509,14 @@ body[data-unlocked="true"] > .toast {
   border-radius: 8px;
   background: var(--raised);
 }
+
+.server-notice {
+  margin: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid #715262;
+  border-radius: 8px;
+  background: #302330;
+  color: #f1dce6;
+  font-size: 11px;
+  line-height: 1.5;
+}

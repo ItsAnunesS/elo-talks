@@ -27,6 +27,26 @@ This document distinguishes completed checks from outstanding acceptance criteri
 
 Do not mark these complete based on simulated interface tests. They require real desktop sessions, hardware, and accounts. Disabling sandboxing or installing dependencies does not satisfy clean-system acceptance.
 
+## Server metadata integration (2026-11-02)
+
+- Normal Rust suite: 62 passed, three ignored fixtures. New cases cover metadata
+  import/idempotence, local preservation, domain/user/org/workspace profile
+  namespaces, invalid snapshots, status token exclusion and locked commands.
+- The ignored HTTPS/PostgreSQL client fixture was executed explicitly and passed
+  against a real disposable service with a verified certificate and scoped member
+  access. It did not mount a real vault or open WhatsApp.
+- Complete Playwright UI regressions passed with the installed Chrome and sandbox
+  enabled, including domain sign-in, cleared password, organization selection and
+  a minimum-size settings capture, alongside the existing backup/notification/UI
+  workflows. Clippy passed with the existing vendored GLib warnings unchanged.
+- The backend's PostgreSQL API suite and real-browser panel workflow separately
+  verified roles, cross-organization denial, grants and revocation. They do not
+  certify native account process closure or real-system performance.
+
+See SERVER-SYNC.md for the supported one-way metadata scope, lease/recovery
+behavior, desktop bounds and remaining real-account/AppImage acceptance checks.
+No changes were made to the clipboard adapter or existing release-series offset.
+
 ## Encrypted backup validation (2026-11-02)
 
 - Rust suite: 59 passed, two ignored (host-FUSE fixtures). Snapshot tests cover

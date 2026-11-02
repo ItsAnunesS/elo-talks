@@ -19,7 +19,7 @@ pub struct Category {
     pub id: String,
     pub name: String,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
     pub id: String,
@@ -35,9 +35,11 @@ pub struct Placement {
     pub category_id: Option<String>,
     pub service: String,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Catalog {
     version: u32,
+    #[serde(default)]
+    pub server: Option<crate::server_sync::Connection>,
     #[serde(default)]
     last_account: Option<String>,
     pub accounts: Vec<Account>,
@@ -88,7 +90,7 @@ impl Catalog {
         if path.exists() {
             let catalog: Self = storage::read(&path)?;
             ensure!(
-                catalog.version == 1,
+                matches!(catalog.version, 1 | 2),
                 "Unsupported workspace catalog version"
             );
             return Ok(catalog);
@@ -115,6 +117,7 @@ impl Catalog {
             .collect();
         let catalog = Self {
             version: 1,
+            server: None,
             last_account: None,
             accounts,
             workspaces: vec![workspace],
@@ -141,7 +144,9 @@ impl Catalog {
         Ok(true)
     }
     pub fn save(&self, root: &Path) -> Result<()> {
-        storage::write(&root.join("catalog.json"), self)
+        let mut value = serde_json::to_value(self)?;
+        value["version"] = serde_json::json!(if self.server.is_some() { 2 } else { 1 });
+        storage::write(&root.join("catalog.json"), &value)
     }
     // Keep image payloads out of status replies to preserve the 64 KiB IPC bound.
     pub fn metadata(&self) -> Value {

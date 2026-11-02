@@ -2,7 +2,7 @@ use crate::{
     account_runtime::NotificationPreferences,
     backup,
     ipc::{receive_frame, send_frame, Request},
-    storage,
+    server_sync, storage,
     vault::Vault,
     workspaces::Catalog,
 };
@@ -33,6 +33,7 @@ pub struct Controller {
     retry_at: Instant,
     failures: u32,
     lock_error: Option<String>,
+    server: server_sync::Runtime,
     backup_job: Option<BackupJob>,
     backup_status: Value,
 }
@@ -53,6 +54,178 @@ fn required_text<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
 }
 
 impl Controller {
+    fn resume_after_server_change(&mut self) -> Result<()> {
+        if !crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed) {
+            self.lock()
+        } else {
+            self.spawn_ui()
+        }
+    }
+    fn poll_server(&mut self) -> Result<()> {
+        if self.vault.master.is_none()
+            || self.lock_error.is_some()
+            || !crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed)
+        {
+            self.server = server_sync::Runtime::default();
+            return Ok(());
+        }
+        if let Some(result) = self.server.take_result() {
+            match result {
+                Ok(mut outcome) => {
+                    let catalog = Catalog::load(&self.vault.mount)?;
+                    let old_visible = self.server.verified;
+                    let mut candidate = catalog.clone();
+                    let new_selection = catalog.server.as_ref().is_none_or(|old| {
+                        old.origin != outcome.connection.origin
+                            || old.organization_id != outcome.connection.organization_id
+                            || old.username != outcome.connection.username
+                    });
+                    if outcome.snapshot.is_some() || new_selection {
+                        if let Err(error) = server_sync::apply_snapshot(
+                            &mut candidate,
+                            &mut outcome.connection,
+                            outcome.snapshot.as_ref(),
+                        ) {
+                            self.server.status = json!({"phase":"error","error":error.to_string()});
+                            self.server.next_check = Instant::now() + Duration::from_secs(30);
+                            self.server.verified = false;
+                            if old_visible {
+                                self.stop_ui()?;
+                                self.resume_after_server_change()?;
+                            }
+                            return Ok(());
+                        }
+                    } else {
+                        candidate.server = Some(outcome.connection.clone());
+                    }
+                    let changed = serde_json::to_vec(&candidate.metadata())?
+                        != serde_json::to_vec(&catalog.metadata())?;
+                    if changed || !old_visible {
+                        self.stop_ui()?;
+                    }
+                    let needs_save = *Zeroizing::new(serde_json::to_vec(&candidate)?)
+                        != *Zeroizing::new(serde_json::to_vec(&catalog)?);
+                    if let Err(error) = if needs_save {
+                        candidate.save(&self.vault.mount)
+                    } else {
+                        Ok(())
+                    } {
+                        self.server.verified = false;
+                        if catalog
+                            .server
+                            .as_ref()
+                            .is_none_or(|old| old.token != outcome.connection.token)
+                        {
+                            server_sync::sign_out(outcome.connection.clone());
+                        }
+                        self.server.status = json!({"phase":"error","error":format!("Could not save synchronized workspaces: {error}")});
+                        self.server.next_check = Instant::now() + Duration::from_secs(30);
+                        if changed || !old_visible {
+                            self.resume_after_server_change()?;
+                        }
+                        return Ok(());
+                    }
+                    if let Some(old) = &catalog.server {
+                        if old.token != outcome.connection.token {
+                            server_sync::sign_out(old.clone());
+                        }
+                    }
+                    self.server.verified = true;
+                    self.server.etag = outcome.etag;
+                    self.server.status = json!({"phase":"connected","domain":outcome.connection.origin,"username":outcome.connection.username,"organizationId":outcome.connection.organization_id,"organizations":outcome.organizations});
+                    self.server.next_check = Instant::now() + Duration::from_secs(30);
+                    if changed || !old_visible {
+                        self.prune_deleted_profiles()?;
+                        self.resume_after_server_change()?;
+                    }
+                }
+                Err(error) => {
+                    let was_visible = self.server.verified;
+                    self.server.verified = false;
+                    self.server.etag = None;
+                    let mut status = self.server.status.clone();
+                    status["phase"] = json!("error");
+                    status["error"] = json!(error.to_string());
+                    self.server.status = status;
+                    self.server.next_check = Instant::now() + Duration::from_secs(30);
+                    if was_visible {
+                        self.stop_ui()?;
+                        self.resume_after_server_change()?;
+                    }
+                }
+            }
+        }
+        if self.server.receiver.is_none() && Instant::now() >= self.server.next_check {
+            let catalog = Catalog::load(&self.vault.mount)?;
+            if let Some(connection) = catalog.server.clone() {
+                if self.server.status["domain"].is_null() {
+                    self.server.status = json!({"phase":"checking","domain":connection.origin,"username":connection.username,"organizationId":connection.organization_id,"organizations":[]});
+                }
+                self.server.start(
+                    connection,
+                    if self.server.verified {
+                        self.server.etag.clone()
+                    } else {
+                        None
+                    },
+                )?;
+            } else {
+                self.server.next_check = Instant::now() + Duration::from_secs(30);
+            }
+        }
+        Ok(())
+    }
+    fn server_command(&mut self, operation: &str, data: &Value) -> Result<Value> {
+        ensure!(
+            self.vault.master.is_some() && self.lock_error.is_none(),
+            "Unlock the local vault first"
+        );
+        ensure!(
+            crate::session_monitor::SESSION_SAFE.load(Ordering::Relaxed),
+            "Unlock your Linux session before connecting"
+        );
+        if operation == "server.status" {
+            return Ok(self.server.status.clone());
+        }
+        ensure!(
+            self.server.receiver.is_none(),
+            "Wait for the current server operation to finish"
+        );
+        let mut catalog = Catalog::load(&self.vault.mount)?;
+        match operation {
+            "server.connect" => self.server.connect(data, catalog.server.as_ref())?,
+            "server.sync" | "server.select" => {
+                let mut connection = catalog.server.clone().context("Connect a server first")?;
+                if operation == "server.select" {
+                    let id = required_text(data, "organizationId")?;
+                    uuid::Uuid::parse_str(id)?;
+                    connection.organization_id = Some(id.into());
+                }
+                self.server.start(connection, None)?;
+            }
+            "server.disconnect" => {
+                ensure!(catalog.server.is_some(), "No server is connected");
+                self.stop_ui()?;
+                server_sync::remove_managed(&mut catalog);
+                let previous_connection = catalog.server.take();
+                if catalog.workspaces.is_empty() {
+                    catalog.apply("workspace.add", &json!({"name":"My workspace"}))?;
+                }
+                let saved = catalog.save(&self.vault.mount);
+                self.server = server_sync::Runtime::default();
+                if saved.is_ok() {
+                    if let Some(previous) = previous_connection {
+                        server_sync::sign_out(previous);
+                    }
+                    self.prune_deleted_profiles()?;
+                }
+                self.resume_after_server_change()?;
+                saved?;
+            }
+            _ => return Err(anyhow!("Unsupported server operation")),
+        }
+        Ok(self.server.status.clone())
+    }
     fn start_backup(&mut self, operation: &str, data: &Value) -> Result<Value> {
         ensure!(
             self.backup_job.is_none(),
@@ -232,6 +405,7 @@ impl Controller {
         Ok(())
     }
     fn lock(&mut self) -> Result<()> {
+        self.server = server_sync::Runtime::default();
         self.stop_ui()?;
         match self.vault.unmount() {
             Ok(()) => self.lock_error = None,
@@ -285,7 +459,14 @@ impl Controller {
             })
             .unwrap_or_default();
         let catalog = if self.vault.master.is_some() && self.lock_error.is_none() {
-            Some(Catalog::load(&self.vault.mount)?)
+            let mut catalog = Catalog::load(&self.vault.mount)?;
+            if !self.server.verified {
+                server_sync::remove_managed(&mut catalog);
+            }
+            if catalog.workspaces.is_empty() {
+                catalog.apply("workspace.add", &json!({"name":"My workspace"}))?;
+            }
+            Some(catalog)
         } else {
             None
         };
@@ -301,6 +482,8 @@ impl Controller {
             "idleMinutes": manifest.map(|vault| vault.idle_minutes).unwrap_or(0),
             "error": self.lock_error,
             "backup": self.backup_status,
+            "server": if self.vault.master.is_some() && self.lock_error.is_none() { self.server.status.clone() } else { json!({"phase":"locked"}) },
+            "managedWorkspaces": catalog.as_ref().and_then(|catalog| catalog.server.as_ref()).map(|server| server.managed_workspaces.clone()).unwrap_or_default(),
             "version": env!("CARGO_PKG_VERSION"),
         }))
     }
@@ -308,6 +491,8 @@ impl Controller {
     fn handle(&mut self, r: &Request) -> Result<Value> {
         let d = &r.data;
         match r.op.as_str() {
+            "server.status" | "server.connect" | "server.sync" | "server.select"
+            | "server.disconnect" => return self.server_command(&r.op, d),
             "backup.status" => return Ok(self.backup_status.clone()),
             "backup.export" | "backup.import" => return self.start_backup(&r.op, d),
             "status" => return self.status(),
@@ -376,6 +561,13 @@ impl Controller {
                     | "workspace.remove" | "category.add" | "category.rename"
                     | "category.remove" => {
                         let mut catalog = Catalog::load(&self.vault.mount)?;
+                        ensure!(!server_sync::managed_mutation(&catalog, &r.op, d), "Manage this server workspace in the server panel. Local edits are not permitted.");
+                        if r.op == "workspace.remove" {
+                            if let Some(server) = &catalog.server {
+                                ensure!(catalog.workspaces.iter().filter(|workspace| !server.managed_workspaces.contains(&workspace.id)).count() > 1,
+                                    "Keep one local workspace available while connected to a server");
+                            }
+                        }
                         catalog.apply(&r.op, d)?;
                         catalog.save(&self.vault.mount)?;
                         // Profile deletion still happens only after every worker exits.
@@ -486,6 +678,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
         retry_at: Instant::now(),
         failures: 0,
         lock_error: None,
+        server: server_sync::Runtime::default(),
         backup_job: None,
         backup_status: json!({"phase": "idle"}),
     };
@@ -503,6 +696,7 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
     crate::session_monitor::start(lock.clone(), shutdown.clone());
     c.spawn_launcher()?;
     loop {
+        c.poll_server()?;
         c.poll_backup()?;
         updater.poll();
         if installing && updater.status()["phase"] == "installed" {
@@ -703,6 +897,7 @@ mod tests {
             retry_at: Instant::now(),
             failures: 0,
             lock_error: None,
+            server: server_sync::Runtime::default(),
             backup_job: None,
             backup_status: json!({"phase": "running"}),
         };
@@ -764,10 +959,15 @@ mod tests {
             retry_at: Instant::now(),
             failures: 0,
             lock_error: None,
+            server: server_sync::Runtime::default(),
             backup_job: None,
             backup_status: json!({"phase": "idle"}),
         };
         for op in [
+            "server.connect",
+            "server.sync",
+            "server.select",
+            "server.disconnect",
             "workspace.add",
             "workspace.image",
             "workspace.update",
@@ -809,6 +1009,7 @@ mod tests {
             retry_at: Instant::now(),
             failures: 0,
             lock_error: None,
+            server: server_sync::Runtime::default(),
             backup_job: None,
             backup_status: json!({"phase": "idle"}),
         };
@@ -840,6 +1041,7 @@ mod tests {
             retry_at: Instant::now(),
             failures: 0,
             lock_error: None,
+            server: server_sync::Runtime::default(),
             backup_job: None,
             backup_status: json!({"phase": "idle"}),
         };
@@ -870,6 +1072,7 @@ mod tests {
             retry_at: Instant::now(),
             failures: 0,
             lock_error: None,
+            server: server_sync::Runtime::default(),
             backup_job: None,
             backup_status: json!({"phase": "idle"}),
         };

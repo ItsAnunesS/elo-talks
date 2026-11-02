@@ -1,8 +1,9 @@
-# Elo Talks 0.5 — Encrypted local backups
+# Elo Talks 0.5 — Local backups and server metadata
 
 This series adds portable local backups on Linux. It preserves the clipboard
 image-paste correction from commit `877741b` and the existing vault protections.
-It does not introduce a server or claim Windows/macOS support.
+The desktop can also connect to a separately deployed server for authorized
+metadata. It does not host WhatsApp sessions remotely or claim Windows/macOS support.
 
 ## Backup workflow
 
@@ -56,3 +57,12 @@ GitHub workflow run 51 was the latest observed run on 2026-11-02. The series is
 configured as `0.5.0` starting at run 52; later runs increment its patch version.
 Recheck the latest workflow number before publishing if other pushes intervene.
 No automated version-bump commits are added.
+
+## Server metadata integration
+
+The next 0.5.x push build adds HTTPS server sign-in and authorized organization,
+workspace, category and channel metadata. The local vault and backup remain
+independent; WhatsApp profiles are not uploaded or shared between PCs. Server
+structure is managed through the server's PostgreSQL-backed administration panel.
+See SERVER-SYNC.md for setup, role/access behavior and remaining native acceptance.
+The existing run-offset policy continues; no release-series reset is required.

@@ -14,6 +14,7 @@ mod desktop_notifications;
 mod ipc;
 mod launcher;
 mod notification_content;
+mod server_sync;
 mod session_monitor;
 mod storage;
 mod ui;
