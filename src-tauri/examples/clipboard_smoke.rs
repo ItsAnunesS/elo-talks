@@ -116,11 +116,13 @@ fn main() {
         };
         if !ready {
             let limit = if phase == 2 { 5 } else { 3 };
-            assert!(
-                changed.elapsed() < Duration::from_secs(limit),
-                "Clipboard assertion did not settle during {}",
-                STAGES[phase]
-            );
+            if changed.elapsed() >= Duration::from_secs(limit) {
+                // All content belongs to this synthetic document; never run this
+                // diagnostic against a live account or a user's clipboard.
+                let title: String = view.title().unwrap_or_default().chars().take(100).collect();
+                eprintln!("::error::Clipboard assertion during {}: title={title:?}, focused={}, visible={}, errors={:?}", STAGES[phase], view.has_focus(), view.is_visible(), errors.borrow());
+                std::process::exit(1);
+            }
             return glib::ControlFlow::Continue;
         }
         changed = Instant::now();

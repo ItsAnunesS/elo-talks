@@ -69,6 +69,10 @@ jobs:
           bash scripts/prepare-updater.sh
       - name: Version
         run: python3 scripts/set-version.py "$GITHUB_RUN_NUMBER"
+      - name: Build native regression fixtures
+        run: cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke --example clipboard_smoke
+      - name: Native clipboard regressions
+        run: bash scripts/test-native-layout.sh clipboard_smoke
       - name: Checks
         run: |
           cargo fmt --all --check
@@ -84,8 +88,6 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           bash scripts/test-ui.sh
-      - name: Build native regression fixtures
-        run: cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke --example clipboard_smoke
       - name: Native notification regressions
         run: dbus-run-session -- timeout 30s target/debug/examples/notifications_smoke
       - name: Native launcher regressions
@@ -95,8 +97,6 @@ jobs:
           done
       - name: Native layout regressions
         run: bash scripts/test-native-layout.sh
-      - name: Native clipboard regressions
-        run: bash scripts/test-native-layout.sh clipboard_smoke
       - name: Audit dependencies
         run: |
           # Only this locally corrected advisory is excepted; its source hash is tested above.
