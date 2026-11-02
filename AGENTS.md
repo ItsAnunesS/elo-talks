@@ -11,7 +11,8 @@ its restrained, premium appearance and straightforward workflows.
 - Apply KISS, DRY and SOLID pragmatically. Prefer small focused changes and existing
   abstractions over speculative frameworks or dependencies.
 - Prioritize security, reliable background accounts, performance and accessibility.
-- The 0.4 series focuses on security and reliability. Windows/macOS are a future
+- The 0.5.x series includes encrypted local backup and optional server metadata
+  synchronization. Windows/macOS are a future
   portability study; do not claim current support. Do not introduce RC releases
   unless the maintainer changes that preference.
 
@@ -27,7 +28,8 @@ its restrained, premium appearance and straightforward workflows.
 - `vendor/glib/`: documented security patch; preserve its regression checks.
 - `docs/SECURITY.md`: threat model and limitations.
 - `docs/VALIDATION.md`: acceptance evidence and outstanding native tests.
-- `docs/RELEASE-0.4.md`, `docs/REVIEW-0.4.md`: current work and review findings.
+- `docs/RELEASE-0.5.md`: current series and release scope.
+- `docs/SERVER-SYNC.md`: optional domain login and organization/workspace sync.
 
 Read the relevant implementation and documentation before changing a boundary.
 Inspect `git status` and preserve unrelated work, including diagnostic experiments.
@@ -55,6 +57,25 @@ Do not silently include all untracked files in a release commit.
 - Use bounded inputs, atomic persistence and explicit errors. Never overwrite valid
   state with data that the app cannot subsequently read.
 - Do not describe the app or dependencies as vulnerability-free or certified.
+
+## Optional self-hosted server
+
+- The backend is a separate Rust/PostgreSQL repository. Keep its release number
+  independent from this desktop's 0.5.x series.
+- Synchronize structure and permissions only. WhatsApp profiles, cookies, messages
+  and QR/session state stay in each computer's encrypted local vault. Never claim
+  that server login replaces linking WhatsApp on another device.
+- Use verified HTTPS, bounded responses and no redirects. Store API tokens only
+  in the encrypted catalog; never persist the login password or expose tokens in
+  UI/status metadata. A private CA must be explicitly trusted by the user.
+- Keep server-managed structure read-only in native commands as well as the UI.
+  Preserve local workspaces, namespaced profile IDs, selected organization on
+  re-login and atomic catalog writes. Revoke replaced/disconnected tokens best-effort.
+- Network work must not block lock/suspend monitoring. Hide managed views when
+  access cannot be verified; preserve profiles on network failure. Verified
+  removals stop account processes before pruning profiles.
+- Document polling delays and the limits of revocation; ACL changes cannot erase
+  copies already received or backed up. Keep catalog version compatibility explicit.
 
 ## Launcher and updates
 
@@ -140,7 +161,8 @@ suspend/resume or a real AppImage upgrade. Report those limits explicitly.
   force-push or alter published tags without authorization for that operation.
 - `release.json` and `scripts/release_version.py` define version numbering. Check
   the current workflow run number before changing the start of a release series.
-- CI sets build versions; do not add automated version-bump commits.
+- Desktop CI sets build versions; do not add automated version-bump commits here.
+  The separate backend intentionally generates version-only release commits.
 - Keep Actions pinned by SHA, least-privilege permissions, immutable releases and
   correct latest-version ordering. Preserve prior push builds rather than cancelling
   them. Do not add Dependabot or unrelated workflows without a new user request.
