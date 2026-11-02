@@ -30,9 +30,48 @@ fn stage(index: usize) {
     println!("Clipboard fixture: {}", STAGES[index]);
 }
 
+fn paste(key: &'static str) {
+    // Send real X11 events from a separate process. GTK's deprecated synchronous
+    // key helper can deadlock WebKit clipboard IPC while the main loop is busy.
+    // Search only this synthetic fixture's windows on its private Xvfb display.
+    std::thread::spawn(move || {
+        let result = std::process::Command::new("xdotool")
+            .args([
+                "search",
+                "--sync",
+                "--onlyvisible",
+                "--pid",
+                &std::process::id().to_string(),
+                "windowfocus",
+                "--sync",
+                "key",
+                "--clearmodifiers",
+                key,
+            ])
+            .status();
+        if !result.is_ok_and(|status| status.success()) {
+            eprintln!("::error::Could not send a synthetic clipboard shortcut with xdotool");
+            std::process::exit(1);
+        }
+    });
+}
+
+async fn settle(check: impl Fn() -> bool) {
+    for _ in 0..30 {
+        if check() {
+            return;
+        }
+        glib::timeout_future(Duration::from_millis(100)).await;
+    }
+    panic!(
+        "Clipboard assertion did not settle during {}",
+        STAGES[STAGE.load(Ordering::Relaxed)]
+    );
+}
+
 fn main() {
     std::thread::spawn(|| {
-        std::thread::sleep(Duration::from_secs(15));
+        std::thread::sleep(Duration::from_secs(25));
         eprintln!(
             "::error::Clipboard fixture stalled during {}",
             STAGES[STAGE.load(Ordering::Relaxed)]
@@ -72,19 +111,18 @@ fn main() {
         if native {
             view.execute_editing_command("Paste");
         } else {
-            #[allow(deprecated)]
-            gtk::test_widget_send_key(&view, *gtk::gdk::keys::constants::v, gtk::gdk::ModifierType::CONTROL_MASK);
+            paste("ctrl+v");
         }
-        glib::timeout_future(Duration::from_secs(1)).await;
         if native {
+            glib::timeout_future(Duration::from_secs(1)).await;
             println!("Native image paste: {:?}", view.title());
         } else {
+            settle(|| view.title().as_deref() == Some("image:image/png:true:1")).await;
             assert_eq!(view.title().as_deref(), Some("image:image/png:true:1"));
             stage(4);
             clipboard.set_text("Synthetic clipboard text");
-            #[allow(deprecated)]
-            gtk::test_widget_send_key(&view, *gtk::gdk::keys::constants::Insert, gtk::gdk::ModifierType::SHIFT_MASK);
-            glib::timeout_future(Duration::from_secs(1)).await;
+            paste("shift+Insert");
+            settle(|| view.title().as_deref() == Some("text:Synthetic clipboard text:2")).await;
             assert_eq!(view.title().as_deref(), Some("text:Synthetic clipboard text:2"));
             assert!(errors.borrow().is_empty());
             stage(5);
@@ -92,9 +130,8 @@ fn main() {
             assert!(clipboard.set_with_data(std::slice::from_ref(&target), |_, selection, _| {
                 selection.set(&gtk::gdk::Atom::intern("image/png"), 8, b"Invalid synthetic PNG");
             }));
-            #[allow(deprecated)]
-            gtk::test_widget_send_key(&view, *gtk::gdk::keys::constants::v, gtk::gdk::ModifierType::CONTROL_MASK);
-            glib::timeout_future(Duration::from_secs(1)).await;
+            paste("ctrl+v");
+            settle(|| errors.borrow().len() == 1).await;
             assert_eq!(errors.borrow().len(), 1, "Invalid images must report an error");
             assert_eq!(view.title().as_deref(), Some("text:Synthetic clipboard text:2"));
             stage(6);
@@ -103,9 +140,8 @@ fn main() {
                 hidden.hide();
                 selection.set(&gtk::gdk::Atom::intern("image/png"), 8, include_bytes!("../icons/32x32.png"));
             }));
-            #[allow(deprecated)]
-            gtk::test_widget_send_key(&view, *gtk::gdk::keys::constants::v, gtk::gdk::ModifierType::CONTROL_MASK);
-            glib::timeout_future(Duration::from_secs(1)).await;
+            paste("ctrl+v");
+            settle(|| !view.is_visible()).await;
             assert!(!view.is_visible());
             assert_eq!(view.title().as_deref(), Some("text:Synthetic clipboard text:2"), "Switching away must cancel an in-flight image paste");
             assert_eq!(errors.borrow().len(), 1);
@@ -115,8 +151,7 @@ fn main() {
             view.load_html("<div contenteditable id='editor'></div><script>editor.focus(); document.addEventListener('paste', e => {e.preventDefault(); document.title=String(e.isTrusted);});</script>", Some("https://untrusted.example/"));
             glib::timeout_future(Duration::from_secs(1)).await;
             clipboard.set_image(&image);
-            #[allow(deprecated)]
-            gtk::test_widget_send_key(&view, *gtk::gdk::keys::constants::v, gtk::gdk::ModifierType::CONTROL_MASK);
+            paste("ctrl+v");
             glib::timeout_future(Duration::from_secs(1)).await;
             assert_ne!(view.title().as_deref(), Some("false"));
             println!("PASS: PNG paste, text fallback, invalid image rejection, hidden-account cancellation and origin restriction");
