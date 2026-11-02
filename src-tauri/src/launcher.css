@@ -4,6 +4,7 @@
   color: #f1eff5;
   font-family: "Inter", "Cantarell", sans-serif;
   font-size: 14px;
+  border: 1px solid #35313f;
 }
 #elo-launcher .brand-name {
   font-size: 19px;
@@ -83,4 +84,16 @@
 #elo-launcher button:focus {
   outline: 2px solid #eee7ff;
   outline-offset: 3px;
+}
+#elo-launcher button.window-close {
+  min-width: 16px;
+  min-height: 16px;
+  padding: 6px;
+  border-color: transparent;
+  background-color: transparent;
+  color: #aaa6b4;
+}
+#elo-launcher button.window-close:hover {
+  color: #f1eff5;
+  background-color: #29272f;
 }

@@ -10,6 +10,42 @@ use std::{
 
 const BACKGROUND_CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
+// Only public, bounded error categories cross from the bundled helper into UI.
+fn helper_failure(result: &Value) -> Value {
+    let (code, message) = match result["errorCode"].as_str().unwrap_or("") {
+        "rate_limited" => (
+            "rate_limited",
+            "GitHub has temporarily limited update requests. Please wait before trying again.",
+        ),
+        "connection_failed" => (
+            "connection_failed",
+            "Could not connect to the update service. Check your internet connection.",
+        ),
+        "network_timeout" => (
+            "network_timeout",
+            "The update service took too long to respond. Please try again.",
+        ),
+        "service_unavailable" => (
+            "service_unavailable",
+            "The update service is temporarily unavailable. Please try again later.",
+        ),
+        "release_unavailable" => (
+            "release_unavailable",
+            "The release could not be retrieved. Please try again later.",
+        ),
+        "signature_invalid" => (
+            "signature_invalid",
+            "The update signature could not be verified. Installation was stopped.",
+        ),
+        _ => (
+            "verification_failed",
+            "The update could not be verified or installed. Please try again later.",
+        ),
+    };
+    json!({"phase":"error", "errorCode":code, "error":message,
+        "retryAfter":result["retryAfter"].as_u64().unwrap_or(0)})
+}
+
 pub struct Updater {
     target: Option<PathBuf>,
     helper: PathBuf,
@@ -231,7 +267,7 @@ impl Updater {
                 let _ = child.kill();
                 let _ = child.wait();
                 self.child = None;
-                self.state = json!({"phase":"error", "error":"Update timed out. You can continue using the app."});
+                self.state = json!({"phase":"error", "errorCode":"network_timeout", "error":"The update service took too long to respond. Please try again."});
             } else if let Ok(Some(status)) = child.try_wait() {
                 self.child = None;
                 let expected_version = self.state["version"].clone();
@@ -245,8 +281,7 @@ impl Updater {
                     self.state["version"] = expected_version;
                 }
                 if !status.success() {
-                    let retry = self.state["retryAfter"].as_u64().unwrap_or(0);
-                    self.state = json!({"phase":"error", "retryAfter":retry, "error":"The update could not be verified or installed. Try again later."});
+                    self.state = helper_failure(&self.state);
                 }
                 self.stage = self
                     .state
@@ -371,6 +406,18 @@ mod tests {
         updater.install_start_failed();
         assert_eq!(updater.status()["phase"], "error");
         assert!(updater.command("install").is_err());
+    }
+
+    #[test]
+    fn helper_failures_preserve_safe_categories_without_raw_diagnostics() {
+        let state = helper_failure(&json!({"errorCode":"rate_limited", "retryAfter":120,
+            "error":"private upstream URL and body"}));
+        assert_eq!(state["errorCode"], "rate_limited");
+        assert_eq!(state["retryAfter"], 120);
+        assert!(!state.to_string().contains("private upstream"));
+        let state = helper_failure(&json!({"errorCode":"unknown private diagnostic"}));
+        assert_eq!(state["errorCode"], "verification_failed");
+        assert!(!state.to_string().contains("private diagnostic"));
     }
 
     #[test]

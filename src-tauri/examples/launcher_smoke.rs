@@ -32,8 +32,10 @@ fn main() {
                 "update.status" => {
                     let phase = phase.lock().unwrap();
                     json!({
-                        "phase": if *phase == "cooldown" { "error" } else { phase.as_str() },
+                        "phase": if matches!(phase.as_str(), "cooldown" | "close") { "error" } else { phase.as_str() },
                         "canCheck": *phase != "cooldown",
+                        "error": "GitHub has temporarily limited update requests.",
+                        "retryInSeconds": if *phase == "cooldown" { 125 } else { 0 },
                         "progress": if *phase == "downloading" {
                             json!({"downloaded": 42, "total": 100})
                         } else {
@@ -98,16 +100,31 @@ fn main() {
             | "installing"
             | "checking"
             | "downloading"
+            | "close"
     ) {
         let action = match scenario.as_str() {
             "closure" => "Retry vault closure",
             "error" => "Try again",
+            "close" => "launcher-close",
             _ => "Quit",
         };
         let installing = scenario == "installing";
         gtk::glib::timeout_add_local_once(Duration::from_millis(1000), move || {
             fn click(widget: &gtk::Widget, action: &str, installing: bool) -> bool {
+                if let Some(window) = widget.downcast_ref::<gtk::Window>() {
+                    assert!(
+                        !window.is_decorated(),
+                        "The launcher must not have a native title bar"
+                    );
+                }
                 if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+                    if button.widget_name() == "launcher-close" {
+                        assert_eq!(button.is_sensitive(), !installing);
+                        if action == "launcher-close" {
+                            button.emit_clicked();
+                            return true;
+                        }
+                    }
                     assert_ne!(button.label().as_deref(), Some("Open current version"));
                     if button.label().as_deref() == Some(action) {
                         assert!(button.is_visible());
@@ -145,7 +162,7 @@ fn main() {
         match scenario.as_str() {
             "ready" => "update.install",
             "closure" => "launcher.recover",
-            "checking" | "downloading" | "cooldown" | "unsupported" => "quit",
+            "checking" | "downloading" | "cooldown" | "unsupported" | "close" => "quit",
             _ => "launcher.continue",
         }
     );

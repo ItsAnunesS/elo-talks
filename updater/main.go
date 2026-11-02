@@ -44,6 +44,7 @@ type Release struct {
 	Assets     []Asset `json:"assets"`
 }
 type Result struct {
+	ErrorCode  string `json:"errorCode,omitempty"`
 	RetryAfter uint64 `json:"retryAfter,omitempty"`
 	Phase      string `json:"phase"`
 	Version    string `json:"version,omitempty"`
@@ -143,23 +144,17 @@ func latest(current string) (*Release, error) {
 	if err != nil {
 		return nil, err
 	}
-	endpoint := "https://api.github.com/repos/ItsAnunesS/elo-talks/releases/latest"
 	candidate := installed[3] != ^uint64(0)
-	if candidate {
-		endpoint = "https://api.github.com/repos/ItsAnunesS/elo-talks/releases?per_page=30"
+	if !candidate {
+		return latestStable(current)
 	}
+	endpoint := "https://api.github.com/repos/ItsAnunesS/elo-talks/releases?per_page=30"
 	data, err := get(endpoint, 1024*1024)
 	if err != nil {
 		return nil, err
 	}
 	var releases []Release
-	if candidate {
-		err = json.Unmarshal(data, &releases)
-	} else {
-		var release Release
-		err = json.Unmarshal(data, &release)
-		releases = []Release{release}
-	}
+	err = json.Unmarshal(data, &releases)
 	if err != nil {
 		return nil, err
 	}
@@ -302,8 +297,9 @@ func prepare(current, target, expected string) (Result, error) {
 	if e != nil {
 		return Result{}, e
 	}
-	if a.Size <= 0 || a.Size > maxImage {
-		return Result{}, errors.New("invalid image size")
+	a.Size, e = imageSize(a)
+	if e != nil {
+		return Result{}, e
 	}
 	dir, e := os.MkdirTemp(filepath.Dir(target), ".elo-update-")
 	if e != nil {
@@ -329,7 +325,7 @@ func prepare(current, target, expected string) (Result, error) {
 		}
 	}
 	if e = authenticate(dir); e != nil {
-		return Result{}, errors.New("release signature could not be verified")
+		return Result{}, errSignature
 	}
 	manifest, _ := os.ReadFile(filepath.Join(dir, "SHA256SUMS"))
 	want, e := digest(manifest, name)
@@ -402,7 +398,7 @@ func install(current, target, dir string) error {
 		return errors.New("invalid staged version")
 	}
 	if e = authenticate(dir); e != nil {
-		return errors.New("release signature could not be verified")
+		return errSignature
 	}
 	manifest, _ := os.ReadFile(filepath.Join(dir, "SHA256SUMS"))
 	want, e := digest(manifest, staged.Asset)

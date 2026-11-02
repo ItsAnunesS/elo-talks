@@ -1,7 +1,7 @@
 //! Local GTK bootstrap: no WebKit, vault credentials or account profiles.
 use crate::ipc::{rpc, Request};
 use anyhow::Result;
-use gtk::{glib, prelude::*};
+use gtk::{atk::prelude::*, glib, prelude::*};
 use serde_json::{json, Value};
 use std::{
     cell::Cell,
@@ -49,8 +49,9 @@ fn display(status: &Value) -> Display {
         "ready" => "Update verified. Preparing installation…",
         "installing" => "Installing the verified update. Please wait…",
         "installed" => "Starting the updated Elo Talks…",
-        "error" if status["canCheck"] == false => "The update could not finish. Please wait before trying again, or close Elo Talks and reopen it later.",
-        "error" => "An update check is required before opening Elo Talks. Check your connection and try again.",
+        "error" => status["error"]
+            .as_str()
+            .unwrap_or("Could not check for updates. Check your connection and try again."),
         "unsupported" => "Open the installed Elo Talks AppImage to check for required updates.",
         _ => "Preparing Elo Talks…",
     };
@@ -68,9 +69,21 @@ fn display(status: &Value) -> Display {
         "unsupported" => "AppImage required",
         _ => "Welcome back",
     };
+    let text = if phase == "error" && status["canCheck"] == false {
+        match status["retryInSeconds"].as_u64().filter(|wait| *wait > 0) {
+            Some(wait) => format!(
+                "{text}\n\nYou can try again in {}m {:02}s.",
+                wait / 60,
+                wait % 60
+            ),
+            None => text.into(),
+        }
+    } else {
+        text.into()
+    };
     Display {
         title,
-        text: text.into(),
+        text,
         attention: matches!(phase, "error" | "unsupported"),
         installing: matches!(phase, "installing" | "installed"),
         recovery: false,
@@ -88,6 +101,7 @@ pub fn run(runtime: PathBuf) -> Result<()> {
     gtk::init()?;
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_title("Elo Talks — Starting");
+    window.set_decorated(false);
     window.set_default_size(500, 400);
     window.set_size_request(460, 380);
     window.set_resizable(true);
@@ -124,6 +138,32 @@ pub fn run(runtime: PathBuf) -> Result<()> {
     identity.pack_start(&subtitle, false, false, 0);
     brand.pack_start(&mark, false, false, 0);
     brand.pack_start(&identity, true, true, 0);
+    let close = gtk::Button::new();
+    close.set_image(Some(&gtk::Image::from_icon_name(
+        Some("window-close-symbolic"),
+        gtk::IconSize::Button,
+    )));
+    close.set_tooltip_text(Some("Close Elo Talks"));
+    close.set_widget_name("launcher-close");
+    if let Some(accessible) = close.accessible() {
+        accessible.set_name("Close Elo Talks");
+    }
+    close.style_context().add_class("window-close");
+    close.set_valign(gtk::Align::Start);
+    brand.pack_end(&close, false, false, 0);
+    let drag = gtk::EventBox::new();
+    drag.set_visible_window(false);
+    drag.add(&brand);
+    let parent = window.downgrade();
+    drag.connect_button_press_event(move |_, event| {
+        if event.button() == 1 {
+            if let Some(window) = parent.upgrade() {
+                let (x, y) = event.root();
+                window.begin_move_drag(1, x as i32, y as i32, event.time());
+            }
+        }
+        glib::Propagation::Proceed
+    });
 
     let card = gtk::Box::new(gtk::Orientation::Vertical, 14);
     card.style_context().add_class("status-card");
@@ -162,12 +202,18 @@ pub fn run(runtime: PathBuf) -> Result<()> {
     actions.pack_start(&retry, true, true, 0);
     footer.pack_start(&note, false, false, 0);
     footer.pack_start(&actions, false, false, 0);
-    layout.pack_start(&brand, false, false, 0);
+    layout.pack_start(&drag, false, false, 0);
     layout.pack_start(&card, true, true, 0);
     layout.pack_start(&footer, false, false, 0);
     window.add(&layout);
     let (commands, input) = mpsc::channel();
     let (output, updates) = mpsc::channel();
+    let parent = window.downgrade();
+    close.connect_clicked(move |_| {
+        if let Some(window) = parent.upgrade() {
+            window.close(); // Uses the same guarded close path as Alt+F4.
+        }
+    });
     let tx = commands.clone();
     open.connect_clicked(move |button| {
         button.set_sensitive(false);
@@ -278,6 +324,7 @@ pub fn run(runtime: PathBuf) -> Result<()> {
                 "Updates are verified before installation."
             });
             quit.set_sensitive(!state.installing);
+            close.set_sensitive(!state.installing);
             open.set_visible(state.recovery);
             open.set_sensitive(state.recovery);
             retry.set_sensitive(state.retry);
@@ -323,5 +370,12 @@ mod tests {
             display(&json!({"phase":"downloading", "progress":{"downloaded":200,"total":100}}));
         assert_eq!(state.fraction, Some(1.0));
         assert!(!display(&json!({"phase":"error", "canCheck":false})).retry);
+        let waiting = display(&json!({"phase":"error", "canCheck":false,
+            "error":"GitHub has temporarily limited update requests.", "retryInSeconds":125}));
+        assert!(waiting.text.contains("GitHub has temporarily limited"));
+        assert!(waiting.text.contains("2m 05s"));
+        let retry = display(&json!({"phase":"error", "canCheck":true, "retryInSeconds":0}));
+        assert!(retry.retry);
+        assert!(!retry.text.contains("You can try again in"));
     }
 }

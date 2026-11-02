@@ -1,11 +1,30 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestFailureCategoriesDoNotExposeRemoteDetails(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+	}{
+		{fmt.Errorf("wrapped: %w", errSignature), "signature_invalid"},
+		{&url.Error{Op: "Get", URL: "https://private.example/secret", Err: fmt.Errorf("private response")}, "connection_failed"},
+		{&url.Error{Op: "Get", URL: "https://private.example/secret", Err: context.DeadlineExceeded}, "network_timeout"},
+	} {
+		result := failureResult(tc.err)
+		if result.ErrorCode != tc.code || strings.Contains(result.Error, "private") || strings.Contains(result.Error, "https://") {
+			t.Fatalf("unsafe or incorrect failure: %+v", result)
+		}
+	}
+}
 
 func TestRetryHeaders(t *testing.T) {
 	now := time.Unix(1800000000, 0)

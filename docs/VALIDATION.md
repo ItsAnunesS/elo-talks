@@ -9,6 +9,34 @@ This document distinguishes completed checks from outstanding acceptance criteri
 - Separate FUSE test: initialization, encrypted content, unmount, incorrect password, and restored content.
 - CI: formatting, Clippy, tests, audit, and packaging before publication.
 
+## Launcher and update discovery (2026-11-02)
+
+- Reproduced GitHub REST `403` with an exhausted anonymous rate limit. Stable
+  checks now resolve the official public `/releases/latest` redirect with HEAD,
+  validate the repository/stable tag and construct canonical asset URLs. RC
+  discovery retains its existing opt-in REST channel. No GitHub token is needed.
+- Image size remains mandatory and bounded, using asset HEAD metadata when REST
+  metadata is absent. Staging/install still authenticate the checksum signature,
+  enforce the expected GitHub workflow identity and verify the image digest.
+- The built helper discovered the live stable 0.4.8 release, reported it current
+  when already installed, then downloaded and authenticated it into a synthetic
+  staging directory. The synthetic installed file remained byte-for-byte intact;
+  installation/restart of the real desktop app was not attempted.
+- Full Go tests passed with real Sigstore TUF access, including modified-manifest
+  rejection, public discovery, wrong origins/tags, HTTP failures and image bounds.
+- Rust suite: 63 passed, three ignored; Clippy passed with unchanged vendored GLib
+  warnings. Safe error categories retain server retry deadlines without displaying
+  upstream response bodies/URLs. The launcher shows the reason and retry countdown.
+- Real GTK/Xvfb launcher scenarios passed for current, ready, retry, installing,
+  closure recovery, cooldown and custom close. The undecorated window has an
+  accessible integrated close button, guarded during installation, and a draggable
+  brand area. Screens at 500×400 and 460×380 were visually inspected.
+- Native CI stages are reported separately, with fixture/scale annotations on
+  failure, so a timeout identifies the exact fixture rather than one combined step.
+
+Installed AppImage upgrades and GNOME/Wayland drag/close acceptance remain manual.
+These tests used public release data and isolated synthetic windows only.
+
 ## Required manual acceptance
 
 | Scenario | Clean Fedora 44 | Clean Ubuntu 24.04 |
