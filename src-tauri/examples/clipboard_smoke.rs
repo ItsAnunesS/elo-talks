@@ -108,7 +108,7 @@ fn main() {
     window.present();
     stage(2);
     view.load_html(
-        "<div contenteditable id='editor' style='min-height:48px'>Synthetic editor</div><script>editor.focus(); let count=0; document.addEventListener('paste', async e => { e.preventDefault(); count++; document.title='paste-received:' + count; try { const file=e.clipboardData.files[0]; document.title = file ? 'image:' + file.type + ':' + ((bytes) => bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80)(new Uint8Array(await file.arrayBuffer())) + ':' + count : 'text:' + e.clipboardData.getData('text/plain') + ':' + count; } catch (error) {document.title='paste-error:' + error.name;} }); document.title='ready';</script>",
+        "<div contenteditable id='editor' style='min-height:48px'>Synthetic editor</div><script>editor.focus(); let count=0; let keys=0; const report=()=>{if(count===0)document.title='ready|trusted:'+(location.origin==='https://web.whatsapp.com')+'|focus:'+document.hasFocus()+'|editable:'+!!document.activeElement?.isContentEditable+'|keys:'+keys;}; document.addEventListener('keydown',()=>{keys++;report();}); document.addEventListener('focusin',report); window.addEventListener('focus',report); document.addEventListener('click',report); document.addEventListener('paste', async e => { e.preventDefault(); count++; document.title='paste-received:' + count; try { const file=e.clipboardData.files[0]; document.title = file ? 'image:' + file.type + ':' + ((bytes) => bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80)(new Uint8Array(await file.arrayBuffer())) + ':' + count : 'text:' + e.clipboardData.getData('text/plain') + ':' + count; } catch (error) {document.title='paste-error:' + error.name;} }); report();</script>",
         Some("https://web.whatsapp.com/"),
     );
     let mut changed = Instant::now();
@@ -118,7 +118,9 @@ fn main() {
     glib::timeout_add_local(Duration::from_millis(100), move || {
         let phase = STAGE.load(Ordering::Relaxed);
         let ready = match phase {
-            2 => view.title().as_deref() == Some("ready"),
+            2 => view
+                .title()
+                .is_some_and(|title| title.starts_with("ready|")),
             3 if native => changed.elapsed() >= Duration::from_secs(1),
             3 => view.title().as_deref() == Some("image:image/png:true:1"),
             4 => view.title().as_deref() == Some("text:Synthetic clipboard text:2"),
@@ -134,7 +136,11 @@ fn main() {
                 // All content belongs to this synthetic document; never run this
                 // diagnostic against a live account or a user's clipboard.
                 let title: String = view.title().unwrap_or_default().chars().take(100).collect();
-                eprintln!("::error::Clipboard assertion during {}: title={title:?}, focused={}, visible={}, keys={}, errors={:?}", STAGES[phase], view.has_focus(), view.is_visible(), key_events.get(), errors.borrow());
+                let native_origin = view
+                    .uri()
+                    .and_then(|uri| tauri::Url::parse(&uri).ok())
+                    .is_some_and(|uri| whatsapp::is_origin(&uri));
+                eprintln!("::error::Clipboard assertion during {}: title={title:?}, native_origin={native_origin}, focused={}, visible={}, keys={}, errors={:?}", STAGES[phase], view.has_focus(), view.is_visible(), key_events.get(), errors.borrow());
                 std::process::exit(1);
             }
             return glib::ControlFlow::Continue;
