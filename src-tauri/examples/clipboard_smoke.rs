@@ -6,7 +6,7 @@ mod account_clipboard;
 mod whatsapp;
 use gtk::{glib, prelude::*};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
@@ -47,6 +47,13 @@ fn paste(key: &'static str) {
                 ".",
                 "windowfocus",
                 "--sync",
+                "mousemove",
+                "--window",
+                "%1",
+                "20",
+                "22",
+                "click",
+                "1",
                 "key",
                 "--clearmodifiers",
                 key,
@@ -74,6 +81,12 @@ fn main() {
     context.set_sandbox_enabled(true);
     assert!(context.is_sandbox_enabled());
     let view = webkit2gtk::WebView::with_context(&context);
+    let key_events = Rc::new(Cell::new(0usize));
+    let observed_keys = key_events.clone();
+    view.connect_key_press_event(move |_, _| {
+        observed_keys.set(observed_keys.get() + 1);
+        glib::Propagation::Proceed
+    });
     let native = std::env::args().any(|argument| argument == "--native");
     let errors = Rc::new(RefCell::new(Vec::new()));
     if !native {
@@ -89,12 +102,13 @@ fn main() {
     let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_title("Elo Talks — Clipboard fixture");
+    window.set_default_size(480, 320);
     window.add(&view);
     window.show_all();
     window.present();
     stage(2);
     view.load_html(
-        "<div contenteditable id='editor'>Synthetic editor</div><script>editor.focus(); let count=0; document.addEventListener('paste', async e => { e.preventDefault(); count++; const file=e.clipboardData.files[0]; document.title = file ? 'image:' + file.type + ':' + ((bytes) => bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80)(new Uint8Array(await file.arrayBuffer())) + ':' + count : 'text:' + e.clipboardData.getData('text/plain') + ':' + count; }); document.title='ready';</script>",
+        "<div contenteditable id='editor' style='min-height:48px'>Synthetic editor</div><script>editor.focus(); let count=0; document.addEventListener('paste', async e => { e.preventDefault(); count++; document.title='paste-received:' + count; try { const file=e.clipboardData.files[0]; document.title = file ? 'image:' + file.type + ':' + ((bytes) => bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80)(new Uint8Array(await file.arrayBuffer())) + ':' + count : 'text:' + e.clipboardData.getData('text/plain') + ':' + count; } catch (error) {document.title='paste-error:' + error.name;} }); document.title='ready';</script>",
         Some("https://web.whatsapp.com/"),
     );
     let mut changed = Instant::now();
@@ -120,7 +134,7 @@ fn main() {
                 // All content belongs to this synthetic document; never run this
                 // diagnostic against a live account or a user's clipboard.
                 let title: String = view.title().unwrap_or_default().chars().take(100).collect();
-                eprintln!("::error::Clipboard assertion during {}: title={title:?}, focused={}, visible={}, errors={:?}", STAGES[phase], view.has_focus(), view.is_visible(), errors.borrow());
+                eprintln!("::error::Clipboard assertion during {}: title={title:?}, focused={}, visible={}, keys={}, errors={:?}", STAGES[phase], view.has_focus(), view.is_visible(), key_events.get(), errors.borrow());
                 std::process::exit(1);
             }
             return glib::ControlFlow::Continue;
@@ -198,7 +212,7 @@ fn main() {
                 stage(7);
                 view.show();
                 view.grab_focus();
-                view.load_html("<div contenteditable id='editor'></div><script>editor.focus(); document.addEventListener('paste', e => {e.preventDefault(); document.title=String(e.isTrusted);}); document.title='untrusted-ready';</script>", Some("https://untrusted.example/"));
+                view.load_html("<div contenteditable id='editor' style='min-height:48px'></div><script>editor.focus(); document.addEventListener('paste', e => {e.preventDefault(); document.title=String(e.isTrusted);}); document.title='untrusted-ready';</script>", Some("https://untrusted.example/"));
             }
             7 if !untrusted_paste => {
                 untrusted_paste = true;
