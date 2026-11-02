@@ -9,7 +9,7 @@ use std::{
     cell::RefCell,
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use webkit2gtk::{WebContextExt, WebViewExt};
 
@@ -59,19 +59,6 @@ fn paste(key: &'static str) {
     });
 }
 
-async fn settle(check: impl Fn() -> bool) {
-    for _ in 0..30 {
-        if check() {
-            return;
-        }
-        glib::timeout_future(Duration::from_millis(100)).await;
-    }
-    panic!(
-        "Clipboard assertion did not settle during {}",
-        STAGES[STAGE.load(Ordering::Relaxed)]
-    );
-}
-
 fn main() {
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_secs(25));
@@ -95,72 +82,139 @@ fn main() {
             errors.borrow_mut().push(error.to_owned())
         });
     }
+    let image = gtk::gdk_pixbuf::Pixbuf::from_read(std::io::Cursor::new(include_bytes!(
+        "../icons/32x32.png"
+    )))
+    .unwrap();
+    let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
+    window.set_title("Elo Talks — Clipboard fixture");
     window.add(&view);
     window.show_all();
     window.present();
     stage(2);
     view.load_html(
-        "<div contenteditable id='editor'>Synthetic editor</div><script>editor.focus(); let count=0; document.addEventListener('paste', async e => { e.preventDefault(); count++; const file=e.clipboardData.files[0]; document.title = file ? 'image:' + file.type + ':' + ((bytes) => bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80)(new Uint8Array(await file.arrayBuffer())) + ':' + count : 'text:' + e.clipboardData.getData('text/plain') + ':' + count; });</script>",
+        "<div contenteditable id='editor'>Synthetic editor</div><script>editor.focus(); let count=0; document.addEventListener('paste', async e => { e.preventDefault(); count++; const file=e.clipboardData.files[0]; document.title = file ? 'image:' + file.type + ':' + ((bytes) => bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80)(new Uint8Array(await file.arrayBuffer())) + ':' + count : 'text:' + e.clipboardData.getData('text/plain') + ':' + count; }); document.title='ready';</script>",
         Some("https://web.whatsapp.com/"),
     );
-    glib::MainContext::default().spawn_local(async move {
-        glib::timeout_future(Duration::from_secs(2)).await;
-        view.grab_focus();
-        let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
-        let image = gtk::gdk_pixbuf::Pixbuf::from_read(std::io::Cursor::new(include_bytes!("../icons/32x32.png"))).unwrap();
-        stage(3);
-        clipboard.set_image(&image);
-        if native {
-            view.execute_editing_command("Paste");
-        } else {
-            paste("ctrl+v");
+    let mut changed = Instant::now();
+    let mut untrusted_paste = false;
+    // Clipboard ownership can invoke nested GTK dispatch. Regular timeout sources
+    // are non-reentrant; do not perform these operations inside a polled future.
+    glib::timeout_add_local(Duration::from_millis(100), move || {
+        let phase = STAGE.load(Ordering::Relaxed);
+        let ready = match phase {
+            2 => view.title().as_deref() == Some("ready"),
+            3 if native => changed.elapsed() >= Duration::from_secs(1),
+            3 => view.title().as_deref() == Some("image:image/png:true:1"),
+            4 => view.title().as_deref() == Some("text:Synthetic clipboard text:2"),
+            5 => !errors.borrow().is_empty(),
+            6 => !view.is_visible(),
+            7 if untrusted_paste => changed.elapsed() >= Duration::from_secs(1),
+            7 => view.title().as_deref() == Some("untrusted-ready"),
+            _ => unreachable!(),
+        };
+        if !ready {
+            let limit = if phase == 2 { 5 } else { 3 };
+            assert!(
+                changed.elapsed() < Duration::from_secs(limit),
+                "Clipboard assertion did not settle during {}",
+                STAGES[phase]
+            );
+            return glib::ControlFlow::Continue;
         }
-        if native {
-            glib::timeout_future(Duration::from_secs(1)).await;
-            println!("Native image paste: {:?}", view.title());
-        } else {
-            settle(|| view.title().as_deref() == Some("image:image/png:true:1")).await;
-            assert_eq!(view.title().as_deref(), Some("image:image/png:true:1"));
-            stage(4);
-            clipboard.set_text("Synthetic clipboard text");
-            paste("shift+Insert");
-            settle(|| view.title().as_deref() == Some("text:Synthetic clipboard text:2")).await;
-            assert_eq!(view.title().as_deref(), Some("text:Synthetic clipboard text:2"));
-            assert!(errors.borrow().is_empty());
-            stage(5);
-            let target = gtk::TargetEntry::new("image/png", gtk::TargetFlags::empty(), 0);
-            assert!(clipboard.set_with_data(std::slice::from_ref(&target), |_, selection, _| {
-                selection.set(&gtk::gdk::Atom::intern("image/png"), 8, b"Invalid synthetic PNG");
-            }));
-            paste("ctrl+v");
-            settle(|| errors.borrow().len() == 1).await;
-            assert_eq!(errors.borrow().len(), 1, "Invalid images must report an error");
-            assert_eq!(view.title().as_deref(), Some("text:Synthetic clipboard text:2"));
-            stage(6);
-            let hidden = view.clone();
-            assert!(clipboard.set_with_data(&[target], move |_, selection, _| {
-                hidden.hide();
-                selection.set(&gtk::gdk::Atom::intern("image/png"), 8, include_bytes!("../icons/32x32.png"));
-            }));
-            paste("ctrl+v");
-            settle(|| !view.is_visible()).await;
-            assert!(!view.is_visible());
-            assert_eq!(view.title().as_deref(), Some("text:Synthetic clipboard text:2"), "Switching away must cancel an in-flight image paste");
-            assert_eq!(errors.borrow().len(), 1);
-            view.show();
-            view.grab_focus();
-            stage(7);
-            view.load_html("<div contenteditable id='editor'></div><script>editor.focus(); document.addEventListener('paste', e => {e.preventDefault(); document.title=String(e.isTrusted);});</script>", Some("https://untrusted.example/"));
-            glib::timeout_future(Duration::from_secs(1)).await;
-            clipboard.set_image(&image);
-            paste("ctrl+v");
-            glib::timeout_future(Duration::from_secs(1)).await;
-            assert_ne!(view.title().as_deref(), Some("false"));
-            println!("PASS: PNG paste, text fallback, invalid image rejection, hidden-account cancellation and origin restriction");
+        changed = Instant::now();
+        match phase {
+            2 => {
+                view.grab_focus();
+                stage(3);
+                clipboard.set_image(&image);
+                if native {
+                    view.execute_editing_command("Paste");
+                } else {
+                    paste("ctrl+v");
+                }
+            }
+            3 if native => {
+                println!("Native image paste: {:?}", view.title());
+                std::process::exit(0);
+            }
+            3 => {
+                assert_eq!(view.title().as_deref(), Some("image:image/png:true:1"));
+                stage(4);
+                clipboard.set_text("Synthetic clipboard text");
+                paste("shift+Insert");
+            }
+            4 => {
+                assert_eq!(
+                    view.title().as_deref(),
+                    Some("text:Synthetic clipboard text:2")
+                );
+                assert!(errors.borrow().is_empty());
+                stage(5);
+                let target = gtk::TargetEntry::new("image/png", gtk::TargetFlags::empty(), 0);
+                assert!(clipboard.set_with_data(&[target], |_, selection, _| {
+                    selection.set(
+                        &gtk::gdk::Atom::intern("image/png"),
+                        8,
+                        b"Invalid synthetic PNG",
+                    );
+                }));
+                paste("ctrl+v");
+            }
+            5 => {
+                assert_eq!(
+                    errors.borrow().len(),
+                    1,
+                    "Invalid images must report an error"
+                );
+                assert_eq!(
+                    view.title().as_deref(),
+                    Some("text:Synthetic clipboard text:2")
+                );
+                stage(6);
+                let hidden = view.clone();
+                let target = gtk::TargetEntry::new("image/png", gtk::TargetFlags::empty(), 0);
+                assert!(clipboard.set_with_data(&[target], move |_, selection, _| {
+                    hidden.hide();
+                    selection.set(
+                        &gtk::gdk::Atom::intern("image/png"),
+                        8,
+                        include_bytes!("../icons/32x32.png"),
+                    );
+                }));
+                paste("ctrl+v");
+            }
+            6 => {
+                assert!(!view.is_visible());
+                assert_eq!(
+                    view.title().as_deref(),
+                    Some("text:Synthetic clipboard text:2"),
+                    "Switching away must cancel an in-flight image paste"
+                );
+                assert_eq!(errors.borrow().len(), 1);
+                stage(7);
+                view.show();
+                view.grab_focus();
+                view.load_html("<div contenteditable id='editor'></div><script>editor.focus(); document.addEventListener('paste', e => {e.preventDefault(); document.title=String(e.isTrusted);}); document.title='untrusted-ready';</script>", Some("https://untrusted.example/"));
+            }
+            7 if !untrusted_paste => {
+                untrusted_paste = true;
+                clipboard.set_image(&image);
+                paste("ctrl+v");
+            }
+            7 => {
+                assert_ne!(view.title().as_deref(), Some("false"));
+                assert_eq!(errors.borrow().len(), 1);
+                stage(8);
+                println!("PASS: PNG paste, text fallback, invalid image rejection, hidden-account cancellation and origin restriction");
+                // This standalone fixture tests paste, not WebKit teardown. Match
+                // layout_smoke: exit only after every behavioral assertion passed.
+                std::process::exit(0);
+            }
+            _ => unreachable!(),
         }
-        stage(8);
-        gtk::main_quit();
+        glib::ControlFlow::Continue
     });
     gtk::main();
 }
