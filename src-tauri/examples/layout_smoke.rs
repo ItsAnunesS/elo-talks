@@ -80,6 +80,7 @@ fn main() {
             std::thread::spawn(move || {
                 let [first,second] = accounts.as_slice() else { unreachable!() };
                 let (activity,_receiver) = mpsc::sync_channel(1);
+                eprintln!("STAGE: attach account adapters");
                 for (view,id) in [(first,"one"),(second,"two")] {
                     let html = format!("{HTML}<script>const bytes=Uint8Array.from(atob('{}'),c=>c.charCodeAt(0));const own=document.createElement('button');own.title='You';own.style.cssText='position:fixed;left:16px;bottom:16px;width:48px;height:48px';const image=document.createElement('img');image.style.cssText='width:32px;height:32px';image.src=URL.createObjectURL(new Blob([bytes],{{type:'image/png'}}));own.append(image);document.body.append(own);</script>",gtk::glib::base64_encode(include_bytes!("../icons/32x32.png")));
                     let html = if id == "two" {
@@ -90,15 +91,19 @@ fn main() {
                     account_events::attach(view,&app,id,activity.clone()).unwrap();
                     fixture::wait_for(|| fixture::evaluate(view,"location.origin") == "https://web.whatsapp.com");
                 }
+                eprintln!("STAGE: account readiness");
                 fixture::wait_for(|| app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.values().all(|state| state.readiness == account_runtime::Readiness::Chats));
+                eprintln!("STAGE: account avatars");
                 fixture::wait_for(|| account_avatar::current(&app,"one").is_some() && account_avatar::current(&app,"two").is_some());
                 assert_eq!(fixture::evaluate(second,"window.canvasBlocked"), true);
                 assert!(!app.state::<account_events::AccountEvents>().runtime.lock().unwrap().diagnostics().to_string().contains("base64"));
                 assert_eq!(fixture::evaluate(first,"localStorage.setItem('isolation','one');document.cookie='isolation=one';true"),true);
                 assert_eq!(fixture::evaluate(second,"localStorage.getItem('isolation') === null && !document.cookie.includes('isolation=one')"),true);
+                eprintln!("STAGE: switch native views");
                 ui_layout::set_account_visible(first,true).unwrap();
                 ui_layout::set_account_visible(first,false).unwrap();
                 ui_layout::set_account_visible(second,true).unwrap();
+                eprintln!("STAGE: resize native views");
                 for (width,height) in [(900.,640.),(1400.,900.),(1200.,800.)] {
                     window.set_size(LogicalSize::new(width,height)).unwrap();
                     fixture::wait_for(|| {
@@ -110,21 +115,25 @@ fn main() {
                     assert_eq!(second.position().unwrap().to_logical::<f64>(scale),LogicalPosition::new(304.,108.));
                     assert_eq!(shell.size().unwrap(),window.inner_size().unwrap());
                 }
+                eprintln!("STAGE: hidden notification");
                 window.hide().unwrap();
                 fixture::evaluate(first,"new Notification('Synthetic sender',{body:'Synthetic body'});true");
                 fixture::wait_for(|| app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["one"].native_notifications == 1);
                 assert_eq!(fixture::evaluate(first,"getComputedStyle(document.body).getPropertyValue('--panel-header-background').trim()"),"#1a1a1e");
+                eprintln!("STAGE: fullscreen rejection");
                 window.show().unwrap(); second.set_focus().unwrap();
                 let id = tauri_runtime_cef::allocate_devtools_message_id().unwrap();
                 second.send_dev_tools_message(serde_json::json!({"id":id,"method":"Runtime.evaluate","params":{"expression":"document.documentElement.requestFullscreen().catch(()=>{})","userGesture":true}}).to_string().as_bytes()).unwrap();
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 assert!(!window.is_fullscreen().unwrap());
                 assert_eq!(fixture::evaluate(second,"!!document.fullscreenElement"),false);
+                eprintln!("STAGE: cross-origin capability rejection");
                 second.navigate("https://untrusted.example/".parse().unwrap()).unwrap();
                 fixture::wait_for(|| fixture::evaluate(second,"location.origin") == "https://untrusted.example");
                 assert_eq!(fixture::evaluate(second,"!!Notification.__elo"),false);
                 fixture::evaluate(second,"window.nativeDenied=false;window.__TAURI__.core.invoke('plugin:window|destroy',{label:'layout-test'}).catch(()=>window.nativeDenied=true);true");
                 fixture::wait_for(|| fixture::evaluate(second,"window.nativeDenied") == true);
+                eprintln!("STAGE: clean shutdown");
                 completed.store(true,Ordering::SeqCst);
                 app.exit(0);
             });

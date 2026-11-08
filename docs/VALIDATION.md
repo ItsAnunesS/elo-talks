@@ -51,11 +51,21 @@ scales with fake devices: allow, deny, per-device/account isolation, revoke,
 ask again, and rejection of stale/cross-origin requests. The production shell
 rejects remote access to both permission commands. Browser settings tests cover
 revocation, reset, and persistence errors; all 70 ordinary Rust tests and Clippy
-passed. The new candidate still requires real calls and permission revocation
-acceptance before publication.
+passed. The user confirmed voice/video calls, Elo consent and permission
+revocation/re-prompt in the full 0.5.15 AppImage on 2026-11-08. A follow-up
+confirmed incoming calls and login persistence after locking/unlocking the vault.
 
-Still required: final artifact with Elo media consent, signed upgrade acceptance, green Checks,
-and real voice/video/incoming calls in the full artifact before publication. No
+Remote Checks for eed4eb1 and 946012b failed in the synthetic native layout test:
+one scale-2 SIGSEGV and one scale-1 timeout. Three additional local scale-2 runs
+passed. Restricting the synthetic fixture to two CPUs under GDB reproduced
+the shutdown crash twice: `CefShutdown` destroyed Chromium global services before
+a pending `Browser` destructor used `TabDragServiceImpl`/`DropTargetRegistryImpl`.
+The runtime now posts a CEF UI-task barrier after all browser close acknowledgments
+before exiting its native loop. The reproducer then exited normally three times.
+Stage markers and a CI-only debugger capture future failures without skipping gates.
+Canonical Checks must still confirm this fix.
+
+Still required: green Checks and signed upgrade acceptance. No
 installed user vault or live account has been opened during these synthetic tests.
 GNOME portal, hardware-key, suspend/resume and clean-distribution acceptance are not
 certified by this list.

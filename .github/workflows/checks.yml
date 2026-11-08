@@ -28,7 +28,7 @@ jobs:
       - name: Build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libx11-dev libxdo-dev libnss3 libasound2t64 libgbm1 libatk-bridge2.0-0 libdrm2 libayatana-appindicator3-dev librsvg2-dev libssl-dev libfido2-dev libdbus-1-dev file patchelf libfuse2t64 fuse3 zsync black apparmor bubblewrap xdg-dbus-proxy xvfb xauth xdotool libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+          sudo apt-get install -y gdb libgtk-4-dev libx11-dev libxdo-dev libnss3 libasound2t64 libgbm1 libatk-bridge2.0-0 libdrm2 libayatana-appindicator3-dev librsvg2-dev libssl-dev libfido2-dev libdbus-1-dev file patchelf libfuse2t64 fuse3 zsync black apparmor bubblewrap xdg-dbus-proxy xvfb xauth xdotool libgl1-mesa-dri libegl-mesa0 libglx-mesa0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.10"

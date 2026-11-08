@@ -47,6 +47,12 @@ fi
 mkdir -p tests/test-results/native
 # Exercise GTK fallback dialogs on this isolated display; a real desktop portal
 # requires its owning desktop session and is checked during artifact acceptance.
+runner=(timeout 30s)
+# Debug only synthetic fixtures; production processes and live profiles are never traced.
+if [[ "$example" == layout_smoke && "${GITHUB_ACTIONS:-}" == true ]]; then
+  runner=(timeout --signal=INT --kill-after=10s 30s gdb --batch --return-child-result
+    -ex "set pagination off" -ex run -ex "thread apply all bt 20" --args)
+fi
 arguments=()
 if [[ "$example" == media_permission_smoke ]]; then arguments+=(--use-fake-device-for-media-stream); fi
 for scale in 1 2; do
@@ -54,7 +60,7 @@ for scale in 1 2; do
   xvfb-run -a -s '-screen 0 3200x2000x24' \
     env LD_LIBRARY_PATH="$CEF_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     GDK_SCALE="$scale" LIBGL_ALWAYS_SOFTWARE=1 GTK_USE_PORTAL=0 GDK_DEBUG=no-portals GIO_USE_VFS=local \
-    dbus-run-session -- timeout 30s "$binary" "${arguments[@]}" 2>&1 | tee "tests/test-results/native/$example-scale-$scale.log" || {
+    dbus-run-session -- "${runner[@]}" "$binary" "${arguments[@]}" 2>&1 | tee "tests/test-results/native/$example-scale-$scale.log" || {
       code=$?
       echo "::error::Native $example failed at scale $scale (exit $code)"
       exit "$code"

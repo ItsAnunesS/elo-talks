@@ -1507,6 +1507,7 @@ pub(crate) type AfterWindowCreationCallback = Box<dyn for<'a> Fn(RawWindow<'a>) 
 pub(crate) enum Message<T: UserEvent> {
   EventLoop(EventLoopMessage),
   BrowserClosed(WindowId, u32),
+  FinishExit,
   PopupPending(crate::popup::PopupRequest, Arc<crate::popup::PopupFamily>),
   PopupCreated(
     crate::popup::PopupRequest,
@@ -1742,6 +1743,7 @@ pub(crate) struct AppState<T: UserEvent> {
   live_popups: HashMap<i32, Arc<crate::popup::PopupFamily>>,
   pending_popups: Vec<(crate::popup::PopupRequest, Arc<crate::popup::PopupFamily>)>,
   pub(crate) exiting: bool,
+  exit_scheduled: bool,
 }
 
 pub(crate) struct WinitCefApp<T: UserEvent> {
@@ -1770,6 +1772,7 @@ impl<T: UserEvent> WinitCefApp<T> {
         live_popups: HashMap::new(),
         pending_popups: Vec::new(),
         exiting: false,
+        exit_scheduled: false,
       },
       scheme_registry,
     }
@@ -1826,6 +1829,15 @@ impl<T: UserEvent> WinitCefApp<T> {
       Message::PopupClosed(id) => {
         self.state.live_popups.remove(&id);
         self.exit_if_done(event_loop);
+      }
+      Message::FinishExit => {
+        if self.state.exiting && self.state.live_browsers == 0
+          && self.state.live_popups.is_empty() && self.state.pending_popups.is_empty() {
+          self.run_callback(RunEvent::Exit);
+          event_loop.exit();
+        } else {
+          self.state.exit_scheduled = false;
+        }
       }
       Message::BrowserClosed(_window_id, webview_id) => {
         // Standalone webview.close() and app shutdown keep the child in state
@@ -2276,7 +2288,7 @@ impl<T: UserEvent> WinitCefApp<T> {
     }
   }
 
-  fn exit_if_done(&mut self, event_loop: &dyn ActiveEventLoop) {
+  fn exit_if_done(&mut self, _event_loop: &dyn ActiveEventLoop) {
     // A reservation is normally resolved by `PopupCreated` or `PopupAborted`,
     // but CEF discards popups without always reporting the abort — the opener
     // can be torn down first, or the abort can arrive for a browser its opener
@@ -2298,9 +2310,30 @@ impl<T: UserEvent> WinitCefApp<T> {
     }
 
     if self.state.exiting || (self.state.windows.is_empty() && self.request_exit(None)) {
-      self.run_callback(RunEvent::Exit);
-      event_loop.exit();
+      if !self.state.exit_scheduled {
+        self.state.exit_scheduled = true;
+        // OnBeforeClose precedes Chromium's deferred Browser destruction. Keep
+        // the native loop alive through a CEF UI task barrier before CefShutdown
+        // tears down global services used by those Browser destructors.
+        let context = self.context.clone();
+        let mut task = ExitBarrier::new(Arc::new(move || {
+          let _ = context.send_message(Message::FinishExit);
+        }));
+        if cef::post_task(ThreadId::UI, Some(&mut task)) == 0 {
+          self.state.exit_scheduled = false;
+          log::error!("could not schedule the CEF shutdown barrier");
+        }
+      }
     }
+  }
+}
+
+wrap_task! {
+  struct ExitBarrier {
+    callback: Arc<dyn Fn() + Send + Sync>,
+  }
+  impl Task {
+    fn execute(&self) { (self.callback)(); }
   }
 }
 
