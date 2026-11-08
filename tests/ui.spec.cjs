@@ -463,32 +463,23 @@ const http = require("node:http"),
     );
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.screenshot({ animations: "disabled", path: "/tmp/elo-settings-premium.png" });
-    await page.getByLabel("Server domain", { exact: true }).fill("https://panel.example.test");
-    await page.getByLabel("Server username", { exact: true }).fill("member");
-    await page.getByLabel("Server password", { exact: true }).fill("synthetic server password");
-    await page.getByRole("button", { name: "Connect and sign in", exact: true }).click();
-    assert.equal(await page.getByLabel("Server password", { exact: true }).inputValue(), "");
-    await page.evaluate(() => {
-      window.testServerComplete = true;
-    });
-    await page
-      .getByRole("status")
-      .filter({ hasText: "Choose an organization to synchronize" })
-      .waitFor();
-    await page
-      .getByLabel("Organization", { exact: true })
-      .selectOption({ label: "Company · member" });
-    await page.getByRole("button", { name: "Use organization", exact: true }).click();
-    await page
-      .getByRole("status")
-      .filter({ hasText: "Connected. Access and workspace changes" })
-      .waitFor();
-    assert.ok(
-      await page.evaluate(() => window.testRequests.some((r) => r.args?.op === "server.select")),
+    assert.equal(await page.getByLabel("Server domain", { exact: true }).count(), 0);
+    assert.equal(await page.getByLabel("Server username", { exact: true }).count(), 0);
+    assert.equal(await page.getByLabel("Server password", { exact: true }).count(), 0);
+    assert.equal(
+      await page.getByRole("button", { name: "Connect and sign in", exact: true }).count(),
+      0,
     );
+    await page.getByRole("heading", { name: "Encrypted backup", exact: true }).waitFor();
     await page.setViewportSize({ width: 900, height: 640 });
-    await page.getByLabel("Server domain", { exact: true }).scrollIntoViewIfNeeded();
-    await page.screenshot({ animations: "disabled", path: "/tmp/elo-server-settings-min.png" });
+    await page
+      .getByRole("button", { name: "Lock to export backup", exact: true })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({ animations: "disabled", path: "/tmp/elo-backup-settings-min.png" });
+    assert.equal(
+      await page.evaluate(() => window.testRequests.some((r) => r.args?.op?.startsWith("server."))),
+      false,
+    );
     await page.setViewportSize({ width: 1200, height: 800 });
     await page.evaluate(() => {
       window.testState.managedWorkspaces = ["personal"];

@@ -1,6 +1,11 @@
 # Server metadata synchronization — 0.5.x
 
-## Connect
+Server connection controls are currently hidden from Settings. Encrypted backup
+remains available. Existing encrypted server configuration and managed-workspace
+access checks are preserved. The connection flow below documents earlier builds;
+it is not available in the current interface.
+
+## Connect (earlier builds)
 
 1. Create or unlock the local encrypted vault. It still protects this computer's
    WhatsApp profiles independently of server login.
@@ -51,7 +56,7 @@ Back up before downgrading; use a current 0.5.x build for server catalogs.
   rewrite the catalog. Actual structure/access changes stop the UI/account
   processes before atomically saving the catalog and reopening authorized views.
 - Connection failure or inability to verify access blocks/hides managed views
-  and explains recovery in the sidebar/Settings. It does not delete their profiles
+  and reports the failure in the sidebar. It does not delete their profiles
   merely because the server is offline. Local workspaces stay available.
 - A successfully verified removal/revocation removes managed entries and prunes
   their local profiles after worker shutdown. Switching organization/login or

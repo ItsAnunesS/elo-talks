@@ -2,7 +2,6 @@ import { readSpace, saveSpace, isFavorite, toggleFavorite } from "./space-state.
 import { openContextMenu } from "./context-menu.js";
 import { appearanceControls } from "./appearance.js";
 import { initializeChannelDrag } from "./channel-drag.js";
-import { serverSettings } from "./server-settings.js";
 import { backupDialog, watchBackup } from "./backup.js";
 import { updateSettings } from "./update-settings.js";
 import { initializeUpdates, restartForUpdate } from "./updates.js";
@@ -122,7 +121,7 @@ function renderState() {
   const serverNotice = getElement("server-notice");
   serverNotice.hidden = !state.unlocked || !state.server?.error;
   serverNotice.textContent = state.server?.error
-    ? `${state.server.error} Server workspaces are hidden until access can be verified. Open Settings to reconnect.`
+    ? `${state.server.error} Server workspaces are hidden until access can be verified. Local workspaces and encrypted backups remain available.`
     : "";
   getElement("version").textContent = `v${state.version || "development"}`;
   const quiet = !!state.notifications?.doNotDisturb;
@@ -684,12 +683,6 @@ async function openSettings() {
         }),
       );
       const updateEvents = new AbortController();
-      serverSettings(general, {
-        status: state.server,
-        refresh: refreshState,
-        feedback: showToast,
-        signal: updateEvents.signal,
-      });
       getElement("dialog").addEventListener("close", () => updateEvents.abort(), { once: true });
       updateSettings(updates, {
         preferences: updatePreferences,

@@ -24,9 +24,6 @@ organization metadata can use your own self-hosted server.
   profile. Switching channels keeps other accounts running.
 - **Local protection.** Unlock with a master password, an optional device PIN or a
   compatible FIDO2 key. Account processes stop before the vault is unmounted.
-- **Connect your server.** Sign in to an HTTPS server and synchronize authorized
-  organizations, workspaces, categories and channel slots. WhatsApp profiles stay
-  local. See [server synchronization](docs/SERVER-SYNC.md).
 - **Encrypted backups.** Export a closed vault with a separate password and
   restore workspaces and account profiles into a new Linux installation. See
   [backup instructions and limitations](docs/RELEASE-0.5.md).
