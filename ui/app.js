@@ -979,6 +979,20 @@ if (isDesktop) {
     "Visual preview. The vault is only available in the desktop application.";
 }
 
+for (const direction of ["n", "ne", "e", "se", "s", "sw", "w", "nw"]) {
+  const edge = document.createElement("div");
+  edge.className = `window-resize window-resize-${direction}`;
+  edge.setAttribute("aria-hidden", "true");
+  edge.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    invoke("window_action", { action: `resize-${direction}` }).catch((error) =>
+      showToast(errorMessage(error)),
+    );
+  });
+  document.body.append(edge);
+}
+
 for (const control of document.querySelectorAll("[data-window-action]")) {
   control.addEventListener("click", () => {
     invoke("window_action", { action: control.dataset.windowAction }).catch((error) =>

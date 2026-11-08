@@ -4,7 +4,7 @@ Elo Talks is an unofficial client that loads WhatsApp Web. WhatsApp provides end
 
 ## Vault
 
-Each account's complete profile, including plaintext cookies and IndexedDB data produced by WebKit, must remain inside the gocryptfs mount. Files outside it contain format metadata, wrapped keys, and settings unrelated to conversations. Hardware key names are stored in vault metadata; do not include sensitive information in those names.
+Each account's complete profile, including plaintext cookies and IndexedDB data produced by Chromium, must remain inside the gocryptfs mount. Files outside it contain format metadata, wrapped keys, and settings unrelated to conversations. Hardware key names are stored in vault metadata; do not include sensitive information in those names.
 
 A random 256-bit key, passed to gocryptfs through stdin, unlocks the filesystem. Each unlock method protects a copy of that key with AES-256-GCM, a random nonce, and authenticated context binding it to the vault and method. Argon2id uses 64 MiB, three iterations, and parallelism one. Master passwords must contain at least 12 characters.
 
@@ -35,7 +35,7 @@ vault. Interrupted operations may leave private ciphertext temporary files.
 ## Limitations
 
 - Decrypted content exists in memory and the mounted filesystem while the vault is open.
-- Root access, malware running as the user, unencrypted swap or hibernation, and compromised WhatsApp/WebKit are outside the at-rest protection model.
+- Root access, malware running as the user, unencrypted swap or hibernation, and compromised WhatsApp/Chromium are outside the at-rest protection model.
 - Exported files are outside the vault. Users are responsible for these copies.
 - Notification details are opt-in. Channel-only mode shares the configured channel name; preview mode additionally shares the native WhatsApp notification title and body with the Linux notification service. These copies may remain in desktop history or appear on the lock screen and are outside vault protection. Changing the setting or locking the vault does not erase notifications already accepted by the OS.
 - Sizes, file counts, timestamps, and previous versions can expose metadata. Authenticated encryption does not prevent rollback to a complete older snapshot.
@@ -48,28 +48,23 @@ The controller never loads web content. It accepts RPC only through the private 
 
 Account list writes are atomic and synchronized. Removing an account stops processes before deleting its profile. Failed vault creation preserves the key envelope so a partially initialized filesystem does not lose its key.
 
-Notification previews use WebKit's native notification event, without inspecting
-conversation DOM or adding remote Tauri capabilities. Elo reads sender/body only
-in preview mode after muting checks. Text is bounded, control characters are
-removed and notification-body markup is escaped. Elo does not request notification
-images or forward them to the desktop.
-Content exists transiently in memory and the D-Bus request, never in Elo logs,
-diagnostics, frontend account events or an application notification-history file.
-Preferences remain inside the encrypted vault. Existing preferences without a
-detail level keep private mode.
+Chromium's own desktop notification delivery is blocked. A browser-scoped native
+CDP observer adapts the document and service-worker notification APIs into Elo's
+existing privacy, mute, DND, coalescing and account-click policy. No remote
+DevTools port or pipe is exposed. Native execution-context/session identities and
+exact origins gate delivery; bounded queues fail closed on overflow. Sender/body
+are transient and reach the desktop only in opt-in preview mode. They never enter
+account state, logs, diagnostics, frontend events or notification-history files.
+The adapter does not read conversation DOM or request notification images.
 
 ## Clipboard images
 
-Account views bridge PNG clipboard images only after the user invokes Paste with
-Ctrl+V, Shift+Insert or the native context menu. The destination must be a focused
-editable element at the exact WhatsApp HTTPS origin. The bridge uses an isolated
-JavaScript world and the standard DOM paste event; it grants no remote IPC,
-filesystem or persistent clipboard permission. Text uses WebKit's normal paste.
-PNG data is limited to 20 MiB, kept in memory and never logged or written to a
-temporary file. Requests have a three-second deadline and are cancelled on
-navigation, account hiding, focus loss or subsequent input. Changing the focused
-DOM element also prevents image delivery. Clipboard contents remain subject to
-the operating system and any clipboard manager, outside the vault's protection.
+Clipboard paste is handled by Chromium's native text/file/image pipeline after
+user input. Elo no longer injects WebKit clipboard events or grants a persistent
+clipboard-read capability. Native regressions verify image decoding, malformed
+image rejection by the browser decoder and that hidden accounts do not receive
+the active account's paste. Clipboard contents and clipboard managers remain
+outside vault protection.
 
 ## Distribution
 
@@ -88,15 +83,51 @@ There is no security certification or promise of vulnerability-free libraries. R
 
 ## Dependency advisories
 
-`RUSTSEC-2024-0429` affects GLib 0.18.5, required by Tauri's GTK3 dependency chain. The project vendors the exact upstream fix under `vendor/glib`, with a regression test and checksum of the patched file. The audit exception applies only to this locally corrected advisory. New unsoundness advisories block publication.
+The former GTK3/GLib 0.18.5 chain required the reviewed `RUSTSEC-2024-0429`
+backport in `vendor/glib`. The CEF/GTK4 graph uses upstream GLib 0.22.10; the
+historical patch checksum and the runtime regression remain tested. The legacy
+patch is not selected by the new dependency graph. New unsoundness advisories
+still block publication.
 
-The audit also reports unmaintained dependencies: `proc-macro-error`, `zbus_names`, `zvariant`, and `zvariant_derive`. These remain visible maintenance debt; they are not described as proven safe libraries.
+The audit also reports unmaintained dependencies: `fxhash`, `zbus_names`, `zvariant`, and `zvariant_derive`. These remain visible maintenance debt; they are not described as proven safe libraries.
 
 The helper is built from a pinned gocryptfs 2.6.1 revision with explicit updates to `x/crypto`, `x/sys`, and `x/term`. Its crypto, content, and filename tests run before packaging. `govulncheck` uses the same build tags: an OpenPGP advisory exists in x/crypto, but that package is neither imported nor reachable. No Go audit exception is used. Packaging tool versions and checksums are pinned; a changed mutable download must fail verification until reviewed.
 
+The local `tauri-runtime-cef` 3.0.0-alpha.7 source comes from upstream commit
+`81bfb7ca8f1a17be1e48c9b0d167c77b2137f9d3`. Its focused patch rejects remote
+page fullscreen in windows containing multiple child views, preserving trusted
+account and vault controls. Its CEF bindings are updated to 156.4.0 and the
+runtime is pinned to CEF 156.0.26 / Chromium 156.0.8078.88 with an archive SHA-256.
+The adapter also rejects invalid request headers without panicking; shared
+regressions exercise that boundary. Both upstream runtime licenses are retained
+and bundled.
+
+The build-only `phf_generator` 0.8.0 source is retained from upstream commit
+`81c7cc5b48649108428671d3b8ad151f6fbdb359`, with only its `rand` requirement
+raised to 0.8.6 to remove the `RUSTSEC-2026-0097` dependency. Its deterministic
+`SmallRng` usage and hash-generation implementation are unchanged; generated
+selector tables are compiled and exercised through the native fixtures. The
+upstream MIT license is retained. No new audit exception is introduced.
+
 ## AppImage sandbox
 
-WebKitGTK 4.1 requires explicit sandbox activation. The controller sets `WEBKIT_FORCE_SANDBOX=1`, removes sandbox bypass variables, and only loads remote content after confirming the WebKit context is sandboxed. The bundle includes bubblewrap and xdg-dbus-proxy. `scripts/bwrap.sh` adapts linuxdeploy's relative paths, preserves namespaces and seccomp, and mounts the bundle and `/usr` read-only. These system libraries are normally exposed by WebKit's sandbox. The adapter does not mount the user's home directory or the vault wholesale.
+CEF uses `SandboxPolicy::Required`, rejects debugging environment overrides and
+remote debugging, and cancels certificate errors without a bypass interstitial.
+The package ships no sandbox-disabling flags, setuid helper or host-policy hook.
+CEF bootstraps its user namespace with a memory-only default request context;
+then the UI becomes nondumpable before opening persistent shell/account contexts
+or accepting credentials. Core dumps are disabled from process entry. The
+controller and authentication helpers become nondumpable immediately.
+
+Accounts use `chromium/accounts/<UUID>` inside the unlocked vault. Browser
+temporary files also stay inside that profile at `.cef-tmp` and are removed only
+after browser shutdown, before backup or normal unmount. Legacy
+`accounts/<UUID>` profiles remain intact for recovery and require fresh QR linking
+in Chromium. The controller requests graceful UI shutdown, then kills remaining
+members of the browser process group before normal unmount. Only the exact
+Chromium singleton rendezvous links are removed after shutdown so encrypted
+backups can retain their prohibition on symlinks and special files. Failure to
+close the vault leaves an explicit recovery state.
 
 An unexpected interface failure terminates the application and closes the vault, without automatically restarting windows. The vault helper receives a termination signal if the controller dies. Unmount failures remain visible errors.
 
@@ -110,7 +141,7 @@ The controller closes every profile process and confirms unmount before installa
 
 The first version with this updater must be installed through the existing download/Gear Lever flow. Existing older versions cannot acquire this capability without that initial upgrade. All account webviews start after unlock. The last selected account ID is stored inside the encrypted catalog. Startup probes inspect only structural element presence and visibility in an isolated JavaScript world every 500 ms for at most 40 seconds per navigation, stopping early when ready. They return only a fixed readiness code and never read text, input values, QR attributes/pixels, cookies, conversation contents, or private WhatsApp APIs. Readiness is a UI hint, never authorization or proof of message synchronization. Slow or changed pages expose Continue anyway; remote Tauri capabilities remain disabled.
 
-The unread adapter observes the native WebKit title property only for the exact HTTPS WhatsApp origin. It accepts only the fixed `WhatsApp` or `(digits) WhatsApp` shape with at most six ASCII digits; arbitrary titles are discarded. Only the numeric value enters runtime state and diagnostics. No conversation access, injected JavaScript, message history, or new remote permissions are introduced. During notification bursts, at most one newest pending bounded notification payload per account is retained in process memory while the current D-Bus request completes.
+The unread adapter observes the native Chromium document-title event only for the exact HTTPS WhatsApp origin. It accepts only the fixed `WhatsApp` or `(digits) WhatsApp` shape with at most six ASCII digits; arbitrary titles are discarded. Only the numeric value enters runtime state and diagnostics. No conversation access, injected JavaScript, message history, or new remote permissions are introduced. During notification bursts, at most one newest pending bounded notification payload per account is retained in process memory while the current D-Bus request completes.
 
 
 ## Encrypted account card photo cache
@@ -199,11 +230,9 @@ SERVER-SYNC.md for lifecycle details and explicit manual acceptance limits.
 
 ## Camera and microphone
 
-Account views enable WebRTC and media streams. Camera/microphone permission queries
-return prompt at the exact WhatsApp HTTPS origin; they never grant capture by
-themselves. A visible account can request capture through a native consent dialog,
-with Deny selected by default. Pending requests are denied on navigation, account
-hiding or dialog destruction. Approval rechecks the current origin and visibility.
-No capture preference is persisted by Elo Talks. Other permission types remain
-denied except the existing WhatsApp notification permission. This grants no Tauri
-capabilities and does not change TLS, sandbox or vault boundaries.
+Account views use Chromium WebRTC. Only the WhatsApp top-level origin may reach
+native camera/microphone prompts; other permission kinds are denied by Elo.
+Chromium manages per-origin media choices inside the account's encrypted profile.
+Permission approval grants no Tauri capability and does not change TLS, sandbox
+or vault boundaries. Real calling and hardware acceptance must be checked in the
+packaged application, separately from synthetic peer tests.

@@ -18,14 +18,16 @@ its restrained, premium appearance and straightforward workflows.
 
 ## Repository map
 
-- `src-tauri/src/`: Rust controller, vault, native launcher, GTK/WebKit sessions,
+- `src-tauri/src/`: Rust controller, vault, native launcher, GTK4/CEF sessions,
   IPC, notifications and update orchestration.
 - `ui/`: local HTML/CSS/JavaScript shell. Remote WhatsApp views are separate.
 - `updater/`: Go updater and signature/download/replacement tests.
 - `src-tauri/examples/`: isolated native smoke tests and diagnostic tools.
 - `tests/`: Python checks and synthetic browser workflows.
 - `scripts/`: packaging, versioning, validation and publication.
-- `vendor/glib/`: documented security patch; preserve its regression checks.
+- `vendor/glib/`: historical security patch; preserve its regression checks.
+- `vendor/tauri-runtime-cef/`: pinned runtime with multi-view fullscreen protection.
+- `vendor/phf_generator/`: build-only generator with a corrected RNG dependency.
 - `docs/SECURITY.md`: threat model and limitations.
 - `docs/VALIDATION.md`: acceptance evidence and outstanding native tests.
 - `docs/RELEASE-0.5.md`: current series and release scope.
@@ -45,7 +47,7 @@ Do not silently include all untracked files in a release commit.
 - Fail closed when session monitoring is unavailable or the Linux session is
   unsafe. Preserve screen-lock, suspend and inactivity protections.
 - Remote content receives no Tauri filesystem, shell or vault permissions. Keep
-  local-command origin checks, per-account isolation, TLS validation and WebKit
+  local-command origin checks, per-account isolation, TLS validation and Chromium
   sandbox enforcement intact.
 - Never disable the host's protections to make a test or packaged app pass.
 - Keep PIN secrets in a supported secure keyring; no plaintext fallback. Preserve
@@ -118,6 +120,7 @@ full-check list; use pinned toolchains and lockfiles rather than upgrading tools
 incidentally. Common checks from the repository root:
 
 ```sh
+export CEF_PATH="$(python3 scripts/prepare-cef.py)"
 cargo fmt --all --check
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings

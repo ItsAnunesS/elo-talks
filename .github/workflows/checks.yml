@@ -28,7 +28,7 @@ jobs:
       - name: Build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libfido2-dev libdbus-1-dev patchelf libfuse2t64 zsync black apparmor bubblewrap xdg-dbus-proxy xvfb xauth xdotool libgl1-mesa-dri libegl-mesa0 libglx-mesa0
+          sudo apt-get install -y libgtk-4-dev libx11-dev libxdo-dev libnss3 libasound2t64 libgbm1 libatk-bridge2.0-0 libdrm2 libayatana-appindicator3-dev librsvg2-dev libssl-dev libfido2-dev libdbus-1-dev file patchelf libfuse2t64 fuse3 zsync black apparmor bubblewrap xdg-dbus-proxy xvfb xauth xdotool libgl1-mesa-dri libegl-mesa0 libglx-mesa0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.10"
@@ -58,7 +58,7 @@ jobs:
             target/release/.fingerprint
             target/release/build
             target/release/deps
-          key: ubuntu24-x64-rust-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', '**/Cargo.toml', 'vendor/glib/src/**/*.rs') }}
+          key: ubuntu24-x64-rust-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', '**/Cargo.toml', 'vendor/**/*.rs') }}
           restore-keys: ubuntu24-x64-rust-v1-
       - name: Cache Go and npm downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -72,6 +72,18 @@ jobs:
           restore-keys: ubuntu24-x64-downloads-v1-
       - name: Install pinned build tools
         run: bash scripts/install-build-tools.sh
+      - name: Cache pinned CEF distribution
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            target/cef-runtime
+            target/cef-minimal.tar.bz2
+          key: linux-x64-cef-${{ hashFiles('scripts/prepare-cef.py') }}
+      - name: Prepare pinned CEF
+        run: |
+          cef_path="$(python3 scripts/prepare-cef.py)"
+          echo "CEF_PATH=$cef_path" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$cef_path" >> "$GITHUB_ENV"
       - name: Prepare pinned helper
         run: |
           bash scripts/prepare-helper.sh
@@ -82,7 +94,7 @@ jobs:
           RELEASE_RUN_NUMBER: ${{ inputs.release_run_number }}
         run: python3 scripts/set-version.py "$RELEASE_RUN_NUMBER"
       - name: Build native regression fixtures
-        run: cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke --example clipboard_smoke
+        run: cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke --example clipboard_smoke --example cef_notification_smoke --example shell_smoke
       - name: Native clipboard regressions
         run: bash scripts/test-native-layout.sh clipboard_smoke
       - name: Rust formatting
@@ -122,8 +134,11 @@ jobs:
           for scenario in current ready error installing closure cooldown close; do
             xvfb-run -a dbus-run-session -- timeout 15s target/debug/examples/launcher_smoke "$scenario"
           done
-      - name: Native layout regressions
-        run: bash scripts/test-native-layout.sh
+      - name: Native CEF regressions
+        run: |
+          bash scripts/test-native-layout.sh layout_smoke
+          bash scripts/test-native-layout.sh cef_notification_smoke
+          bash scripts/test-native-layout.sh shell_smoke
       - name: Audit dependencies
         run: |
           # Only this locally corrected advisory is excepted; its source hash is tested above.
@@ -132,6 +147,11 @@ jobs:
         run: |
           bash scripts/prepare-bundler.sh
           bash scripts/build-appimage.sh
+      - name: Packaged production shell
+        run: |
+          for image in target/release/bundle/appimage/*.AppImage; do
+            xvfb-run -a -s '-screen 0 1600x1000x24' dbus-run-session -- python3 scripts/test-packaged-shell.py "$image"
+          done
       - name: Inventory and checksums
         if: inputs.release_build
         run: |
@@ -141,6 +161,8 @@ jobs:
           cp src-tauri/helpers/elo-updater-modules.json dist/updater-dependencies.json
           cp src-tauri/helpers/gocryptfs-modules.json dist/go-dependencies.json
           cp src-tauri/helpers/gocryptfs-LICENSE dist/gocryptfs-LICENSE
+          cp "$CEF_PATH/archive.json" dist/cef-distribution.json
+          cp "$CEF_PATH/LICENSE.txt" dist/cef-LICENSE.txt
           dpkg-query -W > dist/build-system-packages.txt
           python3 scripts/provenance.py
           (cd dist && sha256sum * > SHA256SUMS)

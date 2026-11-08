@@ -23,6 +23,8 @@ pub enum PageState {
     LoadFailed,
     TlsFailed,
     ProcessStopped,
+    // Retained in the diagnostics schema; CEF rejects an unsafe sandbox before UI startup.
+    #[expect(dead_code)]
     SandboxUnavailable,
 }
 
@@ -64,6 +66,10 @@ pub enum AvatarState {
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountHealth {
+    #[serde(skip)]
+    pub generation: u64,
+    #[serde(skip)]
+    pub readiness_probe_active: bool,
     pub page: PageState,
     pub readiness: Readiness,
     pub avatar: AvatarState,
@@ -108,9 +114,18 @@ impl AccountRuntime {
 
     pub fn update_page(&mut self, id: &str, page: PageState) {
         if let Some(account) = self.accounts.get_mut(id) {
-            // WebKit emits Finished after failure too; never hide the failure with Ready.
+            // Browsers may emit Finished after failure too; never hide the failure with Ready.
+            if page == PageState::LoadFailed && account.page == PageState::TlsFailed {
+                return;
+            }
             if page != PageState::Ready || account.page == PageState::Loading {
                 account.page = page;
+                if page == PageState::Loading {
+                    account.generation = account.generation.saturating_add(1);
+                    account.readiness_probe_active = false;
+                    account.avatar_probe_active = false;
+                    account.avatar_attempts = 0;
+                }
                 if page != PageState::Ready {
                     account.unread_count = None;
                     account.readiness = Readiness::Preparing;

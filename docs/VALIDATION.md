@@ -2,6 +2,55 @@
 
 This document distinguishes completed checks from outstanding acceptance criteria. A successful build does not certify WhatsApp compatibility or package security.
 
+## Full-app CEF candidate — 2026-11-08, unpublished
+
+Completed locally with pinned Rust/Go tools and Ubuntu 24.04 Docker builds,
+using isolated Xvfb displays and synthetic data:
+
+- Chromium 156.0.8078.88 / CEF 156.0.26, bindings 156.4.0. No Electron.
+- 68 ordinary Rust tests passed, including invalid-header regressions.
+  Four hardware/host integrations remain ignored in the ordinary suite and are
+  reported separately. All-target Clippy passed with warnings denied.
+- Host FUSE encryption/persistence and backup restoration passed. Restoration
+  preserves catalog/account identifiers, legacy profiles and Chromium profiles.
+- The production CEF shell/controller/FUSE test passed: browser shutdown,
+  confirmed normal unmount and encrypted backup export.
+- Native layout, isolated profiles, readiness, blob/cross-origin own avatars,
+  hidden-account notifications, fullscreen rejection and remote capability denial
+  passed at 1x and 2x. Clipboard text, valid/invalid image decoding and hidden-view
+  isolation passed at both scales.
+- Document, registration and service-worker notification transport passed at both
+  scales. Native D-Bus privacy, grouping, account clicks and service restart passed.
+- Production shell/native IPC, memory protection, remote command rejection and
+  opening/canceling both backup dialogs passed at both scales. A regression also
+  creates two accounts through the real command and checks completed loads, title
+  badges and shell responsiveness. These isolated tests
+  exercise GTK's fallback chooser; a live GNOME portal requires its desktop session.
+- All seven launcher scenarios passed: current, ready, error, installing, closure,
+  cooldown and close. Visual checks covered the shell/backup controls at normal and
+  minimum sizes and the GTK4 launcher.
+- Browser workflows, formatting and 18 Python regressions passed. Updater tests,
+  including the existing network/signature gate, passed; the pinned gocryptfs
+  build/crypto tests and reachable-code vulnerability check passed.
+- Rust dependency audit passed without new exceptions. Four unmaintained-library
+  warnings remain visible. The old build-only rand dependency was replaced through
+  a narrow vendored generator manifest change.
+- Ubuntu 24.04 AppImage packaging and embedded update-source/zsync verification
+  passed for the 0.5.15 candidate. Packaged-shell startup/IPC/normal shutdown also
+  passed after correcting the resource paths beside libcef. CI now repeats this
+  packaged production-shell gate.
+
+The first live full-app attempt stalled before QR display. A synthetic regression
+reproduced a synchronous URL getter inside CEF title callbacks. The callbacks now
+use the browser-reported committed origin instead; the regression passes at both
+scales. The corrected artifact still needs live acceptance.
+
+Still required: corrected final-artifact startup, signed upgrade acceptance, green Checks,
+and real voice/video/incoming calls in the full artifact before publication. No
+installed user vault or live account has been opened during these synthetic tests.
+GNOME portal, hardware-key, suspend/resume and clean-distribution acceptance are not
+certified by this list.
+
 ## Automated checks
 
 - Rust: authenticated envelopes, incorrect credentials/context, tampering, password rotation without re-encrypting the vault, atomic writes, locked mutation rejection, and RPC validation.

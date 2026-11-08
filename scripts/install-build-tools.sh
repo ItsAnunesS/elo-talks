@@ -6,6 +6,6 @@ audit_version="$(cargo audit --version 2>/dev/null || true)"
 if [[ "$audit_version" != 'cargo-audit 0.22.2' && "$audit_version" != 'cargo-audit-audit 0.22.2' ]]; then
   cargo install cargo-audit --version 0.22.2 --locked --force
 fi
-if [[ "$(cargo tauri --version 2>/dev/null || true)" != 'tauri-cli 2.12.4' ]]; then
-  cargo install tauri-cli --version 2.12.4 --locked --force
+if [[ "$(cargo tauri --version 2>/dev/null || true)" != 'tauri-cli 3.0.0-alpha.6' ]]; then
+  cargo install tauri-cli --version 3.0.0-alpha.6 --locked --force
 fi

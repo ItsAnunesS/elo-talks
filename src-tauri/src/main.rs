@@ -1,12 +1,13 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod account_avatar;
-mod account_clipboard;
 mod account_events;
-mod account_permissions;
+mod account_profiles;
 mod account_readiness;
 mod account_runtime;
+mod account_script;
 mod auth;
 mod backup;
+mod cef_notifications;
 mod controller;
 mod crypto;
 mod desktop_integration;
@@ -14,6 +15,7 @@ mod desktop_notifications;
 mod ipc;
 mod launcher;
 mod notification_content;
+mod process_security;
 mod server_sync;
 mod session_monitor;
 mod storage;
@@ -27,6 +29,7 @@ mod window_state;
 mod workspaces;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+#[tauri_runtime_cef::cef_entry_point]
 fn main() {
     unsafe {
         libc::umask(0o077);
@@ -35,9 +38,16 @@ fn main() {
             rlim_max: 0,
         };
         libc::setrlimit(libc::RLIMIT_CORE, &limit);
-        libc::prctl(libc::PR_SET_DUMPABLE, 0);
     }
-    if let Err(e) = run() {
+    if let Err(e) = (|| -> Result<()> {
+        // CEF must bootstrap its user namespace before making the browser
+        // nondumpable. Its default context is memory-only; ui::run protects
+        // memory before creating the shell or opening any account context.
+        if std::env::args_os().nth(1).is_none_or(|arg| arg != "--ui") {
+            process_security::protect_secrets()?;
+        }
+        run()
+    })() {
         eprintln!("Elo Talks: {e}");
         std::process::exit(1);
     }
@@ -96,4 +106,10 @@ fn run() -> Result<()> {
         }
     }
     controller::run(data, runtime)
+}
+
+#[cfg(test)]
+mod cef_header_validation {
+    use tauri::http;
+    include!("../../vendor/tauri-runtime-cef/src/header_validation.rs");
 }

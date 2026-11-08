@@ -1,273 +1,165 @@
-//! Synthetic clipboard only; run in an isolated Xvfb and D-Bus session.
-#[path = "../src/account_clipboard.rs"]
-mod account_clipboard;
-#[allow(dead_code)]
-#[path = "../src/whatsapp.rs"]
-mod whatsapp;
-use gtk::{glib, prelude::*};
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{Duration, Instant},
+//! Native Chromium paste with synthetic clipboard data on an isolated X11 display.
+#[path = "support/cef_fixture.rs"]
+mod fixture;
+use gtk::prelude::*;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc,
 };
-use webkit2gtk::{WebContextExt, WebViewExt};
-
-static STAGE: AtomicUsize = AtomicUsize::new(0);
-const STAGES: [&str; 9] = [
-    "GTK initialization",
-    "WebKit initialization",
-    "document loading",
-    "image paste",
-    "text paste",
-    "invalid image",
-    "hidden account cancellation",
-    "untrusted origin",
-    "finished",
-];
-fn stage(index: usize) {
-    STAGE.store(index, Ordering::Relaxed);
-    println!("Clipboard fixture: {}", STAGES[index]);
+use tauri::{webview::WebviewBuilder, LogicalSize, Manager, WebviewUrl};
+use tauri_runtime_cef::{Cef, DebugEnvironment, DevToolsPolicy, RemoteDebugging, SandboxPolicy};
+const HTML: &str = r#"<!doctype html><body style="margin:0"><div id="editor" contenteditable style="width:500px;height:400px"></div><script>window.pastes=[];editor.addEventListener('paste',event=>{event.preventDefault();const record={text:event.clipboardData.getData('text/plain'),files:[...event.clipboardData.files].map(file=>({type:file.type,size:file.size}))};pastes.push(record);const file=event.clipboardData.files[0];if(file)createImageBitmap(file).then(image=>{record.decoded=[image.width,image.height];image.close();}).catch(()=>record.invalid=true);});editor.focus();</script>"#;
+fn paste() {
+    let program = std::env::var_os("XDOTOOL").unwrap_or_else(|| "xdotool".into());
+    assert!(std::process::Command::new(program)
+        .args([
+            "search",
+            "--sync",
+            "--onlyvisible",
+            "--pid",
+            &std::process::id().to_string(),
+            "--name",
+            "Clipboard fixture",
+            "windowfocus",
+            "--sync",
+            "mousemove",
+            "--window",
+            "%1",
+            "30",
+            "40",
+            "click",
+            "1",
+            "key",
+            "--clearmodifiers",
+            "ctrl+v"
+        ])
+        .status()
+        .unwrap()
+        .success());
 }
-
-fn paste(key: &'static str) {
-    // Send real X11 events from a separate process. GTK's deprecated synchronous
-    // key helper can deadlock WebKit clipboard IPC while the main loop is busy.
-    // Search only this synthetic fixture's windows on its private Xvfb display.
-    std::thread::spawn(move || {
-        let result = std::process::Command::new("xdotool")
-            .args([
-                "search",
-                "--sync",
-                "--onlyvisible",
-                "--all",
-                "--pid",
-                &std::process::id().to_string(),
-                "--name",
-                ".",
-                "windowfocus",
-                "--sync",
-                "mousemove",
-                "--window",
-                "%1",
-                "20",
-                "22",
-                "click",
-                "1",
-                "key",
-                "--clearmodifiers",
-                key,
-                "key",
-                "Shift_L",
-            ])
-            .status();
-        if !result.is_ok_and(|status| status.success()) {
-            eprintln!("::error::Could not send a synthetic clipboard shortcut with xdotool");
-            std::process::exit(1);
+fn clipboard(app: &tauri::AppHandle, kind: u8) {
+    let (sender, receiver) = mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let clipboard = gtk::gdk::Display::default().unwrap().clipboard();
+        match kind {
+            0 => {
+                let image =
+                    gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, true, 8, 32, 32)
+                        .unwrap();
+                image.fill(0x336699ff);
+                clipboard.set_texture(&gtk::gdk::Texture::for_pixbuf(&image));
+            }
+            1 => clipboard.set_text("Synthetic clipboard text"),
+            _ => {
+                let provider = gtk::gdk::ContentProvider::for_bytes(
+                    "image/png",
+                    &gtk::glib::Bytes::from_static(b"invalid synthetic image"),
+                );
+                clipboard.set_content(Some(&provider)).unwrap();
+            }
         }
-    });
-}
-
-fn main() {
-    std::thread::spawn(|| {
-        std::thread::sleep(Duration::from_secs(25));
-        eprintln!(
-            "::error::Clipboard fixture stalled during {}",
-            STAGES[STAGE.load(Ordering::Relaxed)]
-        );
-        std::process::exit(1);
-    });
-    gtk::init().unwrap();
-    stage(1);
-    let context = webkit2gtk::WebContext::new_ephemeral();
-    context.set_sandbox_enabled(true);
-    assert!(context.is_sandbox_enabled());
-    let view = webkit2gtk::WebView::with_context(&context);
-    let key_events = Rc::new(Cell::new(0usize));
-    let observed_keys = key_events.clone();
-    view.connect_key_press_event(move |_, event| {
-        eprintln!(
-            "Synthetic key: {:?}, modifier={}, state={:?}, time={}",
-            event.keyval(),
-            event.is_modifier(),
-            event.state(),
-            event.time()
-        );
-        observed_keys.set(observed_keys.get() + 1);
-        glib::Propagation::Proceed
-    });
-    view.connect_button_press_event(|_, event| {
-        eprintln!(
-            "Synthetic pointer: button={}, time={}",
-            event.button(),
-            event.time()
-        );
-        glib::Propagation::Proceed
-    });
-    view.connect_focus_out_event(|_, _| {
-        eprintln!("Synthetic focus out");
-        glib::Propagation::Proceed
-    });
-    let native = std::env::args().any(|argument| argument == "--native");
-    let errors = Rc::new(RefCell::new(Vec::new()));
-    if !native {
-        let errors = errors.clone();
-        account_clipboard::attach(&view, move |error| {
-            errors.borrow_mut().push(error.to_owned())
-        });
-    }
-    let image = gtk::gdk_pixbuf::Pixbuf::from_read(std::io::Cursor::new(include_bytes!(
-        "../icons/32x32.png"
-    )))
+        sender.send(()).unwrap();
+    })
     .unwrap();
-    let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
-    let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title("Elo Talks Clipboard fixture");
-    window.set_default_size(480, 320);
-    window.add(&view);
-    window.show_all();
-    window.present();
-    stage(2);
-    view.load_html(
-        "<div contenteditable id='editor' style='min-height:48px'>Synthetic editor</div><script>editor.focus(); let count=0; let keys=0; const report=()=>{if(count===0)document.title='ready|trusted:'+(location.origin==='https://web.whatsapp.com')+'|focus:'+document.hasFocus()+'|editable:'+!!document.activeElement?.isContentEditable+'|keys:'+keys;}; document.addEventListener('keydown',()=>{keys++;report();}); document.addEventListener('focusin',report); window.addEventListener('focus',report); document.addEventListener('click',report); document.addEventListener('paste', async e => { e.preventDefault(); count++; document.title='paste-received:' + count; try { const file=e.clipboardData.files[0]; document.title = file ? 'image:' + file.type + ':' + ((bytes) => bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80)(new Uint8Array(await file.arrayBuffer())) + ':' + count : 'text:' + e.clipboardData.getData('text/plain') + ':' + count; } catch (error) {document.title='paste-error:' + error.name;} }); report();</script>",
-        Some("https://web.whatsapp.com/"),
-    );
-    let mut changed = Instant::now();
-    let mut untrusted_paste = false;
-    // Clipboard ownership can invoke nested GTK dispatch. Regular timeout sources
-    // are non-reentrant; do not perform these operations inside a polled future.
-    glib::timeout_add_local(Duration::from_millis(100), move || {
-        let phase = STAGE.load(Ordering::Relaxed);
-        let ready = match phase {
-            2 => view
-                .title()
-                .is_some_and(|title| title.starts_with("ready|")),
-            3 if native => changed.elapsed() >= Duration::from_secs(1),
-            3 => view.title().as_deref() == Some("image:image/png:true:1"),
-            4 => view.title().as_deref() == Some("text:Synthetic clipboard text:2"),
-            5 => !errors.borrow().is_empty(),
-            6 => !view.is_visible(),
-            7 if untrusted_paste => changed.elapsed() >= Duration::from_secs(1),
-            7 => view.title().as_deref() == Some("untrusted-ready"),
-            _ => unreachable!(),
-        };
-        if !ready {
-            let limit = if phase == 2 { 5 } else { 3 };
-            if changed.elapsed() >= Duration::from_secs(limit) {
-                // All content belongs to this synthetic document; never run this
-                // diagnostic against a live account or a user's clipboard.
-                let title: String = view.title().unwrap_or_default().chars().take(100).collect();
-                let native_origin = view
-                    .uri()
-                    .and_then(|uri| tauri::Url::parse(&uri).ok())
-                    .is_some_and(|uri| whatsapp::is_origin(&uri));
-                eprintln!("::error::Clipboard assertion during {}: title={title:?}, native_origin={native_origin}, focused={}, visible={}, keys={}, errors={:?}", STAGES[phase], view.has_focus(), view.is_visible(), key_events.get(), errors.borrow());
-                std::process::exit(1);
-            }
-            return glib::ControlFlow::Continue;
-        }
-        changed = Instant::now();
-        match phase {
-            2 => {
-                view.grab_focus();
-                stage(3);
-                clipboard.set_image(&image);
-                if native {
-                    view.execute_editing_command("Paste");
-                } else {
-                    // Keep the web process busy while real X11 events send the
-                    // paste shortcut followed by a modifier-only key. The paste
-                    // must survive that key while its target capture is pending.
-                    view.evaluate_javascript(
-                        "(() => { const until = performance.now() + 250; while (performance.now() < until) {} })()",
-                        None,
-                        None,
-                        gtk::gio::Cancellable::NONE,
-                        |_| {},
-                    );
-                    paste("ctrl+v");
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap();
+}
+#[tauri_runtime_cef::cef_entry_point]
+fn main() {
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic| {
+        hook(panic);
+        std::process::exit(1);
+    }));
+    let root = tempfile::tempdir().unwrap();
+    let passed = Arc::new(AtomicBool::new(false));
+    let verified = passed.clone();
+    tauri::Builder::default()
+        .runtime(
+            Cef::default()
+                .root_cache_path(root.path())
+                .sandbox(SandboxPolicy::Required)
+                .debug_environment(DebugEnvironment::Deny)
+                .remote_debugging(RemoteDebugging::Disabled)
+                .devtools(DevToolsPolicy::Disallowed),
+        )
+        .setup(move |app| {
+            let window = tauri::window::WindowBuilder::new(app, "clipboard")
+                .title("Clipboard fixture")
+                .inner_size(900., 640.)
+                .build()?;
+            let first = window.add_child(
+                WebviewBuilder::new("account-one", WebviewUrl::External("about:blank".parse()?))
+                    .data_directory(root.path().join("one"))
+                    .size(LogicalSize::new(900., 640.)),
+            )?;
+            let second = window.add_child(
+                WebviewBuilder::new("account-two", WebviewUrl::External("about:blank".parse()?))
+                    .data_directory(root.path().join("two"))
+                    .size(LogicalSize::new(900., 640.)),
+            )?;
+            second.hide()?;
+            let app = app.handle().clone();
+            std::thread::spawn(move || {
+                for view in [&first, &second] {
+                    fixture::serve(view, HTML);
+                    view.navigate("https://web.whatsapp.com/".parse().unwrap())
+                        .unwrap();
+                    fixture::wait_for(|| fixture::evaluate(view, "typeof pastes") == "object");
                 }
-            }
-            3 if native => {
-                println!("Native image paste: {:?}", view.title());
-                std::process::exit(0);
-            }
-            3 => {
-                assert_eq!(view.title().as_deref(), Some("image:image/png:true:1"));
-                stage(4);
-                clipboard.set_text("Synthetic clipboard text");
-                paste("shift+Insert");
-            }
-            4 => {
+                first.set_focus().unwrap();
+                clipboard(&app, 0);
+                paste();
+                fixture::wait_for(|| fixture::evaluate(&first, "pastes.length") == 1);
                 assert_eq!(
-                    view.title().as_deref(),
-                    Some("text:Synthetic clipboard text:2")
+                    fixture::evaluate(&first, "pastes[0].files[0].type"),
+                    "image/png"
                 );
-                assert!(errors.borrow().is_empty());
-                stage(5);
-                let target = gtk::TargetEntry::new("image/png", gtk::TargetFlags::empty(), 0);
-                assert!(clipboard.set_with_data(&[target], |_, selection, _| {
-                    selection.set(
-                        &gtk::gdk::Atom::intern("image/png"),
-                        8,
-                        b"Invalid synthetic PNG",
-                    );
-                }));
-                paste("ctrl+v");
-            }
-            5 => {
+                assert!(
+                    fixture::evaluate(&first, "pastes[0].files[0].size")
+                        .as_u64()
+                        .unwrap()
+                        > 0
+                );
+                clipboard(&app, 1);
+                paste();
+                fixture::wait_for(|| fixture::evaluate(&first, "pastes.length") == 2);
                 assert_eq!(
-                    errors.borrow().len(),
-                    1,
-                    "Invalid images must report an error"
+                    fixture::evaluate(&first, "pastes[1].text"),
+                    "Synthetic clipboard text"
+                );
+                clipboard(&app, 2);
+                paste();
+                fixture::wait_for(|| fixture::evaluate(&first,"pastes[2]?.invalid === true") == true);
+                assert_eq!(fixture::evaluate(&first,"pastes[0].decoded"), serde_json::json!([32,32]));
+                second.show().unwrap();
+                second.set_focus().unwrap();
+                first.hide().unwrap();
+                let previous = fixture::evaluate(&first, "pastes.length");
+                clipboard(&app, 1);
+                paste();
+                fixture::wait_for(|| fixture::evaluate(&second, "pastes.length") == 1);
+                assert_eq!(
+                    fixture::evaluate(&first, "pastes.length"),
+                    previous,
+                    "Hidden account must never receive the active account's paste"
                 );
                 assert_eq!(
-                    view.title().as_deref(),
-                    Some("text:Synthetic clipboard text:2")
+                    fixture::evaluate(&second, "pastes[0].text"),
+                    "Synthetic clipboard text"
                 );
-                stage(6);
-                let hidden = view.clone();
-                let target = gtk::TargetEntry::new("image/png", gtk::TargetFlags::empty(), 0);
-                assert!(clipboard.set_with_data(&[target], move |_, selection, _| {
-                    hidden.hide();
-                    selection.set(
-                        &gtk::gdk::Atom::intern("image/png"),
-                        8,
-                        include_bytes!("../icons/32x32.png"),
-                    );
-                }));
-                paste("ctrl+v");
-            }
-            6 => {
-                assert!(!view.is_visible());
-                assert_eq!(
-                    view.title().as_deref(),
-                    Some("text:Synthetic clipboard text:2"),
-                    "Switching away must cancel an in-flight image paste"
-                );
-                assert_eq!(errors.borrow().len(), 1);
-                stage(7);
-                view.show();
-                view.grab_focus();
-                view.load_html("<div contenteditable id='editor' style='min-height:48px'></div><script>editor.focus(); document.addEventListener('paste', e => {e.preventDefault(); document.title=String(e.isTrusted);}); document.title='untrusted-ready';</script>", Some("https://untrusted.example/"));
-            }
-            7 if !untrusted_paste => {
-                untrusted_paste = true;
-                clipboard.set_image(&image);
-                paste("ctrl+v");
-            }
-            7 => {
-                assert_ne!(view.title().as_deref(), Some("false"));
-                assert_eq!(errors.borrow().len(), 1);
-                stage(8);
-                println!("PASS: PNG paste with an in-flight modifier, text fallback, invalid image rejection, hidden-account cancellation and origin restriction");
-                // This standalone fixture tests paste, not WebKit teardown. Match
-                // layout_smoke: exit only after every behavioral assertion passed.
-                std::process::exit(0);
-            }
-            _ => unreachable!(),
-        }
-        glib::ControlFlow::Continue
-    });
-    gtk::main();
+                fixture::evaluate(&second,"window.nativeDenied=false;window.__TAURI__.core.invoke('plugin:window|destroy',{label:'clipboard'}).catch(()=>window.nativeDenied=true);true");
+                fixture::wait_for(|| fixture::evaluate(&second,"window.nativeDenied") == true);
+                passed.store(true, Ordering::SeqCst);
+                app.exit(0);
+            });
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .unwrap();
+    assert!(verified.load(Ordering::SeqCst));
+    println!(
+        "PASS: CEF native image/text paste, invalid image handling and hidden-account isolation"
+    );
 }

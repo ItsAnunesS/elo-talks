@@ -13,8 +13,9 @@ A Linux desktop app for managing multiple WhatsApp accounts in one place. Organi
 personal and work accounts into workspaces, keep them connected in the background,
 and protect their local profiles with an encrypted vault.
 
-Built with **Tauri 2, Rust and WebKitGTK**. No mandatory hosted account or telemetry. Local mode works without a server;
-organization metadata can use your own self-hosted server.
+Built with **Tauri 3, Rust and Chromium Embedded Framework (CEF)**, without Electron.
+The Tauri/CEF prereleases and Chromium distribution are pinned. Server controls are
+hidden; local accounts and encrypted backups remain available.
 
 ## What it does
 
@@ -59,7 +60,7 @@ Enable notifications in WhatsApp as well as Elo Talks. Unread badges use WhatsAp
 counter when available, with a notification-based fallback. They are not guaranteed
 message totals. Notification previews may remain in your desktop's history.
 
-The startup launcher offers **Open current version** if an update fails. Background
+The startup launcher requires successful verification and offers retry or quit if it fails. Background
 check intervals are configurable in Settings. Gear Lever and compatible AppImage
 managers can also discover updates through embedded zsync metadata; that does not
 mean those managers verify Sigstore signatures.
@@ -67,30 +68,35 @@ mean those managers verify Sigstore signatures.
 ## Security boundaries
 
 Profiles are stored in a gocryptfs vault. Remote WhatsApp views receive no Tauri
-capabilities, and each account uses an isolated WebKit context.
+capabilities, and each account uses an isolated Chromium context.
 
 An unlocked vault cannot protect against a compromised operating system. Exported
 attachments, desktop notification history and unprotected swap are outside its
 protection.
 
-Account views enable WebRTC for voice and video calls. WhatsApp must request
-microphone/camera access and you must approve the native permission dialog.
-Requests are cancelled when switching accounts or navigating away. Call availability
-still depends on WhatsApp Web and the installed WebKitGTK/GStreamer runtime;
-end-to-end voice/video calling has not yet been validated in the packaged AppImage.
+Account views use Chromium WebRTC with native camera/microphone prompts. Calls
+worked in the separate CEF prototype; acceptance in the complete packaged app is
+tracked in [validation status](docs/VALIDATION.md).
+
+When upgrading from WebKit, the vault, accounts and old profiles are preserved.
+Link each account again by QR: Chromium uses new profiles inside the same vault.
+WebKit session databases are not copied into Chromium.
 
 Read the [security model](docs/SECURITY.md) for details and limitations. The
 [0.4 release notes](docs/RELEASE-0.4.md) describe the current hardening work.
 
 ## Development
 
-Use the pinned Rust toolchain and lockfiles. Native builds require GTK3,
-WebKitGTK 4.1, libfido2, D-Bus and the packaging tools listed in the
+Use the pinned Rust toolchain and lockfiles. Native builds require GTK4 >= 4.14,
+CEF, libfido2, D-Bus and the packaging tools listed in the
 [release workflow](.github/workflows/release.yml). The local interface uses HTML,
 CSS and JavaScript with no runtime npm dependencies.
 
 ```sh
 npm ci --ignore-scripts
+export CEF_PATH="$(python3 scripts/prepare-cef.py)"
+bash scripts/prepare-helper.sh
+bash scripts/prepare-updater.sh
 cargo test --locked
 npm run format:check
 npm run test:ui
@@ -112,56 +118,15 @@ data; they do not replace testing on supported systems.
 See [Contributing](CONTRIBUTING.md), [agent guidelines](AGENTS.md) and
 [release instructions](docs/RELEASING.md) before submitting changes.
 
-### Tauri 3 / CEF prototype
+### Docker and CEF
 
-`prototypes/tauri-cef` is a separate Cargo workspace with its own lockfile and
-Docker build environment (Rust 1.99.1, Debian Trixie / GTK4). It does not replace
-the production Tauri 2 application or change vault formats. It contains no
-Electron dependency or controller IPC commands. Its live-account route is gated
-by the supervised launcher and a verified gocryptfs mount.
+`Dockerfile.cef` builds the complete app against Ubuntu 24.04, matching CI.
+`scripts/prepare-cef.py` verifies the pinned archive's size and SHA-256 before
+extracting it. `scripts/build-appimage.sh` uses the existing checksum-pinned
+packager, preserves zsync metadata and bundles CEF with the updater and gocryptfs.
+The app never disables Chromium sandboxing or installs a host AppArmor exception.
+Hosts must permit Chromium's unprivileged user namespaces.
 
-The synthetic probe requires Chromium sandboxing, denies device permissions,
-and checks locally generated audio/video transmission between two WebRTC peers.
-It uses a fresh temporary profile and no STUN/TURN servers.
-
-For an authorized live test, `prototypes/tauri-cef/live_test.py` creates a separate
-disposable gocryptfs vault, monitors the active login session, and stops browser
-processes before normal unmount. It never opens the installed application vault.
-Use only a test WhatsApp account: closing the window, locking the desktop,
-suspending, or reaching the 15-minute limit destroys the temporary test profile.
-The existing application password/PIN/catalog are not migrated by this prototype.
-
-```sh
-docker build -t elo-cef-prototype:local prototypes/tauri-cef
-docker run --rm \
-  --mount type=bind,src="$PWD/prototypes/tauri-cef",dst=/probe \
-  --mount type=volume,src=elo-cef-build-cache,dst=/cache \
-  -e CARGO_TARGET_DIR=/cache/target \
-  elo-cef-prototype:local cargo build --locked --release
-```
-
-The first build downloads the CEF distribution from its official CDN. A verified
-local distribution can instead be mounted read-only and selected with `CEF_PATH`.
-Do not use `--no-sandbox` or relax host/container sandbox policy to make the test
-pass. See [integration evidence](docs/WHATSAPP_INTEGRATION.md) for current results
-and outstanding gates; this prototype is not a supported account client.
-
-On a Linux desktop with PyGObject, logind and FUSE available:
-
-```sh
-python3 prototypes/tauri-cef/live_test.py \
-  --browser /absolute/path/to/elo-cef-probe \
-  --gocryptfs /absolute/path/to/verified/gocryptfs
-```
-
-Add `--vault-smoke` to validate encrypted storage without opening WhatsApp, or
-`--supervision-smoke` to check termination of a synthetic process that ignores
-SIGTERM before normal unmount. On any closure failure, retain the reported
-recovery directory; do not force or lazily detach the mount.
-
-## License
-
-[MIT](LICENSE). Published by **AnunesS**.
-
-Elo Talks is an independent project and is not affiliated with WhatsApp or Meta.
-WhatsApp is a trademark of its owner.
+The original `prototypes/tauri-cef` workspace remains a historical calling probe;
+it is not the application or the release artifact. See
+[the integration record](docs/WHATSAPP_INTEGRATION.md).

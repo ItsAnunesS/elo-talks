@@ -1,15 +1,105 @@
 //! Bounded self-avatar adapter with an optional cache inside the unlocked vault.
 use crate::{account_events::AccountEvents, account_runtime::AvatarState};
 use gtk::{gdk_pixbuf::PixbufLoader, glib, prelude::*};
-use javascriptcore::ValueExt;
-use std::{
-    cell::{Cell, RefCell},
-    collections::VecDeque,
-    rc::Rc,
-    time::{Duration, Instant},
-};
+
 use tauri::{Emitter, Manager};
-use webkit2gtk::{URIResponseExt, WebResourceExt, WebViewExt};
+
+use std::collections::VecDeque;
+use std::sync::{mpsc, Arc, Mutex};
+use tauri_runtime_cef::{allocate_devtools_message_id, DevToolsProtocol, WebviewCefExt};
+#[derive(Default)]
+pub struct Resources {
+    images: Mutex<VecDeque<(String, String)>>,
+    pending: Mutex<Option<(i32, mpsc::SyncSender<Vec<u8>>)>>,
+}
+pub fn observe(view: &tauri::Webview, app: &tauri::AppHandle, id: &str) -> tauri::Result<()> {
+    let resources = Arc::new(Resources::default());
+    app.state::<AccountEvents>()
+        .avatar_resources
+        .lock()
+        .unwrap()
+        .insert(id.to_owned(), resources.clone());
+    view.on_dev_tools_protocol(move |event| match event {
+        DevToolsProtocol::Event { method, params }
+            if method == "Network.responseReceived" && params.len() <= 32 * 1024 =>
+        {
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&params) else {
+                return;
+            };
+            let response = &value["response"];
+            let Some(url) = response["url"]
+                .as_str()
+                .filter(|url| url.len() <= 4096 && eligible_image_resource(url))
+            else {
+                return;
+            };
+            if !matches!(
+                response["mimeType"].as_str(),
+                Some("image/jpeg" | "image/png")
+            ) {
+                return;
+            }
+            let Some(request) = value["requestId"].as_str().filter(|id| id.len() <= 256) else {
+                return;
+            };
+            let mut images = resources.images.lock().unwrap();
+            if images.len() >= 64 {
+                images.pop_front();
+            }
+            images.push_back((url.to_owned(), request.to_owned()));
+        }
+        DevToolsProtocol::MethodResult {
+            message_id,
+            success,
+            result,
+        } => {
+            let mut pending = resources.pending.lock().unwrap();
+            if pending.as_ref().is_none_or(|(id, _)| *id != message_id) {
+                return;
+            }
+            let (_, sender) = pending.take().unwrap();
+            if !success || result.len() > MAX_BYTES * 2 {
+                return;
+            }
+            if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&result) {
+                if value["base64Encoded"] == true {
+                    if let Some(body) = value["body"].as_str() {
+                        let bytes = glib::base64_decode(body);
+                        if bytes.len() <= MAX_BYTES {
+                            let _ = sender.try_send(bytes);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    })?;
+    let message_id = allocate_devtools_message_id().map_err(anyhow::Error::from)?;
+    view.send_dev_tools_message(serde_json::json!({"id":message_id,"method":"Network.enable","params":{"maxTotalBufferSize":MAX_BYTES * 64,"maxResourceBufferSize":MAX_BYTES}}).to_string().as_bytes())
+}
+fn remote_image(view: &tauri::Webview, resources: &Resources, source: &str) -> Option<String> {
+    let request = resources
+        .images
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|(url, _)| url == source)
+        .map(|(_, request)| request.clone())?;
+    let message_id = allocate_devtools_message_id().ok()?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    *resources.pending.lock().unwrap() = Some((message_id, sender));
+    let result = view.send_dev_tools_message(serde_json::json!({"id":message_id,"method":"Network.getResponseBody","params":{"requestId":request}}).to_string().as_bytes());
+    let bytes = if result.is_ok() {
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .ok()
+    } else {
+        None
+    };
+    resources.pending.lock().unwrap().take();
+    normalized_image(&bytes?)
+}
 
 #[derive(Clone)]
 pub struct Avatar {
@@ -17,7 +107,6 @@ pub struct Avatar {
 }
 
 const MAX_BYTES: usize = 256 * 1024;
-const MAX_RESOURCES: usize = 64;
 const MAX_ATTEMPTS: u8 = 7;
 #[derive(Default)]
 struct ProbeBudget {
@@ -77,17 +166,6 @@ fn eligible_image_resource(uri: &str) -> bool {
         && url.host_str().is_some()
 }
 
-fn supported_image(resource: &webkit2gtk::WebResource) -> bool {
-    resource.response().is_some_and(|response| {
-        response.content_length() > 0
-            && response.content_length() <= MAX_BYTES as u64
-            && matches!(
-                response.mime_type().as_deref(),
-                Some("image/jpeg" | "image/png")
-            )
-    })
-}
-
 pub fn normalized_image(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() || bytes.len() > MAX_BYTES {
         return None;
@@ -132,18 +210,6 @@ fn report(app: &tauri::AppHandle, id: &str, status: AvatarState, active: Option<
         if let Some(active) = active {
             health.avatar_probe_active = active;
         }
-    }
-}
-fn stop_report(app: &tauri::AppHandle, id: &str) {
-    if let Some(health) = app
-        .state::<AccountEvents>()
-        .runtime
-        .lock()
-        .unwrap()
-        .accounts
-        .get_mut(id)
-    {
-        health.avatar_probe_active = false;
     }
 }
 
@@ -229,191 +295,109 @@ pub fn current(app: &tauri::AppHandle, id: &str) -> Option<String> {
         .map(|avatar| avatar.image.clone())
 }
 
-pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
-    let resources = Rc::new(RefCell::new(VecDeque::<webkit2gtk::WebResource>::new()));
-    let generation = Rc::new(Cell::new(0u64));
-    let collecting = Rc::new(Cell::new(false));
-    let cache = Rc::downgrade(&resources);
-    let active = collecting.clone();
-    let current_generation = generation.clone();
-    view.connect_resource_load_started(move |_, resource, _| {
-        if !active.get()
-            || !resource
-                .uri()
-                .is_some_and(|uri| eligible_image_resource(&uri))
-        {
+pub fn attach(view: &tauri::Webview, app: &tauri::AppHandle, id: &str) {
+    let generation = {
+        let events = app.state::<AccountEvents>();
+        let mut runtime = events.runtime.lock().unwrap();
+        let Some(health) = runtime.accounts.get_mut(id) else {
+            return;
+        };
+        if health.avatar_probe_active {
             return;
         }
-        let cache = cache.clone();
-        let active = active.clone();
-        let generation = current_generation.clone();
-        let epoch = generation.get();
-        resource.connect_finished(move |resource| {
-            if !active.get() || generation.get() != epoch || !supported_image(resource) {
-                return;
-            }
-            let Some(cache) = cache.upgrade() else {
-                return;
-            };
-            let mut cache = cache.borrow_mut();
-            if cache.len() == MAX_RESOURCES {
-                cache.pop_front();
-            }
-            cache.push_back(resource.clone());
-        });
-    });
-    let app = app.clone();
-    let id = id.to_owned();
-    view.connect_load_changed(move |view, event| {
-        if event != webkit2gtk::LoadEvent::Started {
-            return;
-        }
-        generation.set(generation.get().wrapping_add(1));
-        let epoch = generation.get();
-        resources.borrow_mut().clear();
-        collecting.set(true);
-        report(&app, &id, AvatarState::Searching, Some(true));
-        let weak = view.downgrade();
-        let app = app.clone();
-        let id = id.clone();
-        let generation = generation.clone();
-        let resources = resources.clone();
-        let collecting = collecting.clone();
-        let pending = Rc::new(Cell::new(false));
-        let done = Rc::new(Cell::new(false));
-        let started = Instant::now();
+        health.avatar_probe_active = true;
+        health.avatar = AvatarState::Searching;
+        health.generation
+    };
+    let Some(script) = app
+        .state::<AccountEvents>()
+        .scripts
+        .lock()
+        .unwrap()
+        .get(id)
+        .cloned()
+    else {
+        return;
+    };
+    let view = view.clone();
+    let handle = app.clone();
+    let account = id.to_owned();
+    let resources = app
+        .state::<AccountEvents>()
+        .avatar_resources
+        .lock()
+        .unwrap()
+        .get(id)
+        .cloned();
+    std::thread::spawn(move || {
         let mut budget = ProbeBudget::default();
-        if let Some(health) = app
-            .state::<AccountEvents>()
-            .runtime
-            .lock()
-            .unwrap()
-            .accounts
-            .get_mut(&id)
-        {
-            health.avatar_attempts = 0;
-        }
-        let cancellation = gtk::gio::Cancellable::new();
-        glib::timeout_add_local(Duration::from_secs(5), move || {
-            if generation.get() != epoch {
-                cancellation.cancel();
-                return glib::ControlFlow::Break;
-            }
-            let view = weak.upgrade();
-            if view.is_none()
-                || done.get()
-                || (budget.exhausted() && !pending.get())
-                || started.elapsed() >= Duration::from_secs(40)
+        let mut status = AvatarState::ControlNotFound;
+        let mut found = None;
+        while budget.begin() {
+            std::thread::sleep(std::time::Duration::from_secs(2));
             {
-                cancellation.cancel();
-                collecting.set(false);
-                if !done.get() {
-                    resources.borrow_mut().clear();
-                }
-                stop_report(&app, &id);
-                return glib::ControlFlow::Break;
-            }
-            let view = view.unwrap();
-            if pending.get()
-                || !view
-                    .uri()
-                    .and_then(|uri| tauri::Url::parse(&uri).ok())
-                    .is_some_and(|url| crate::whatsapp::is_origin(&url))
-            {
-                return glib::ControlFlow::Continue;
-            }
-            if !budget.begin() {
-                return glib::ControlFlow::Continue;
-            }
-            if let Some(health) = app
-                .state::<AccountEvents>()
-                .runtime
-                .lock()
-                .unwrap()
-                .accounts
-                .get_mut(&id)
-            {
+                let events = handle.state::<AccountEvents>();
+                let mut runtime = events.runtime.lock().unwrap();
+                let Some(health) = runtime
+                    .accounts
+                    .get_mut(&account)
+                    .filter(|health| health.generation == generation)
+                else {
+                    return;
+                };
                 health.avatar_attempts = budget.attempts;
             }
-            pending.set(true);
-            let pending = pending.clone();
-            let done = done.clone();
-            let generation = generation.clone();
-            let resources = resources.clone();
-            let app = app.clone();
-            let id = id.clone();
-            let cancel = cancellation.clone();
-            view.evaluate_javascript(
-                include_str!("avatar.js"),
-                None,
-                Some("elo-self-avatar"),
-                Some(&cancellation),
-                move |result| {
-                    if generation.get() != epoch || cancel.is_cancelled() {
-                        pending.set(false);
-                        return;
-                    }
-                    let Some(selected) = result
-                        .ok()
-                        .filter(|v| v.is_string())
-                        .and_then(|v| candidate(&v.to_string()))
-                    else {
-                        report(&app, &id, AvatarState::ControlNotFound, None);
-                        pending.set(false);
-                        return;
-                    };
-                    let source = selected.source.clone();
-                    if let Some(image) = blob_image(&selected) {
-                        pending.set(false);
-                        done.set(true);
-                        resources.borrow_mut().clear();
-                        publish(&app, &id, Some(Avatar { image }));
-                        return;
-                    }
-                    if !eligible_image_resource(&source) {
-                        report(&app, &id, AvatarState::UnsupportedImage, None);
-                        pending.set(false);
-                        return;
-                    }
-                    let resource = resources
-                        .borrow()
-                        .iter()
-                        .find(|resource| resource.uri().as_deref() == Some(source.as_str()))
-                        .cloned();
-                    let Some(resource) = resource else {
-                        report(&app, &id, AvatarState::ResourceUnavailable, None);
-                        pending.set(false);
-                        return;
-                    };
-                    if !supported_image(&resource) {
-                        report(&app, &id, AvatarState::UnsupportedImage, None);
-                        pending.set(false);
-                        return;
-                    }
-                    let finished_cancel = cancel.clone();
-                    WebResourceExt::data(&resource, Some(&cancel), move |data| {
-                        pending.set(false);
-                        if generation.get() != epoch || finished_cancel.is_cancelled() {
-                            return;
-                        }
-                        let status = if data.is_err() {
-                            AvatarState::ReadFailed
-                        } else {
-                            AvatarState::DecodeFailed
-                        };
-                        if let Some(image) = data.ok().and_then(|data| normalized_image(&data)) {
-                            done.set(true);
-                            resources.borrow_mut().retain(|resource| {
-                                resource.uri().as_deref() == Some(source.as_str())
-                            });
-                            publish(&app, &id, Some(Avatar { image }));
-                        } else {
-                            report(&app, &id, status, None);
-                        }
-                    });
-                },
-            );
-            glib::ControlFlow::Continue
+            if !view
+                .url()
+                .ok()
+                .is_some_and(|u| crate::whatsapp::is_origin(&u))
+            {
+                break;
+            }
+            let Some(result) = script.evaluate(&view, include_str!("avatar.js")) else {
+                status = AvatarState::ReadFailed;
+                continue;
+            };
+            let Some(value) = result.as_str().and_then(candidate) else {
+                status = AvatarState::ControlNotFound;
+                continue;
+            };
+            found = blob_image(&value).or_else(|| {
+                resources
+                    .as_ref()
+                    .and_then(|resources| remote_image(&view, resources, &value.source))
+            });
+            status = if value.png.is_some() {
+                AvatarState::DecodeFailed
+            } else if value.source.starts_with("blob:") {
+                AvatarState::UnsupportedImage
+            } else {
+                AvatarState::ResourceUnavailable
+            };
+            if found.is_some() {
+                break;
+            }
+        }
+        let completion = handle.clone();
+        // Publish on the same native event loop that advances navigation state.
+        let _ = handle.run_on_main_thread(move || {
+            {
+                let events = completion.state::<AccountEvents>();
+                let mut runtime = events.runtime.lock().unwrap();
+                let Some(health) = runtime
+                    .accounts
+                    .get_mut(&account)
+                    .filter(|health| health.generation == generation)
+                else {
+                    return;
+                };
+                health.avatar_probe_active = false;
+                health.avatar = status;
+            }
+            if let Some(image) = found {
+                publish(&completion, &account, Some(Avatar { image }));
+            }
+            crate::account_events::publish(&completion);
         });
     });
 }

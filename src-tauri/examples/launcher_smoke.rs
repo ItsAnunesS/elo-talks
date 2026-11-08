@@ -64,7 +64,6 @@ fn main() {
                 request.op.as_str(),
                 "launcher.continue" | "launcher.recover" | "quit" | "update.install"
             ) {
-                gtk::glib::MainContext::default().invoke(gtk::main_quit);
                 break;
             }
         }
@@ -75,7 +74,7 @@ fn main() {
             gtk::glib::timeout_add_local_once(Duration::from_millis(200), || {
                 for widget in gtk::Window::list_toplevels() {
                     if let Some(window) = widget.downcast_ref::<gtk::Window>() {
-                        window.resize(460, 380);
+                        window.set_default_size(460, 380);
                     }
                 }
             });
@@ -83,12 +82,17 @@ fn main() {
         gtk::glib::timeout_add_local_once(Duration::from_millis(700), move || {
             use gtk::gdk::prelude::*;
             let widget = gtk::Window::list_toplevels().into_iter().next().unwrap();
-            let window = widget.window().unwrap();
-            window
-                .pixbuf(0, 0, widget.allocated_width(), widget.allocated_height())
-                .unwrap()
-                .savev(&path, "png", &[])
+            let window = widget.downcast_ref::<gtk::Window>().unwrap();
+            let paintable = gtk::WidgetPaintable::new(Some(&widget));
+            let snapshot = gtk::Snapshot::new();
+            paintable.snapshot(&snapshot, widget.width() as f64, widget.height() as f64);
+            let node = snapshot.to_node().unwrap();
+            let renderer = gtk::gsk::Renderer::for_surface(&window.surface().unwrap()).unwrap();
+            renderer
+                .render_texture(&node, None)
+                .save_to_png(&path)
                 .unwrap();
+            renderer.unrealize();
         });
     }
     if matches!(
@@ -109,7 +113,7 @@ fn main() {
             _ => "Quit",
         };
         let installing = scenario == "installing";
-        gtk::glib::timeout_add_local_once(Duration::from_millis(1000), move || {
+        gtk::glib::timeout_add_local(Duration::from_millis(1000), move || {
             fn click(widget: &gtk::Widget, action: &str, installing: bool) -> bool {
                 if let Some(window) = widget.downcast_ref::<gtk::Window>() {
                     assert!(
@@ -137,21 +141,27 @@ fn main() {
                         return true;
                     }
                 }
-                if let Some(container) = widget.downcast_ref::<gtk::Container>() {
-                    let mut found = false;
-                    for child in container.children() {
-                        found |= click(&child, action, installing);
-                    }
-                    return found;
+                let mut child = widget.first_child();
+                let mut found = false;
+                while let Some(widget) = child {
+                    found |= click(&widget, action, installing);
+                    child = widget.next_sibling();
+                }
+                if found {
+                    return true;
                 }
                 false
             }
-            assert!(gtk::Window::list_toplevels()
+            if !gtk::Window::list_toplevels()
                 .iter()
-                .any(|window| click(window, action, installing)));
+                .any(|window| click(window, action, installing))
+            {
+                return gtk::glib::ControlFlow::Continue;
+            }
             if installing {
                 *next_phase.lock().unwrap() = "current".into();
             }
+            gtk::glib::ControlFlow::Break
         });
     }
     gtk::glib::timeout_add_local_once(Duration::from_secs(8), || panic!("Launcher did not finish"));

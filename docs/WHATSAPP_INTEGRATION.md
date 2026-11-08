@@ -1,5 +1,21 @@
 # WhatsApp integration evaluation
 
+## Full application migration — candidate, not yet published
+
+The application source now uses Tauri 3/CEF, GTK4 launcher/file choosers and
+separate encrypted Chromium contexts, without Electron. The native notification
+adapter blocks direct Chromium delivery and passes synthetic document,
+registration and service-worker transport tests. Existing D-Bus privacy/click
+regressions also pass. Isolated-world readiness/avatar queries, account storage,
+hidden notification delivery, layout, fullscreen denial, clipboard and real
+CEF-process shutdown before encrypted backup have native regression coverage.
+
+The full AppImage, real calls in that artifact, desktop acceptance and publication
+are still pending. The prototype findings below are historical and do not by
+themselves validate the migrated release. The WebKit-only `avatar_probe` has been
+retired; use the CEF synthetic avatar regression and private in-app diagnostics.
+
+
 ## Full-app integration release gate — 2026-11-08
 
 Work is isolated on `codex/tauri3-cef-integration`. The maintainer authorized

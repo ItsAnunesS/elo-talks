@@ -1,7 +1,9 @@
 [workspace]
 members = ["src-tauri"]
 resolver = "2"
-exclude = ["vendor/glib"]
+exclude = ["vendor/glib", "vendor/tauri-runtime-cef", "vendor/phf_generator"]
 
 [patch.crates-io]
 glib = { path = "vendor/glib" }
+tauri-runtime-cef = { path = "vendor/tauri-runtime-cef" }
+phf_generator = { path = "vendor/phf_generator" }

@@ -66,7 +66,7 @@ fn main() {
         let records = calls.clone();
         let failed = fail.clone();
         let info = gio::DBusNodeInfo::for_xml(XML).unwrap();
-        let registration = connection.register_object(PATH, &info.lookup_interface(SERVICE).unwrap(),
+        let registration = connection.register_object(PATH, &info.lookup_interface(SERVICE).unwrap()).method_call(
             move |_, _, _, _, _, parameters, invocation| {
                 if failed.load(Ordering::Relaxed) {
                     invocation.return_dbus_error("org.freedesktop.Notifications.Error.Failed", "Synthetic private error");
@@ -86,7 +86,7 @@ fn main() {
                         invocation.return_value(Some(&(id,).to_variant()));
                     });
                 } else { invocation.return_value(Some(&(id,).to_variant())); }
-            }, |_, _, _, _, _| ().to_variant(), |_, _, _, _, _, _| false).unwrap();
+            }).build().unwrap();
         let notifier = Arc::new(desktop_notifications::DesktopNotifications::default());
         let selected = Arc::new(Mutex::new(String::new()));
         for _ in 0..8 {

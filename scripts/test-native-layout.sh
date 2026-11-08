@@ -5,10 +5,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 example="${1:-layout_smoke}"
 case "$example" in
-  layout_smoke|clipboard_smoke) ;;
+  layout_smoke|clipboard_smoke|cef_notification_smoke|shell_smoke) ;;
   *) echo 'Unsupported native fixture.' >&2; exit 1 ;;
 esac
-binary="$(realpath "target/debug/examples/$example")"
+: "${CEF_PATH:?Prepare the pinned CEF distribution first}"
+stage="$(mktemp -d "${CARGO_TARGET_DIR:-target}/native-$example.XXXXXX")"
+cp "${CARGO_TARGET_DIR:-target}/debug/examples/$example" "$stage/$example"
+for resource in "$CEF_PATH"/*; do ln -s "$resource" "$stage/$(basename "$resource")"; done
+binary="$(realpath "$stage/$example")"
 profile="elo-talks-ci-$example"
 profile_file="$(mktemp)"
 loaded=false
@@ -17,6 +21,7 @@ cleanup() {
     sudo apparmor_parser -R "$profile_file"
   fi
   rm -f "$profile_file"
+  rm -rf "$stage"
 }
 trap cleanup EXIT
 
@@ -26,7 +31,7 @@ if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null 
     exit 1
   }
   # Only this exact synthetic test executable gains userns permission. Neither
-  # the global kernel restriction nor the WebKit sandbox is disabled.
+  # the global kernel restriction nor the Chromium sandbox is disabled.
   [[ "$binary" != *'"'* && "$binary" != *$'\n'* ]] || exit 1
   cat > "$profile_file" <<PROFILE
 abi <abi/4.0>,
@@ -40,11 +45,13 @@ PROFILE
 fi
 
 mkdir -p tests/test-results/native
+# Exercise GTK fallback dialogs on this isolated display; a real desktop portal
+# requires its owning desktop session and is checked during artifact acceptance.
 for scale in 1 2; do
   echo "Running $example at scale $scale"
   xvfb-run -a -s '-screen 0 3200x2000x24' \
-    env -u WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS \
-    GDK_SCALE="$scale" WEBKIT_FORCE_SANDBOX=1 LIBGL_ALWAYS_SOFTWARE=1 \
+    env LD_LIBRARY_PATH="$CEF_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    GDK_SCALE="$scale" LIBGL_ALWAYS_SOFTWARE=1 GTK_USE_PORTAL=0 GDK_DEBUG=no-portals GIO_USE_VFS=local \
     dbus-run-session -- timeout 30s "$binary" 2>&1 | tee "tests/test-results/native/$example-scale-$scale.log" || {
       code=$?
       echo "::error::Native $example failed at scale $scale (exit $code)"

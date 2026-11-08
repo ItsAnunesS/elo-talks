@@ -13,7 +13,6 @@ use std::sync::{
     mpsc, Arc, Mutex,
 };
 use tauri::{Emitter, Manager};
-use webkit2gtk::{NotificationExt, WebViewExt};
 
 // AppImage managers may rename the desktop entry; include the launched identity.
 fn desktop_ids() -> Vec<String> {
@@ -57,9 +56,12 @@ pub fn clear_desktop_badge() {
 }
 
 pub struct AccountEvents {
+    pub scripts: Mutex<std::collections::BTreeMap<String, Arc<crate::account_script::Script>>>,
     pub runtime: Mutex<AccountRuntime>,
     pub avatars: Mutex<std::collections::BTreeMap<String, crate::account_avatar::Avatar>>,
     pub avatar_cache_paths: Mutex<std::collections::BTreeMap<String, std::path::PathBuf>>,
+    pub avatar_resources:
+        Mutex<std::collections::BTreeMap<String, Arc<crate::account_avatar::Resources>>>,
     badge_count: Arc<AtomicU64>,
     badge_wake: mpsc::SyncSender<()>,
     desktop: DesktopNotifications,
@@ -81,8 +83,10 @@ impl Default for AccountEvents {
         });
         Self {
             runtime: Mutex::new(AccountRuntime::default()),
+            scripts: Mutex::default(),
             avatars: Mutex::default(),
             avatar_cache_paths: Mutex::default(),
+            avatar_resources: Mutex::default(),
             badge_count,
             badge_wake,
             desktop: DesktopNotifications::default(),
@@ -92,10 +96,14 @@ impl Default for AccountEvents {
 
 pub fn publish(app: &tauri::AppHandle) {
     let events = app.state::<AccountEvents>();
-    let runtime = events.runtime.lock().unwrap();
-    let total = runtime.total();
-    let _ = app.emit_to("main", "account-state", &*runtime);
-    drop(runtime);
+    let (total, snapshot) = {
+        let runtime = events.runtime.lock().unwrap();
+        (
+            runtime.total(),
+            serde_json::to_value(&*runtime).expect("Account state serialization"),
+        )
+    };
+    let _ = app.emit_to("main", "account-state", snapshot);
     // Page-state events do not need to rewrite the title or send duplicate dock updates.
     if events.badge_count.swap(total, Ordering::Relaxed) == total {
         return;
@@ -125,109 +133,107 @@ pub fn page(app: &tauri::AppHandle, id: &str, page: PageState) {
     publish(app);
 }
 
-pub fn attach(view: &webkit2gtk::WebView, app: &tauri::AppHandle, id: &str) {
+pub fn attach(
+    view: &tauri::Webview,
+    app: &tauri::AppHandle,
+    id: &str,
+    activity: mpsc::SyncSender<()>,
+) -> tauri::Result<()> {
+    app.state::<AccountEvents>()
+        .scripts
+        .lock()
+        .unwrap()
+        .insert(id.to_owned(), crate::account_script::Script::attach(view)?);
+    use tauri_runtime_cef::{DevToolsProtocol, WebviewCefExt};
+    let tls_handle = app.clone();
+    let tls_account = id.to_owned();
+    view.on_dev_tools_protocol(move |event| {
+        if let DevToolsProtocol::Event { method, params } = event {
+            if method != "Network.loadingFailed" || params.len() > 4096 {
+                return;
+            }
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&params) else {
+                return;
+            };
+            if value["type"] == "Document"
+                && value["errorText"].as_str().is_some_and(|error| {
+                    error.starts_with("net::ERR_CERT_") || error.starts_with("net::ERR_SSL_")
+                })
+            {
+                page(&tls_handle, &tls_account, PageState::TlsFailed);
+            }
+        }
+    })?;
     let handle = app.clone();
     let account = id.to_owned();
-    view.connect_title_notify(move |view| {
-        let count = crate::whatsapp::unread_count(view.uri().as_deref(), view.title().as_deref());
-        let changed = handle
-            .state::<AccountEvents>()
-            .runtime
-            .lock()
-            .unwrap()
-            .update_unread(&account, count);
-        if changed {
+    let failure_handle = app.clone();
+    let failure_id = id.to_owned();
+    crate::cef_notifications::attach(
+        view,
+        "https://web.whatsapp.com",
+        move |title, body| {
+            let events = handle.state::<AccountEvents>();
+            let allowed = events.runtime.lock().unwrap().notification(&account);
             publish(&handle);
-        }
-    });
-    let handle = app.clone();
-    let account = id.to_owned();
-    view.connect_load_changed(move |_, event| match event {
-        webkit2gtk::LoadEvent::Started => page(&handle, &account, PageState::Loading),
-        webkit2gtk::LoadEvent::Finished => page(&handle, &account, PageState::Ready),
-        _ => {}
-    });
-    let handle = app.clone();
-    let account = id.to_owned();
-    view.connect_load_failed(move |_, _, _, _| {
-        // Never expose remote URLs, WebKit error descriptions, or page text.
-        let is_tls = handle
-            .state::<AccountEvents>()
-            .runtime
-            .lock()
-            .unwrap()
-            .accounts
-            .get(&account)
-            .is_some_and(|health| health.page == PageState::TlsFailed);
-        if !is_tls {
-            page(&handle, &account, PageState::LoadFailed);
-        }
-        true
-    });
-    let handle = app.clone();
-    let account = id.to_owned();
-    view.connect_load_failed_with_tls_errors(move |_, _, _, _| {
-        page(&handle, &account, PageState::TlsFailed);
-        // Handling the signal does not grant a certificate exception.
-        true
-    });
-    let handle = app.clone();
-    let account = id.to_owned();
-    view.connect_web_process_terminated(move |_, _| {
-        page(&handle, &account, PageState::ProcessStopped)
-    });
-    let handle = app.clone();
-    let account = id.to_owned();
-    view.connect_show_notification(move |_, notification| {
-        let events = handle.state::<AccountEvents>();
-        let allowed = events.runtime.lock().unwrap().notification(&account);
-        publish(&handle);
-        if allowed {
-            let (detail, channel) = {
-                let runtime = events.runtime.lock().unwrap();
-                (
-                    runtime.preferences.detail,
-                    runtime
-                        .channel_names
-                        .get(&account)
-                        .cloned()
-                        .unwrap_or_default(),
-                )
-            };
-            // Read native content only after the user enables previews. It is never
-            // added to account state, diagnostics, frontend events or persistent storage.
-            let (sender, body) = if detail == NotificationDetail::Preview {
-                (notification.title(), notification.body())
-            } else {
-                (None, None)
-            };
-            let text =
-                NotificationText::message(detail, &channel, sender.as_deref(), body.as_deref());
-            let handle = handle.clone();
-            let account = account.clone();
-            gtk::glib::MainContext::default().spawn_local(async move {
-                let result = send_desktop_notification(&handle, &account, text).await;
-                {
-                    let events = handle.state::<AccountEvents>();
-                    let mut runtime = events.runtime.lock().unwrap();
-                    if let Some(health) = runtime.accounts.get_mut(&account) {
-                        if result != Ok(false)
-                            && health.notification_delivery == NotificationDelivery::Pending
+            if allowed {
+                let (detail, channel) = {
+                    let runtime = events.runtime.lock().unwrap();
+                    (
+                        runtime.preferences.detail,
+                        runtime
+                            .channel_names
+                            .get(&account)
+                            .cloned()
+                            .unwrap_or_default(),
+                    )
+                };
+                // Only opt-in previews reach the desktop. Notification content never enters
+                // account state, diagnostics, frontend events or persistent storage.
+                let (sender, body) = if detail == NotificationDetail::Preview {
+                    (Some(title), Some(body))
+                } else {
+                    (None, None)
+                };
+                let text =
+                    NotificationText::message(detail, &channel, sender.as_deref(), body.as_deref());
+                let handle = handle.clone();
+                let account = account.clone();
+                let dispatcher = handle.clone();
+                let _ = dispatcher.run_on_main_thread(move || {
+                    gtk::glib::MainContext::default().spawn_local(async move {
+                        let result = send_desktop_notification(&handle, &account, text).await;
                         {
-                            health.notification_delivery = if result.is_ok() {
-                                NotificationDelivery::Submitted
-                            } else {
-                                NotificationDelivery::Failed
-                            };
+                            let events = handle.state::<AccountEvents>();
+                            let mut runtime = events.runtime.lock().unwrap();
+                            if let Some(health) = runtime.accounts.get_mut(&account) {
+                                if result != Ok(false)
+                                    && health.notification_delivery == NotificationDelivery::Pending
+                                {
+                                    health.notification_delivery = if result.is_ok() {
+                                        NotificationDelivery::Submitted
+                                    } else {
+                                        NotificationDelivery::Failed
+                                    };
+                                }
+                            }
                         }
-                    }
-                }
-                publish(&handle);
-            });
-        }
-        notification.close();
-        true
-    });
+                        publish(&handle);
+                    });
+                });
+            }
+        },
+        move || {
+            let _ = activity.try_send(());
+        },
+        move || {
+            page(&failure_handle, &failure_id, PageState::ProcessStopped);
+            let _ = failure_handle.emit_to(
+                "main",
+                "account-error",
+                "The account could not start securely. Lock and unlock the vault to retry.",
+            );
+        },
+    )
 }
 
 /// Called on GTK's main context; D-Bus work and click handling are asynchronous.

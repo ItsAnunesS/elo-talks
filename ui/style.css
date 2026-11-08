@@ -1520,3 +1520,59 @@ body[data-unlocked="true"] > .toast {
   font-size: 11px;
   line-height: 1.5;
 }
+
+/* The native CEF account bounds leave these trusted resize edges uncovered. */
+.window-resize {
+  position: fixed;
+  z-index: 10000;
+  touch-action: none;
+}
+.window-resize-n,
+.window-resize-s {
+  left: 6px;
+  right: 6px;
+  height: 6px;
+  cursor: ns-resize;
+}
+.window-resize-e,
+.window-resize-w {
+  top: 6px;
+  bottom: 6px;
+  width: 6px;
+  cursor: ew-resize;
+}
+.window-resize-n,
+.window-resize-ne,
+.window-resize-nw {
+  top: 0;
+}
+.window-resize-s,
+.window-resize-se,
+.window-resize-sw {
+  bottom: 0;
+}
+.window-resize-e,
+.window-resize-ne,
+.window-resize-se {
+  right: 0;
+}
+.window-resize-w,
+.window-resize-nw,
+.window-resize-sw {
+  left: 0;
+}
+.window-resize-ne,
+.window-resize-nw,
+.window-resize-se,
+.window-resize-sw {
+  width: 6px;
+  height: 6px;
+}
+.window-resize-ne,
+.window-resize-sw {
+  cursor: nesw-resize;
+}
+.window-resize-nw,
+.window-resize-se {
+  cursor: nwse-resize;
+}

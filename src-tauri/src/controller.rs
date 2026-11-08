@@ -346,15 +346,19 @@ impl Controller {
             .arg(&self.runtime)
             .arg(&profile)
             .process_group(0);
-        cmd.env("WEBKIT_FORCE_SANDBOX", "1");
         cmd.env("XDG_CACHE_HOME", profile.join("cache"))
-            .env("XDG_DATA_HOME", profile.join("data"));
+            .env("XDG_DATA_HOME", profile.join("data"))
+            .env("XDG_CONFIG_HOME", profile.join("config"))
+            .env("TMPDIR", crate::account_profiles::temporary(&profile)?);
         // No crash dumps, WebKit debugging, or user-provided sandbox bypasses.
         for name in [
             "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS",
             "WEBKIT_INSPECTOR_SERVER",
             "GTK_MODULES",
             "GTK3_MODULES",
+            "GTK_PATH",
+            "CHROME_LOG_FILE",
+            "CHROME_DEVEL_SANDBOX",
         ] {
             cmd.env_remove(name);
         }
@@ -389,7 +393,7 @@ impl Controller {
         if let Some(mut c) = self.child.take() {
             let pg = c.id() as i32;
             unsafe {
-                libc::kill(-pg, libc::SIGTERM);
+                libc::kill(pg, libc::SIGTERM);
             }
             let start = Instant::now();
             while c.try_wait()?.is_none() && start.elapsed() < Duration::from_secs(1) {
@@ -402,12 +406,16 @@ impl Controller {
             crate::account_events::clear_desktop_badge();
             // Unmount is authoritative: it must fail if another process still holds the mount.
         }
+        if self.vault.master.is_some() {
+            crate::account_profiles::cleanup_process_links(&self.vault.mount)?;
+        }
+        crate::account_profiles::cleanup_process_links(&self.runtime.join("locked-ui"))?;
         Ok(())
     }
     fn lock(&mut self) -> Result<()> {
         self.server = server_sync::Runtime::default();
-        self.stop_ui()?;
-        match self.vault.unmount() {
+        let closure = self.stop_ui().and_then(|()| self.vault.unmount());
+        match closure {
             Ok(()) => self.lock_error = None,
             Err(e) => self.lock_error = Some(e.to_string()),
         }
@@ -632,15 +640,19 @@ impl Controller {
             .into_iter()
             .map(|a| a.id)
             .collect::<Vec<_>>();
-        let p = self.vault.mount.join("accounts");
-        if !p.exists() {
-            return Ok(());
-        }
-        for item in fs::read_dir(p)? {
-            let item = item?;
-            let id = item.file_name().to_string_lossy().into_owned();
-            if uuid::Uuid::parse_str(&id).is_ok() && !ids.contains(&id) {
-                fs::remove_dir_all(item.path())?;
+        for p in [
+            self.vault.mount.join("accounts"),
+            self.vault.mount.join("chromium/accounts"),
+        ] {
+            if !p.exists() {
+                continue;
+            }
+            for item in fs::read_dir(p)? {
+                let item = item?;
+                let id = item.file_name().to_string_lossy().into_owned();
+                if uuid::Uuid::parse_str(&id).is_ok() && !ids.contains(&id) {
+                    fs::remove_dir_all(item.path())?;
+                }
             }
         }
         Ok(())
@@ -727,16 +739,16 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
         {
             c.lock()?;
         }
-        if c.child
+        if let Some(exit_status) = c
+            .child
             .as_mut()
             .map(|p| p.try_wait())
             .transpose()?
             .flatten()
-            .is_some()
         {
             c.stop_ui()?;
             c.vault.unmount()?;
-            return Err(anyhow!("The interface exited unexpectedly. The vault was closed. Check the error before reopening the application; it will not restart automatically."));
+            return Err(anyhow!("The interface exited unexpectedly ({exit_status}). The vault was closed. Check the error before reopening the application; it will not restart automatically."));
         }
         if let Ok((mut socket, _)) = listener.accept() {
             socket.set_read_timeout(Some(Duration::from_secs(2)))?;
@@ -885,6 +897,82 @@ pub fn run(base: PathBuf, runtime: PathBuf) -> Result<()> {
 mod tests {
     use super::*;
     use crate::workspaces::Account;
+    #[test]
+    #[ignore = "requires isolated X11, host FUSE, ELO_TEST_HELPER and ELO_TEST_CEF_SHELL"]
+    fn cef_shutdown_and_encrypted_backup() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        let mut vault = Vault::new(directory.path().join("source"), runtime.path()).unwrap();
+        vault.helper = PathBuf::from(std::env::var_os("ELO_TEST_HELPER").unwrap());
+        vault.create("synthetic master password").unwrap();
+        struct Cleanup(Controller);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = self.0.stop_ui();
+                let _ = self.0.vault.unmount();
+            }
+        }
+        let mut guard = Cleanup(Controller {
+            vault,
+            child: None,
+            runtime: runtime.path().into(),
+            last_activity: Instant::now(),
+            retry_at: Instant::now(),
+            failures: 0,
+            lock_error: None,
+            server: server_sync::Runtime::default(),
+            backup_job: None,
+            backup_status: json!({"phase":"idle"}),
+        });
+        let controller = &mut guard.0;
+        let child = Command::new(std::env::var_os("ELO_TEST_CEF_SHELL").unwrap())
+            .env("ELO_TEST_PROFILE", &controller.vault.mount)
+            .env(
+                "TMPDIR",
+                crate::account_profiles::temporary(&controller.vault.mount).unwrap(),
+            )
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pid = child.id() as i32;
+        controller.child = Some(child);
+        let ready = controller.vault.mount.join("cef-ready");
+        let start = Instant::now();
+        while !ready.exists() && start.elapsed() < Duration::from_secs(15) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let initialized = ready.exists();
+        controller.stop_ui().unwrap();
+        controller.vault.unmount().unwrap();
+        assert!(
+            initialized,
+            "Production CEF shell must initialize inside the encrypted test vault"
+        );
+        assert!(!controller.vault.mounted());
+        // Live members of the browser group must not survive closure; zombies
+        // have no address space or open descriptors and are awaiting their reaper.
+        for entry in fs::read_dir("/proc").unwrap().flatten() {
+            let Ok(stat) = fs::read_to_string(entry.path().join("stat")) else {
+                continue;
+            };
+            let Some((_, fields)) = stat.rsplit_once(") ") else {
+                continue;
+            };
+            let fields: Vec<_> = fields.split_whitespace().collect();
+            if fields.get(2).and_then(|value| value.parse::<i32>().ok()) == Some(pid) {
+                assert_eq!(fields[0], "Z", "A browser process survived vault closure");
+            }
+        }
+        crate::backup::export(
+            &controller.vault.base,
+            &directory.path().join("cef.elobackup"),
+            "synthetic master password",
+            "synthetic backup password",
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .unwrap();
+    }
+
     #[test]
     fn backup_requires_closure_serializes_work_and_discards_canceled_restore() {
         let directory = tempfile::tempdir().unwrap();

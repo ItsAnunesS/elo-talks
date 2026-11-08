@@ -3,23 +3,25 @@ use crate::{
     account_runtime::{AccountHealth, NotificationPreferences, PageState},
     ipc::{self, Request},
     notification_content::NotificationText,
-    storage, ui_layout,
+    ui_layout,
 };
 use anyhow::Result;
 use gtk::prelude::*;
 use serde_json::Value;
-use std::{
-    path::PathBuf,
-    sync::mpsc,
-    time::{Duration, Instant},
+use std::{path::PathBuf, sync::mpsc, time::Duration};
+use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, Manager, WebviewUrl};
+use tauri_runtime_cef::{
+    Cef, DebugEnvironment, DevToolsPolicy, FrameEventKind, RemoteDebugging, SandboxPolicy,
+    WebviewBuilderCefExt,
 };
-use tauri::{webview::WebviewBuilder, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl};
-use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
+
+type AccountPreparation = dyn Fn(&tauri::Webview) -> tauri::Result<()> + Send + Sync;
 
 struct UiState {
     runtime: PathBuf,
     profile: PathBuf,
     activity: mpsc::SyncSender<()>,
+    prepare_account: std::sync::Arc<AccountPreparation>,
 }
 fn local(webview: &tauri::Webview) -> Result<(), String> {
     if webview.label() != "main" {
@@ -50,6 +52,14 @@ fn window_action(
             }
         }
         "close" => window.close(),
+        "resize-n" => window.start_resize_dragging(tauri_runtime::ResizeDirection::North),
+        "resize-ne" => window.start_resize_dragging(tauri_runtime::ResizeDirection::NorthEast),
+        "resize-e" => window.start_resize_dragging(tauri_runtime::ResizeDirection::East),
+        "resize-se" => window.start_resize_dragging(tauri_runtime::ResizeDirection::SouthEast),
+        "resize-s" => window.start_resize_dragging(tauri_runtime::ResizeDirection::South),
+        "resize-sw" => window.start_resize_dragging(tauri_runtime::ResizeDirection::SouthWest),
+        "resize-w" => window.start_resize_dragging(tauri_runtime::ResizeDirection::West),
+        "resize-nw" => window.start_resize_dragging(tauri_runtime::ResizeDirection::NorthWest),
         _ => return Err("Unsupported window action".into()),
     }
     .map_err(|error| error.to_string())
@@ -82,48 +92,55 @@ async fn choose_backup(
         let parent = handle
             .get_window("main")
             .and_then(|window| window.gtk_window().ok());
-        let dialog = gtk::FileChooserDialog::new(
-            Some(if export {
+        let dialog = gtk::FileDialog::builder()
+            .title(if export {
                 "Export encrypted backup"
             } else {
                 "Import encrypted backup"
-            }),
-            parent.as_ref(),
-            if export {
-                gtk::FileChooserAction::Save
-            } else {
-                gtk::FileChooserAction::Open
-            },
-        );
-        dialog.add_buttons(&[
-            ("Cancel", gtk::ResponseType::Cancel),
-            (
-                if export { "Export" } else { "Import" },
-                gtk::ResponseType::Accept,
-            ),
-        ]);
-        if export {
-            dialog.set_current_name(&format!("elo-talks-{}.elobackup", uuid::Uuid::new_v4()));
-        }
+            })
+            .modal(true)
+            .build();
         let filter = gtk::FileFilter::new();
         filter.set_name(Some("Elo Talks encrypted backup"));
         filter.add_pattern("*.elobackup");
-        dialog.add_filter(filter);
-        let path = if dialog.run() == gtk::ResponseType::Accept {
-            dialog
-                .filename()
-                .map(|path| path.to_string_lossy().into_owned())
-        } else {
-            None
-        };
-        dialog.close();
-        let _ = sender.send(path);
+        let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
+        filters.append(&filter);
+        dialog.set_filters(Some(&filters));
+        if export {
+            dialog.set_initial_name(Some(&format!(
+                "elo-talks-{}.elobackup",
+                uuid::Uuid::new_v4()
+            )));
+        }
+        gtk::glib::MainContext::default().spawn_local(async move {
+            let result = if export {
+                dialog.save_future(parent.as_ref()).await
+            } else {
+                dialog.open_future(parent.as_ref()).await
+            };
+            let path = match result {
+                Ok(file) => file
+                    .path()
+                    .map(|path| Some(path.to_string_lossy().into_owned()))
+                    .ok_or_else(|| "Choose a local backup file".to_string()),
+                Err(error)
+                    if error.matches(gtk::DialogError::Dismissed)
+                        || error.matches(gtk::DialogError::Cancelled) =>
+                {
+                    Ok(None)
+                }
+                Err(_) => Err(
+                    "The file chooser could not open. Check your desktop file portal.".to_string(),
+                ),
+            };
+            let _ = sender.send(path);
+        });
     })
     .map_err(|_| "Could not open the file chooser".to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
         receiver
             .recv()
-            .map_err(|_| "File chooser closed".to_string())
+            .map_err(|_| "File chooser closed".to_string())?
     })
     .await
     .map_err(|_| "File chooser failed".to_string())?
@@ -188,16 +205,8 @@ fn retry_account(webview: tauri::Webview, app: tauri::AppHandle, id: String) -> 
     let view = app
         .get_webview(&format!("account-{id}"))
         .ok_or("Account not found")?;
-    view.with_webview(move |platform| {
-        let view = platform.inner();
-        if view
-            .context()
-            .is_some_and(|context| context.is_sandbox_enabled())
-        {
-            view.load_uri("https://web.whatsapp.com/");
-        }
-    })
-    .map_err(|error| error.to_string())
+    view.navigate("https://web.whatsapp.com/".parse().unwrap())
+        .map_err(|error| error.to_string())
 }
 #[tauri::command]
 fn diagnostics(webview: tauri::Webview, app: tauri::AppHandle) -> Result<Value, String> {
@@ -291,36 +300,106 @@ fn sync_accounts(
             .unwrap()
             .accounts
             .insert(id.to_owned(), AccountHealth::default());
-        let p = state.profile.join("accounts").join(id);
-        storage::private_dir(&p).map_err(|e| e.to_string())?;
+        let p = crate::account_profiles::account(&state.profile, id).map_err(|e| e.to_string())?;
         crate::account_avatar::restore(&app, id, p.join("self-avatar.json"));
-        let activity = state.activity.clone();
         let h = app.clone();
+        let title_handle = app.clone();
+        let title_id = id.to_owned();
+        let page_handle = app.clone();
+        let page_id = id.to_owned();
         let account_id = id.to_string();
+        // CEF callbacks can run outside a winit dispatch. Never call synchronous
+        // webview getters there: they would wait for the same UI thread.
+        let trusted_origin = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let permission_origin = trusted_origin.clone();
+        let title_origin = trusted_origin.clone();
         let builder =
             WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()))
                 .data_directory(p)
                 .devtools(false)
+                .on_permission_request(move |_, kind| match kind {
+                    tauri::webview::PermissionKind::Camera
+                    | tauri::webview::PermissionKind::Microphone
+                        if permission_origin.load(std::sync::atomic::Ordering::Relaxed) =>
+                    {
+                        tauri::webview::PermissionResponse::Default
+                    }
+                    _ => tauri::webview::PermissionResponse::Deny,
+                })
+                .on_document_title_changed(move |_, title| {
+                    let count = crate::whatsapp::unread_count(
+                        title_origin
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                            .then_some("https://web.whatsapp.com/"),
+                        Some(&title),
+                    );
+                    if title_handle
+                        .state::<AccountEvents>()
+                        .runtime
+                        .lock()
+                        .unwrap()
+                        .update_unread(&title_id, count)
+                    {
+                        account_events::publish(&title_handle);
+                    }
+                })
+                .on_frame_event(move |event| {
+                    if event.is_main {
+                        let trusted = match &event.kind {
+                            FrameEventKind::DocumentCommitted { url }
+                            | FrameEventKind::AddressChanged { url } => {
+                                Some(crate::whatsapp::is_origin(url))
+                            }
+                            FrameEventKind::NavigationStarted { .. }
+                            | FrameEventKind::NavigationFailed { .. }
+                            | FrameEventKind::Destroyed => Some(false),
+                            _ => None,
+                        };
+                        if let Some(trusted) = trusted {
+                            trusted_origin.store(trusted, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                    if matches!(event.kind, FrameEventKind::RendererTerminated) {
+                        trusted_origin.store(false, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    let state = match event.kind {
+                        FrameEventKind::NavigationStarted { .. } if event.is_main => {
+                            Some(PageState::Loading)
+                        }
+                        FrameEventKind::NavigationFailed { .. } if event.is_main => {
+                            Some(PageState::LoadFailed)
+                        }
+                        FrameEventKind::RendererTerminated => Some(PageState::ProcessStopped),
+                        _ => None,
+                    };
+                    if let Some(state) = state {
+                        account_events::page(&page_handle, &page_id, state);
+                    }
+                })
+                .on_page_load(move |view, event| {
+                    if event.event() == tauri::webview::PageLoadEvent::Finished
+                        && crate::whatsapp::is_origin(event.url())
+                    {
+                        let id = view.label().strip_prefix("account-").unwrap_or_default();
+                        account_events::page(view.app_handle(), id, PageState::Ready);
+                        crate::account_readiness::attach(&view, view.app_handle(), id);
+                        crate::account_avatar::attach(&view, view.app_handle(), id);
+                        crate::whatsapp_style::attach(&view);
+                    }
+                })
                 .on_download(|_, event| match event {
                     tauri::webview::DownloadEvent::Requested { destination, .. } => {
-                        let dialog = gtk::FileChooserDialog::new(
-                            Some("Export file — the copy will be outside the vault"),
-                            None::<&gtk::Window>,
-                            gtk::FileChooserAction::Save,
-                        );
-                        dialog.add_buttons(&[
-                            ("Cancel", gtk::ResponseType::Cancel),
-                            ("Export", gtk::ResponseType::Accept),
-                        ]);
-                        dialog.set_do_overwrite_confirmation(true);
+                        let dialog = gtk::FileDialog::builder()
+                            .title("Export file — the copy will be outside the vault")
+                            .modal(true)
+                            .build();
                         if let Some(name) = destination.file_name().and_then(|n| n.to_str()) {
-                            dialog.set_current_name(name);
+                            dialog.set_initial_name(Some(name));
                         }
-                        let accepted = dialog.run() == gtk::ResponseType::Accept;
-                        let path = dialog.filename();
-                        dialog.close();
-                        if accepted {
-                            if let Some(path) = path {
+                        if let Ok(file) = gtk::glib::MainContext::default()
+                            .block_on(dialog.save_future(None::<&gtk::Window>))
+                        {
+                            if let Some(path) = file.path() {
                                 *destination = path;
                                 return true;
                             }
@@ -341,72 +420,45 @@ fn sync_accounts(
             .to_logical::<f64>(window.scale_factor().map_err(|e| e.to_string())?);
         let view = window
             .add_child(
-                builder,
-                LogicalPosition::new(
-                    ui_layout::SIDEBAR_WIDTH as f64,
-                    ui_layout::HEADER_HEIGHT as f64,
-                ),
-                LogicalSize::new(
-                    (size.width - ui_layout::SIDEBAR_WIDTH as f64).max(1.),
-                    (size.height - ui_layout::HEADER_HEIGHT as f64).max(1.),
-                ),
+                builder
+                    .position(LogicalPosition::new(
+                        ui_layout::SIDEBAR_WIDTH as f64,
+                        ui_layout::HEADER_HEIGHT as f64,
+                    ))
+                    .size(LogicalSize::new(
+                        (size.width - ui_layout::SIDEBAR_WIDTH as f64 - ui_layout::RESIZE_BORDER)
+                            .max(1.),
+                        (size.height - ui_layout::HEADER_HEIGHT as f64 - ui_layout::RESIZE_BORDER)
+                            .max(1.),
+                    )),
             )
             .map_err(|e| e.to_string())?;
         view.hide().map_err(|e| e.to_string())?;
-        view.with_webview(move |platform| {
-            let w = platform.inner();
-            if let Err(error) = ui_layout::attach(&w, true) {
-                let _ = h.emit_to("main", "account-error", error.to_string());
-                return;
-            }
-            if !w.context().is_some_and(|c| c.is_sandbox_enabled()) {
-                account_events::page(&h, &account_id, PageState::SandboxUnavailable);
-                let _ = h.emit_to(
-                    "main",
-                    "account-error",
-                    "The WebKit sandbox is unavailable. This account was not loaded.",
-                );
-                return;
-            }
-            if let Some(settings) = WebViewExt::settings(&w) {
-                settings.set_enable_developer_extras(false);
-                settings.set_enable_page_cache(false);
-            }
-            crate::whatsapp_style::attach(&w);
-            account_events::attach(&w, &h, &account_id);
-            crate::account_readiness::attach(&w, &h, &account_id);
-            crate::account_avatar::attach(&w, &h, &account_id);
-            w.connect_create(|_, _| None);
-            crate::account_permissions::attach(&w);
-            let clipboard_handle = h.clone();
-            crate::account_clipboard::attach(&w, move |error| {
-                let _ = clipboard_handle.emit_to("main", "account-error", error);
-            });
-            let last = std::rc::Rc::new(std::cell::RefCell::new(Instant::now()));
-            w.connect_event(move |_, event| {
-                if !matches!(
-                    event.event_type(),
-                    gtk::gdk::EventType::KeyPress
-                        | gtk::gdk::EventType::ButtonPress
-                        | gtk::gdk::EventType::Scroll
-                        | gtk::gdk::EventType::MotionNotify
-                ) {
-                    return gtk::glib::Propagation::Proceed;
-                }
-                if last.borrow().elapsed() > Duration::from_secs(1) {
-                    *last.borrow_mut() = Instant::now();
-                    // Coalesce pending activity updates without blocking GTK input handling.
-                    let _ = activity.try_send(());
-                }
-                gtk::glib::Propagation::Proceed
-            });
-            w.load_uri("https://web.whatsapp.com/");
-        })
-        .map_err(|e| e.to_string())?;
+        (state.prepare_account)(&view).map_err(|error| error.to_string())?;
+        crate::account_avatar::observe(&view, &h, &account_id).map_err(|e| e.to_string())?;
+        account_events::attach(&view, &h, &account_id, state.activity.clone())
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
+    run_with_setup(runtime, profile, |_| Ok(()))
+}
+
+pub fn run_with_setup(
+    runtime: PathBuf,
+    profile: PathBuf,
+    ready: impl FnOnce(&mut tauri::App) -> Result<()> + Send + 'static,
+) -> Result<()> {
+    run_with_account_setup(runtime, profile, ready, |_| Ok(()))
+}
+
+pub fn run_with_account_setup(
+    runtime: PathBuf,
+    profile: PathBuf,
+    ready: impl FnOnce(&mut tauri::App) -> Result<()> + Send + 'static,
+    prepare_account: impl Fn(&tauri::Webview) -> tauri::Result<()> + Send + Sync + 'static,
+) -> Result<()> {
     let rt = runtime.clone();
     let (activity, activity_events) = mpsc::sync_channel(1);
     let activity_runtime = runtime.clone();
@@ -421,12 +473,34 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
             );
         }
     });
+    let chromium_root = crate::account_profiles::root(&profile)?;
+    let cef = Cef::default()
+        .sandbox(SandboxPolicy::Required)
+        .certificate_errors(tauri_runtime_cef::CertificateErrorPolicy::Cancel)
+        .root_cache_path(&chromium_root)
+        .with_settings(move |settings| {
+            // Bootstrap without opening persistent browser data. Each account
+            // receives its own context only after protect_secrets below.
+            settings.root_cache_path = chromium_root.to_string_lossy().as_ref().into();
+            settings.cache_path = Default::default();
+        })
+        .debug_environment(DebugEnvironment::Deny)
+        .log_severity(tauri_runtime_cef::cef::LogSeverity::DISABLE)
+        .remote_debugging(RemoteDebugging::Disabled)
+        .devtools(DevToolsPolicy::Disallowed)
+        .allow_chromium_command_line_args(false)
+        .default_content_setting(
+            tauri_runtime_cef::cef::ContentSettingTypes::NOTIFICATIONS,
+            tauri_runtime_cef::cef::ContentSettingValues::BLOCK,
+        );
     tauri::Builder::default()
+        .runtime(cef)
         .manage(AccountEvents::default())
         .manage(UiState {
             runtime,
             profile: profile.clone(),
             activity,
+            prepare_account: std::sync::Arc::new(prepare_account),
         })
         .invoke_handler(tauri::generate_handler![
             request,
@@ -441,6 +515,21 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
             choose_backup
         ])
         .setup(move |app| {
+            crate::process_security::protect_secrets()?;
+            let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            signal_hook::flag::register(libc::SIGTERM, shutdown.clone())?;
+            let exit_handle = app.handle().clone();
+            gtk::glib::timeout_add_local(Duration::from_millis(50), move || {
+                if shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+                    for window in exit_handle.windows().values() {
+                        let _ = window.hide();
+                    }
+                    exit_handle.exit(0);
+                    gtk::glib::ControlFlow::Break
+                } else {
+                    gtk::glib::ControlFlow::Continue
+                }
+            });
             let geometry = crate::window_state::load(&profile);
             let window = tauri::window::WindowBuilder::new(app, "main")
                 .title("Elo Talks")
@@ -450,30 +539,20 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
                 .maximized(geometry.maximized)
                 .min_inner_size(900., 640.)
                 .build()?;
-            crate::window_state::attach(
-                &window.gtk_window()?.into(),
-                profile.join("window.json"),
-                geometry,
-            );
+            crate::window_state::attach(&window, profile.join("window.json"), geometry);
             let local = WebviewBuilder::new("main", WebviewUrl::App("index.html".into()))
-                .data_directory(profile.join("shell"))
+                .data_directory(profile.join("chromium").join("shell"))
                 .devtools(false)
                 .on_navigation(|url| {
                     url.scheme() == "tauri"
                         || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost"))
                 });
             let shell = window.add_child(
-                local,
-                LogicalPosition::new(0., 0.),
-                LogicalSize::new(1200., 800.),
+                local
+                    .position(LogicalPosition::new(0., 0.))
+                    .size(LogicalSize::new(1200., 800.)),
             )?;
-            shell.with_webview(|platform| {
-                if let Err(error) = ui_layout::attach(&platform.inner(), false) {
-                    eprintln!("Elo Talks: {error}");
-                    // Fail closed instead of running accounts without trusted controls.
-                    std::process::exit(1);
-                }
-            })?;
+            ui_layout::attach(&window, &shell)?;
             let open =
                 tauri::menu::MenuItem::with_id(app, "open", "Open Elo Talks", true, None::<&str>)?;
             let lock =
@@ -549,6 +628,7 @@ pub fn run(runtime: PathBuf, profile: PathBuf) -> Result<()> {
                     }
                 }
             });
+            ready(app)?;
             Ok(())
         })
         .run(tauri::generate_context!())?;

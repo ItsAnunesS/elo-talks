@@ -14,6 +14,7 @@ const ERROR: &str =
 #[derive(Default)]
 pub struct DesktopNotifications {
     connection: OnceLock<gio::DBusConnection>,
+    subscriptions: Mutex<Vec<gio::SignalSubscription>>,
     targets: Arc<Mutex<BTreeMap<String, u32>>>,
     pending: Mutex<BTreeMap<String, Option<NotificationText>>>,
 }
@@ -58,26 +59,29 @@ impl DesktopNotifications {
                 .map_err(|_| ERROR)?;
             if self.connection.set(connection.clone()).is_ok() {
                 let targets = self.targets.clone();
-                connection.signal_subscribe(
+                let subscription = connection.subscribe_to_signal(
                     Some("org.freedesktop.DBus"),
                     Some("org.freedesktop.DBus"),
                     Some("NameOwnerChanged"),
                     Some("/org/freedesktop/DBus"),
                     Some(SERVICE),
                     gio::DBusSignalFlags::NONE,
-                    move |_, _, _, _, _, _| {
+                    move |_| {
                         targets.lock().unwrap().clear();
                     },
                 );
+                self.subscriptions.lock().unwrap().push(subscription);
                 let targets = self.targets.clone();
-                connection.signal_subscribe(
+                let subscription = connection.subscribe_to_signal(
                     Some(SERVICE),
                     Some(SERVICE),
                     None,
                     Some(PATH),
                     None,
                     gio::DBusSignalFlags::NONE,
-                    move |_, _, _, _, member, parameters| {
+                    move |signal| {
+                        let member = signal.signal_name;
+                        let parameters = signal.parameters;
                         let (id, open) = match member {
                             "ActionInvoked" => match parameters.get::<(u32, String)>() {
                                 Some((id, action)) if action == "default" => (id, true),
@@ -107,6 +111,7 @@ impl DesktopNotifications {
                         }
                     },
                 );
+                self.subscriptions.lock().unwrap().push(subscription);
             }
         }
         loop {

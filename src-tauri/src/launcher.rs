@@ -1,7 +1,7 @@
-//! Local GTK bootstrap: no WebKit, vault credentials or account profiles.
+//! Local GTK bootstrap: no browser content, vault credentials or account profiles.
 use crate::ipc::{rpc, Request};
 use anyhow::Result;
-use gtk::{atk::prelude::*, glib, prelude::*};
+use gtk::{glib, prelude::*};
 use serde_json::{json, Value};
 use std::{
     cell::Cell,
@@ -99,18 +99,17 @@ fn can_continue(phase: &str) -> bool {
 
 pub fn run(runtime: PathBuf) -> Result<()> {
     gtk::init()?;
-    let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title("Elo Talks — Starting");
+    let window = gtk::Window::new();
+    window.set_title(Some("Elo Talks — Starting"));
     window.set_decorated(false);
     window.set_default_size(500, 400);
     window.set_size_request(460, 380);
     window.set_resizable(true);
-    window.set_position(gtk::WindowPosition::Center);
     window.set_widget_name("elo-launcher");
     let css = gtk::CssProvider::new();
-    css.load_from_data(include_bytes!("launcher.css"))?;
-    gtk::StyleContext::add_provider_for_screen(
-        &gtk::prelude::WidgetExt::screen(&window).expect("GTK window has a screen"),
+    css.load_from_string(include_str!("launcher.css"));
+    gtk::style_context_add_provider_for_display(
+        &gtk::prelude::WidgetExt::display(&window),
         &css,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
@@ -125,87 +124,86 @@ pub fn run(runtime: PathBuf) -> Result<()> {
     icon.set_size(44, 44);
     icon.write(include_bytes!("../icons/128x128.png"))?;
     icon.close()?;
-    let mark = gtk::Image::from_pixbuf(icon.pixbuf().as_ref());
+    let texture = gtk::gdk::Texture::for_pixbuf(&icon.pixbuf().expect("Bundled icon"));
+    let mark = gtk::Image::from_paintable(Some(&texture));
     mark.set_size_request(44, 44);
     let identity = gtk::Box::new(gtk::Orientation::Vertical, 3);
+    identity.set_hexpand(true);
     let name = gtk::Label::new(Some("Elo Talks"));
     name.set_xalign(0.0);
-    name.style_context().add_class("brand-name");
+    name.add_css_class("brand-name");
     let subtitle = gtk::Label::new(Some("Your conversations. Your space."));
     subtitle.set_xalign(0.0);
-    subtitle.style_context().add_class("muted");
-    identity.pack_start(&name, false, false, 0);
-    identity.pack_start(&subtitle, false, false, 0);
-    brand.pack_start(&mark, false, false, 0);
-    brand.pack_start(&identity, true, true, 0);
+    subtitle.add_css_class("muted");
+    identity.append(&name);
+    identity.append(&subtitle);
+    brand.append(&mark);
+    brand.append(&identity);
     let close = gtk::Button::new();
-    close.set_image(Some(&gtk::Image::from_icon_name(
-        Some("window-close-symbolic"),
-        gtk::IconSize::Button,
-    )));
-    close.set_tooltip_text(Some("Close Elo Talks"));
     close.set_widget_name("launcher-close");
-    if let Some(accessible) = close.accessible() {
-        accessible.set_name("Close Elo Talks");
-    }
-    close.style_context().add_class("window-close");
+    close.set_icon_name("window-close-symbolic");
+    close.update_property(&[gtk::accessible::Property::Label("Close Elo Talks")]);
+    close.add_css_class("window-close");
     close.set_valign(gtk::Align::Start);
-    brand.pack_end(&close, false, false, 0);
-    let drag = gtk::EventBox::new();
-    drag.set_visible_window(false);
-    drag.add(&brand);
+    brand.append(&close);
+    let drag = brand;
+    let gesture = gtk::GestureClick::new();
+    gesture.set_button(1);
     let parent = window.downgrade();
-    drag.connect_button_press_event(move |_, event| {
-        if event.button() == 1 {
-            if let Some(window) = parent.upgrade() {
-                let (x, y) = event.root();
-                window.begin_move_drag(1, x as i32, y as i32, event.time());
+    gesture.connect_pressed(move |gesture, _, x, y| {
+        if let (Some(window), Some(device), Some(event)) = (
+            parent.upgrade(),
+            gesture.current_event_device(),
+            gesture.current_event(),
+        ) {
+            if let Some(surface) = window.surface().and_downcast::<gtk::gdk::Toplevel>() {
+                surface.begin_move(&device, 1, x, y, event.time());
             }
         }
-        glib::Propagation::Proceed
     });
+    drag.add_controller(gesture);
 
     let card = gtk::Box::new(gtk::Orientation::Vertical, 14);
-    card.style_context().add_class("status-card");
+    card.add_css_class("status-card");
     let eyebrow = gtk::Label::new(Some("STARTUP CHECK"));
     eyebrow.set_xalign(0.0);
-    eyebrow.style_context().add_class("eyebrow");
+    eyebrow.add_css_class("eyebrow");
     let title = gtk::Label::new(Some("Welcome back"));
     title.set_xalign(0.0);
-    title.set_line_wrap(true);
-    title.style_context().add_class("status-title");
+    title.set_wrap(true);
+    title.add_css_class("status-title");
     let label = gtk::Label::new(Some("Preparing your private space…"));
     label.set_xalign(0.0);
-    label.set_line_wrap(true);
+    label.set_wrap(true);
     label.set_max_width_chars(42);
-    label.style_context().add_class("description");
+    label.add_css_class("description");
     let progress = gtk::ProgressBar::new();
     progress.set_margin_top(8);
-    card.pack_start(&eyebrow, false, false, 0);
-    card.pack_start(&title, false, false, 0);
-    card.pack_start(&label, true, true, 0);
-    card.pack_start(&progress, false, false, 0);
+    card.append(&eyebrow);
+    card.append(&title);
+    card.append(&label);
+    card.append(&progress);
 
     let footer = gtk::Box::new(gtk::Orientation::Vertical, 16);
     let note = gtk::Label::new(Some("Updates are verified before installation."));
     note.set_xalign(0.0);
-    note.set_line_wrap(true);
-    note.style_context().add_class("muted");
+    note.set_wrap(true);
+    note.add_css_class("muted");
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let open = gtk::Button::with_label("Retry vault closure");
-    open.style_context().add_class("primary");
+    open.add_css_class("primary");
     let quit = gtk::Button::with_label("Quit");
     let retry = gtk::Button::with_label("Try again");
-    retry.style_context().add_class("primary");
-    actions.pack_start(&quit, false, false, 0);
-    actions.pack_start(&open, true, true, 0);
-    actions.pack_start(&retry, true, true, 0);
-    footer.pack_start(&note, false, false, 0);
-    footer.pack_start(&actions, false, false, 0);
-    layout.pack_start(&drag, false, false, 0);
-    layout.pack_start(&card, true, true, 0);
-    layout.pack_start(&footer, false, false, 0);
-    window.add(&layout);
+    retry.add_css_class("primary");
+    actions.append(&quit);
+    actions.append(&open);
+    actions.append(&retry);
+    footer.append(&note);
+    footer.append(&actions);
+    layout.append(&drag);
+    layout.append(&card);
+    layout.append(&footer);
+    window.set_child(Some(&layout));
     let (commands, input) = mpsc::channel();
     let (output, updates) = mpsc::channel();
     let parent = window.downgrade();
@@ -231,7 +229,7 @@ pub fn run(runtime: PathBuf) -> Result<()> {
     });
     let installing = Rc::new(Cell::new(false));
     let closing_guard = installing.clone();
-    window.connect_delete_event(move |_, _| {
+    window.connect_close_request(move |_| {
         if !closing_guard.get() {
             let _ = commands.send(Action::Quit);
         }
@@ -298,12 +296,22 @@ pub fn run(runtime: PathBuf) -> Result<()> {
             std::thread::sleep(Duration::from_millis(500));
         }
     });
-    window.show_all();
-    retry.hide();
-    open.hide();
+    window.present();
+    retry.set_visible(false);
+    open.set_visible(false);
     quit.grab_focus();
+    let main_loop = glib::MainLoop::new(None, false);
+    let completion = main_loop.clone();
     glib::timeout_add_local(Duration::from_millis(100), move || {
-        while let Ok(state) = updates.try_recv() {
+        loop {
+            let state = match updates.try_recv() {
+                Ok(state) => state,
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    completion.quit();
+                    return glib::ControlFlow::Break;
+                }
+            };
             installing.set(state.installing);
             title.set_text(state.title);
             label.set_text(&state.text);
@@ -313,9 +321,9 @@ pub fn run(runtime: PathBuf) -> Result<()> {
                 "STARTUP CHECK"
             });
             if state.attention {
-                card.style_context().add_class("attention");
+                card.add_css_class("attention");
             } else {
-                card.style_context().remove_class("attention");
+                card.remove_css_class("attention");
             }
             progress.set_visible(!state.attention);
             note.set_text(if state.installing {
@@ -339,7 +347,7 @@ pub fn run(runtime: PathBuf) -> Result<()> {
         }
         glib::ControlFlow::Continue
     });
-    gtk::main();
+    main_loop.run();
     Ok(())
 }
 #[cfg(test)]

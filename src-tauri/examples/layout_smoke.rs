@@ -5,17 +5,19 @@ mod account_avatar;
 #[allow(dead_code)]
 #[path = "../src/account_events.rs"]
 mod account_events;
-#[path = "../src/account_permissions.rs"]
-mod account_permissions;
 #[path = "../src/account_readiness.rs"]
 mod account_readiness;
 #[allow(dead_code)]
 #[path = "../src/account_runtime.rs"]
 mod account_runtime;
-#[path = "support/avatar_fixture.rs"]
-mod avatar_fixture;
+#[path = "../src/account_script.rs"]
+mod account_script;
+#[path = "../src/cef_notifications.rs"]
+mod cef_notifications;
 #[path = "../src/desktop_notifications.rs"]
 mod desktop_notifications;
+#[path = "support/cef_fixture.rs"]
+mod fixture;
 #[allow(dead_code)]
 #[path = "../src/notification_content.rs"]
 mod notification_content;
@@ -24,176 +26,110 @@ mod notification_content;
 mod storage;
 #[path = "../src/ui_layout.rs"]
 mod ui_layout;
+#[allow(dead_code)]
 #[path = "../src/whatsapp.rs"]
 mod whatsapp;
 #[path = "../src/whatsapp_style.rs"]
 mod whatsapp_style;
-use gtk::prelude::*;
-use std::{cell::Cell, rc::Rc, time::Duration};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc,
+};
 use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, Manager, WebviewUrl};
-use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
-
+use tauri_runtime_cef::{
+    Cef, DebugEnvironment, DevToolsPolicy, RemoteDebugging, SandboxPolicy, WebviewCefExt,
+};
+const HTML: &str = r#"<!doctype html><body class="dark"><div id="pane-side" style="width:100px;height:100px">Synthetic structure</div><script>document.querySelector = () => null; window.fixtureAlive=1;setInterval(()=>window.fixtureAlive++,100);</script>"#;
+#[tauri_runtime_cef::cef_entry_point]
 fn main() {
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic| {
+        hook(panic);
+        std::process::exit(1);
+    }));
+    let root = tempfile::tempdir().unwrap();
+    let completed = Arc::new(AtomicBool::new(false));
+    let verified = completed.clone();
     tauri::Builder::default()
+        .runtime(Cef::default().root_cache_path(root.path()).sandbox(SandboxPolicy::Required).debug_environment(DebugEnvironment::Deny).remote_debugging(RemoteDebugging::Disabled).devtools(DevToolsPolicy::Disallowed).certificate_errors(tauri_runtime_cef::CertificateErrorPolicy::Cancel)
+            .default_content_setting(tauri_runtime_cef::cef::ContentSettingTypes::NOTIFICATIONS, tauri_runtime_cef::cef::ContentSettingValues::BLOCK))
         .manage(account_events::AccountEvents::default())
-        .setup(|app| {
-            let avatar_complete = avatar_fixture::start();
-            let window = tauri::window::WindowBuilder::new(app, "layout-test")
-                .title("Elo Talks — synthetic layout regression")
-                .inner_size(1200., 800.)
-                .build()?;
-            for (index, label) in ["layout-shell", "account-one", "account-two"]
-                .into_iter()
-                .enumerate()
-            {
-                let view = window.add_child(
-                    WebviewBuilder::new(label, WebviewUrl::External("about:blank".parse()?)),
-                    LogicalPosition::new(0., 0.),
-                    LogicalSize::new(1200., 800.),
-                )?;
-                let handle = app.handle().clone();
-                let avatar_complete = avatar_complete.clone();
-                view.with_webview(move |platform| {
-                    let webview = platform.inner();
-                    assert!(webview.context().is_some_and(|context| context.is_sandbox_enabled()), "WebKit sandbox must remain enabled in the layout test");
-                    ui_layout::attach(&webview, index != 0).unwrap();
-                    if index != 0 {
-                        handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.insert(label.into(), account_runtime::AccountHealth::default());
-                        account_events::attach(&webview, &handle, label);
-                        account_permissions::attach(&webview);
-                        whatsapp_style::attach(&webview);
-                        account_readiness::attach(&webview, &handle, label);
-                        account_avatar::attach(&webview, &handle, label);
-                    }
-                    let avatar_html = if index == 1 {
-                        format!("<script>const bytes = Uint8Array.from(atob('{}'), c => c.charCodeAt(0)); const own = document.createElement('button'); own.title='Você'; own.style.cssText='position:fixed;left:16px;bottom:16px;width:48px;height:48px'; const photo = document.createElement('img'); photo.style.cssText='width:32px;height:32px'; photo.src=URL.createObjectURL(new Blob([bytes], {{type:'image/png'}})); own.append(photo); document.body.append(own);</script>", gtk::glib::base64_encode(include_bytes!("../icons/32x32.png")))
-                    } else { String::new() };
-                    webview.load_html(
-                        &format!("{}{}", if index == 0 {
-                            "<body style='margin:0;background:#171522;color:white;font:24px sans-serif'><header style='height:72px'>Elo Talks — test account</header><aside style='width:304px'>Accounts<br>Settings<br>Lock vault</aside>"
-                        } else if index == 1 {
-                            "<body class='dark' style='background:#243e38'>Synthetic notification source<script>setTimeout(() => { const side = document.createElement('div'); side.id = 'pane-side'; side.style.height = '20px'; document.body.append(side); }, 3000);Promise.all(['notifications','geolocation'].map(name => navigator.permissions.query({name}).then(result => result.state === 'granted' ? 'granted' : 'not-granted'))).then(states => document.title = states.join('|') + '|' + getComputedStyle(document.body).getPropertyValue('--panel-header-background').trim()); if(Notification.permission === 'granted') new Notification('Synthetic private sender', {body:'Synthetic private message'});</script>"
-                        } else {
-                            "<body class='dark' style='background:#243e38;color:white;font:32px sans-serif'>Synthetic conversation area — no personal data<div id=\"pane-side\">Untrusted structure</div><script>navigator.permissions.query({name:'notifications'}).then(result => document.title = Notification.permission + '|' + result.state + '|' + getComputedStyle(document.body).getPropertyValue('--panel-header-background').trim());</script></body>"
-                        }, avatar_html),
-                        Some(match index { 1 => "https://web.whatsapp.com/", 2 => "https://untrusted.example/", _ => "about:blank" }),
-                    );
-                    if index != 2 {
-                        return;
-                    }
-                    let overlay = webview.parent().unwrap().downcast::<gtk::Overlay>().unwrap();
-                    let all_children = overlay.children();
-                    let handles: Vec<_> = all_children.iter().filter(|child| child.widget_name().starts_with("elo-resize-")).cloned().collect();
-                    assert_eq!(handles.len(), 8, "Every edge and corner has one native resize handle");
-                    let children: Vec<_> = all_children.into_iter().filter(|child| !child.widget_name().starts_with("elo-resize-")).collect();
-                    assert_eq!(children.len(), 3);
-                    let shell = children[0].clone();
-                    let first = children[1].clone();
-                    let second = children[2].clone();
-                    let native = overlay.toplevel().unwrap().downcast::<gtk::Window>().unwrap();
-                    let first_view = handle.get_webview("account-one").unwrap();
-                    let second_view = handle.get_webview("account-two").unwrap();
-                    let stage = Rc::new(Cell::new(0));
-                    let hidden_waits = Rc::new(Cell::new(0));
-                    gtk::glib::timeout_add_local(Duration::from_millis(600), move || {
-                        let check = |account: &gtk::Widget| {
-                            let allocation = overlay.allocation();
-                            for handle in &handles {
-                                assert!(handle.is_visible());
-                                let bounds = handle.allocation();
-                                assert!(bounds.width() >= 5 && bounds.height() >= 5);
-                                assert!(bounds.x() >= 0 && bounds.y() >= 0);
-                                assert!(bounds.x() + bounds.width() <= allocation.width());
-                                assert!(bounds.y() + bounds.height() <= allocation.height());
-                            }
-
-                            assert_eq!(shell.allocated_width(), allocation.width());
-                            assert_eq!(shell.allocated_height(), allocation.height());
-                            assert_eq!(account.translate_coordinates(&shell, 0, 0), Some((304, ui_layout::HEADER_HEIGHT)));
-                            assert_eq!(account.allocated_width(), allocation.width() - 304);
-                            assert_eq!(account.allocated_height(), allocation.height() - ui_layout::HEADER_HEIGHT);
-                            let view = account.clone().downcast::<webkit2gtk::WebView>().unwrap();
-                            assert!(!WebViewExt::settings(&view).unwrap().enables_fullscreen());
-                            assert!(view.emit_by_name::<bool>("enter-fullscreen", &[]));
-                        };
-                        match stage.get() {
-                            0 => { assert!(!first.is_visible() && !second.is_visible()); ui_layout::set_account_visible(&first_view, true).unwrap(); }
-                            1 => {
-                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].readiness, account_runtime::Readiness::Preparing, "Document load is not WhatsApp readiness");
-                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::Ready);
-                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].native_notifications, 1, "WhatsApp notification permission must be initialized before the page checks it");
-                                let native_view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
-                                assert_eq!(native_view.title().as_deref(), Some("granted|not-granted|#1a1a1e"), "Permissions API must grant WhatsApp notifications without granting geolocation");
-                                native_view.emit_by_name::<()>("web-process-terminated", &[&webkit2gtk::WebProcessTerminationReason::Crashed]);
-                                native_view.emit_by_name::<()>("load-changed", &[&webkit2gtk::LoadEvent::Finished]);
-                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].page, account_runtime::PageState::ProcessStopped);
-                                check(&first); assert!(first.is_visible()); ui_layout::set_account_visible(&first_view, false).unwrap(); ui_layout::set_account_visible(&second_view, true).unwrap(); }
-                            2 => {
-                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-two"].readiness, account_runtime::Readiness::Preparing, "Untrusted origins cannot report readiness");
-                                // WebKit masks a denied query as prompt before the origin
-                                // has requested notifications; neither API may grant access.
-                                assert_eq!(second.clone().downcast::<webkit2gtk::WebView>().unwrap().title().as_deref(), Some("default|prompt|"), "Other origins must not inherit WhatsApp notification permission");
-                                check(&second); assert!(second.is_visible()); assert!(!first.is_visible()); native.resize(900, 640);
-                            }
-                            3 => { check(&second); assert_eq!(overlay.allocated_width(), 900); native.resize(1400, 900); }
-                            4 => {
-                                check(&second);
-                                assert_eq!(overlay.allocated_width(), 1400);
-                                ui_layout::set_account_visible(&second_view, false).unwrap();
-                                assert!(shell.is_visible());
-                                native.hide();
-                                let view = first.clone().downcast::<webkit2gtk::WebView>().unwrap();
-                                view.evaluate_javascript("setTimeout(() => { document.title = '(7) WhatsApp'; new Notification('Synthetic background sender', {body:'Synthetic private body'}); }, 1000)", None, None, None::<&gtk::gio::Cancellable>, |_| {});
-                            }
-                            5 => {
-                                let received = handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].native_notifications;
-                                if handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].readiness != account_runtime::Readiness::Chats || received < 2 || handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].unread_count != Some(7) {
-                                    hidden_waits.set(hidden_waits.get() + 1);
-                                    assert!(hidden_waits.get() < 20, "Hidden account in hidden window must keep receiving native notification events");
-                                    return gtk::glib::ControlFlow::Continue;
-                                }
-                                assert!(!first.is_visible() && !second.is_visible());
-                                assert!(!native.is_visible());
-                                {
-                                    let events = handle.state::<account_events::AccountEvents>();
-                                    let mut runtime = events.runtime.lock().unwrap();
-                                    runtime.focused = true;
-                                    runtime.selected = Some("account-one".into());
-                                    runtime.acknowledge_selected();
-                                    assert_eq!(runtime.total(), 7, "Selecting a channel must not mark its WhatsApp items as read");
-                                }
-                                first.clone().downcast::<webkit2gtk::WebView>().unwrap().evaluate_javascript("document.title = 'WhatsApp'", None, None, None::<&gtk::gio::Cancellable>, |_| {});
-                                native.show();
-                            }
-                            6 => {
-                                // Avatar probes run every five seconds; the earlier layout stages finish sooner.
-                                if !handle.state::<account_events::AccountEvents>().avatars.lock().unwrap().contains_key("account-one") { return gtk::glib::ControlFlow::Continue; }
-                                assert!(handle.state::<account_events::AccountEvents>().avatars.lock().unwrap().contains_key("account-one"), "Own blob avatar must reach the memory-only store");
-                                assert!(!handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().diagnostics().to_string().contains("base64"));
-                                assert!(avatar_complete.load(std::sync::atomic::Ordering::Relaxed), "Native avatar extraction must work without granting canvas access");
-                                assert_eq!(handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["account-one"].unread_count, Some(0));
-                                assert!(shell.is_visible());
-                                assert!(!first.is_visible() && !second.is_visible());
-                                first.clone().downcast::<webkit2gtk::WebView>().unwrap().load_html("<body>Reloaded synthetic account</body>", Some("https://web.whatsapp.com/"));
-                            }
-                            7 => {
-                                let events = handle.state::<account_events::AccountEvents>();
-                                assert!(events.avatars.lock().unwrap().contains_key("account-one"), "Reload keeps the cached photo while refreshing");
-                                let runtime = events.runtime.lock().unwrap();
-                                assert_eq!(runtime.accounts["account-one"].avatar_attempts, 0, "Reload resets the avatar search budget");
-                                assert!(runtime.accounts["account-one"].avatar_probe_active);
-                                println!("PASS: shell bounds, account switching, fullscreen denial, consistent notification permissions with origin/feature restrictions and notification events from a hidden account/window");
-                                std::process::exit(0);
-                            }
-                            _ => unreachable!(),
+        .setup(move |app| {
+            let window = tauri::window::WindowBuilder::new(app,"layout-test").inner_size(1200.,800.).build()?;
+            let shell = window.add_child(WebviewBuilder::new("main",WebviewUrl::App("index.html".into())).size(LogicalSize::new(1200.,800.)))?;
+            ui_layout::attach(&window,&shell)?;
+            let mut accounts = Vec::new();
+            for id in ["one","two"] {
+                app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.insert(id.into(),account_runtime::AccountHealth::default());
+                let view = window.add_child(WebviewBuilder::new(format!("account-{id}"),WebviewUrl::External("about:blank".parse()?))
+                    .data_directory(root.path().join(id)).devtools(false)
+                    .on_page_load(|view,event| {
+                        if event.event() == tauri::webview::PageLoadEvent::Finished && whatsapp::is_origin(event.url()) {
+                            let id = view.label().strip_prefix("account-").unwrap();
+                            account_events::page(view.app_handle(),id,account_runtime::PageState::Ready);
+                            account_readiness::attach(&view,view.app_handle(),id);
+                            account_avatar::attach(&view,view.app_handle(),id);
+                            whatsapp_style::attach(&view);
                         }
-                        stage.set(stage.get() + 1);
-                        gtk::glib::ControlFlow::Continue
-                    });
-                })?;
+                    })
+                    .position(LogicalPosition::new(304.,108.)).size(LogicalSize::new(890.,686.)))?;
+                view.hide()?;
+                accounts.push(view);
             }
+            let app = app.handle().clone();
+            std::thread::spawn(move || {
+                let [first,second] = accounts.as_slice() else { unreachable!() };
+                let (activity,_receiver) = mpsc::sync_channel(1);
+                for (view,id) in [(first,"one"),(second,"two")] {
+                    let html = format!("{HTML}<script>const bytes=Uint8Array.from(atob('{}'),c=>c.charCodeAt(0));const own=document.createElement('button');own.title='You';own.style.cssText='position:fixed;left:16px;bottom:16px;width:48px;height:48px';const image=document.createElement('img');image.style.cssText='width:32px;height:32px';image.src=URL.createObjectURL(new Blob([bytes],{{type:'image/png'}}));own.append(image);document.body.append(own);</script>",gtk::glib::base64_encode(include_bytes!("../icons/32x32.png")));
+                    let html = if id == "two" {
+                        html.replace("image.src=URL.createObjectURL(new Blob([bytes],{type:'image/png'}));", "image.onload=()=>{const canvas=document.createElement('canvas');canvas.getContext('2d').drawImage(image,0,0);try{canvas.toDataURL();window.canvasBlocked=false;}catch{window.canvasBlocked=true;}};image.src='https://avatar.example/self.png';")
+                    } else { html };
+                    fixture::serve(view,&html);
+                    account_avatar::observe(view,&app,id).unwrap();
+                    account_events::attach(view,&app,id,activity.clone()).unwrap();
+                    fixture::wait_for(|| fixture::evaluate(view,"location.origin") == "https://web.whatsapp.com");
+                }
+                fixture::wait_for(|| app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.values().all(|state| state.readiness == account_runtime::Readiness::Chats));
+                fixture::wait_for(|| account_avatar::current(&app,"one").is_some() && account_avatar::current(&app,"two").is_some());
+                assert_eq!(fixture::evaluate(second,"window.canvasBlocked"), true);
+                assert!(!app.state::<account_events::AccountEvents>().runtime.lock().unwrap().diagnostics().to_string().contains("base64"));
+                assert_eq!(fixture::evaluate(first,"localStorage.setItem('isolation','one');document.cookie='isolation=one';true"),true);
+                assert_eq!(fixture::evaluate(second,"localStorage.getItem('isolation') === null && !document.cookie.includes('isolation=one')"),true);
+                ui_layout::set_account_visible(first,true).unwrap();
+                ui_layout::set_account_visible(first,false).unwrap();
+                ui_layout::set_account_visible(second,true).unwrap();
+                for (width,height) in [(900.,640.),(1400.,900.),(1200.,800.)] {
+                    window.set_size(LogicalSize::new(width,height)).unwrap();
+                    fixture::wait_for(|| {
+                        let scale = window.scale_factor().unwrap();
+                        let size = second.size().unwrap().to_logical::<f64>(scale);
+                        (size.width-(width-310.)).abs() < 1. && (size.height-(height-114.)).abs() < 1.
+                    });
+                    let scale = window.scale_factor().unwrap();
+                    assert_eq!(second.position().unwrap().to_logical::<f64>(scale),LogicalPosition::new(304.,108.));
+                    assert_eq!(shell.size().unwrap(),window.inner_size().unwrap());
+                }
+                window.hide().unwrap();
+                fixture::evaluate(first,"new Notification('Synthetic sender',{body:'Synthetic body'});true");
+                fixture::wait_for(|| app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["one"].native_notifications == 1);
+                assert_eq!(fixture::evaluate(first,"getComputedStyle(document.body).getPropertyValue('--panel-header-background').trim()"),"#1a1a1e");
+                window.show().unwrap(); second.set_focus().unwrap();
+                let id = tauri_runtime_cef::allocate_devtools_message_id().unwrap();
+                second.send_dev_tools_message(serde_json::json!({"id":id,"method":"Runtime.evaluate","params":{"expression":"document.documentElement.requestFullscreen().catch(()=>{})","userGesture":true}}).to_string().as_bytes()).unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                assert!(!window.is_fullscreen().unwrap());
+                assert_eq!(fixture::evaluate(second,"!!document.fullscreenElement"),false);
+                second.navigate("https://untrusted.example/".parse().unwrap()).unwrap();
+                fixture::wait_for(|| fixture::evaluate(second,"location.origin") == "https://untrusted.example");
+                assert_eq!(fixture::evaluate(second,"!!Notification.__elo"),false);
+                fixture::evaluate(second,"window.nativeDenied=false;window.__TAURI__.core.invoke('plugin:window|destroy',{label:'layout-test'}).catch(()=>window.nativeDenied=true);true");
+                fixture::wait_for(|| fixture::evaluate(second,"window.nativeDenied") == true);
+                completed.store(true,Ordering::SeqCst);
+                app.exit(0);
+            });
             Ok(())
-        })
-        .run(tauri::generate_context!())
-        .unwrap();
+        }).run(tauri::generate_context!()).unwrap();
+    assert!(verified.load(Ordering::SeqCst));
+    println!("PASS: CEF account isolation, native geometry, switching, hidden notifications/readiness, theme, fullscreen and remote capability denial");
 }

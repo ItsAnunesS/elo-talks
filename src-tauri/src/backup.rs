@@ -635,9 +635,22 @@ mod tests {
         let mut original = Vault::new(source.clone(), runtime.path()).unwrap();
         original.helper = helper.clone();
         original.create("original master password").unwrap();
-        let catalog = crate::workspaces::Catalog::load(&original.mount)
-            .unwrap()
-            .metadata();
+        let mut saved_catalog = crate::workspaces::Catalog::load(&original.mount).unwrap();
+        let workspace = saved_catalog.workspaces[0].id.clone();
+        saved_catalog
+            .apply(
+                "account.add",
+                &serde_json::json!({"name":"Synthetic migrated account", "workspaceId":workspace}),
+            )
+            .unwrap();
+        saved_catalog.save(&original.mount).unwrap();
+        let id = saved_catalog.accounts[0].id.clone();
+        let legacy = original.mount.join("accounts").join(&id);
+        storage::private_dir(&legacy).unwrap();
+        fs::write(legacy.join("session"), b"legacy session retained").unwrap();
+        let chromium = crate::account_profiles::account(&original.mount, &id).unwrap();
+        fs::write(chromium.join("session"), b"new chromium session").unwrap();
+        let catalog = saved_catalog.metadata();
         fs::write(
             original.mount.join("synthetic-session"),
             b"synthetic session marker",
@@ -666,7 +679,19 @@ mod tests {
             .unwrap()
             .metadata();
         let actual_session = fs::read(restored.mount.join("synthetic-session")).unwrap();
+        let legacy_session =
+            fs::read(restored.mount.join("accounts").join(&id).join("session")).unwrap();
+        let chromium_session = fs::read(
+            restored
+                .mount
+                .join("chromium/accounts")
+                .join(&id)
+                .join("session"),
+        )
+        .unwrap();
         restored.unmount().unwrap();
+        assert_eq!(legacy_session, b"legacy session retained");
+        assert_eq!(chromium_session, b"new chromium session");
         assert_eq!(actual_catalog, catalog);
         assert_eq!(actual_session, b"synthetic session marker");
     }

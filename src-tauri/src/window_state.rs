@@ -1,12 +1,7 @@
 //! Window geometry contains no account data and is scoped to the UI profile.
-use gtk::{glib, prelude::*};
 use serde::{Deserialize, Serialize};
-use std::{
-    cell::RefCell,
-    path::{Path, PathBuf},
-    rc::Rc,
-    time::Duration,
-};
+use std::path::{Path, PathBuf};
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Geometry {
     pub width: i32,
@@ -28,31 +23,39 @@ pub fn load(profile: &Path) -> Geometry {
         .filter(|value| (900..=7680).contains(&value.width) && (640..=4320).contains(&value.height))
         .unwrap_or_default()
 }
-pub fn attach(window: &gtk::Window, path: PathBuf, saved: Geometry) {
-    let geometry = Rc::new(RefCell::new(saved));
-    let pending = Rc::new(RefCell::new(None::<glib::SourceId>));
-    window.connect_configure_event(move |window, _| {
-        let maximized = window.is_maximized();
-        if !maximized {
-            let (width, height) = window.size();
-            if width >= 900 && height >= 640 {
-                geometry.borrow_mut().width = width;
-                geometry.borrow_mut().height = height;
+pub fn attach(window: &tauri::Window, path: PathBuf, saved: Geometry) {
+    let geometry = std::sync::Arc::new(std::sync::Mutex::new(saved));
+    let pending = std::sync::Arc::new(std::sync::Mutex::new(None::<gtk::glib::SourceId>));
+    let handle = window.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Resized(_)) {
+            let mut value = geometry.lock().unwrap();
+            value.maximized = handle.is_maximized().unwrap_or(false);
+            if !value.maximized {
+                if let (Ok(size), Ok(scale)) = (handle.inner_size(), handle.scale_factor()) {
+                    let size = size.to_logical::<i32>(scale);
+                    if size.width >= 900 && size.height >= 640 {
+                        value.width = size.width;
+                        value.height = size.height;
+                    }
+                }
             }
+            drop(value);
+            if let Some(timer) = pending.lock().unwrap().take() {
+                timer.remove();
+            }
+            let snapshot = geometry.clone();
+            let destination = path.clone();
+            let completion = pending.clone();
+            let timer = gtk::glib::timeout_add_local_once(
+                std::time::Duration::from_millis(350),
+                move || {
+                    completion.lock().unwrap().take();
+                    let _ = crate::storage::write(&destination, &*snapshot.lock().unwrap());
+                },
+            );
+            *pending.lock().unwrap() = Some(timer);
         }
-        geometry.borrow_mut().maximized = maximized;
-        if let Some(timer) = pending.borrow_mut().take() {
-            timer.remove();
-        }
-        let completion = pending.clone();
-        let geometry = geometry.clone();
-        let path = path.clone();
-        let timer = glib::timeout_add_local_once(Duration::from_millis(350), move || {
-            completion.borrow_mut().take();
-            let _ = crate::storage::write(&path, &*geometry.borrow());
-        });
-        *pending.borrow_mut() = Some(timer);
-        false
     });
 }
 

@@ -1,9 +1,13 @@
-# Elo Talks 0.5 — Local backups and server metadata
+# Elo Talks 0.5 — Encrypted backups and Chromium migration
 
-This series adds portable local backups on Linux. It preserves the clipboard
-image-paste correction from commit `877741b` and the existing vault protections.
-The desktop can also connect to a separately deployed server for authorized
-metadata. It does not host WhatsApp sessions remotely or claim Windows/macOS support.
+This series preserves encrypted local backups, vault authentication, workspaces,
+accounts, notification privacy and verified updates. The pending full-app migration
+replaces Tauri 2/WebKit with pinned Tauri 3/CEF prereleases, without Electron.
+Server controls are hidden. The old encrypted WebKit profiles are preserved, but
+each account needs a new QR link in its separate Chromium profile.
+
+Publication remains gated on complete-app tests; prototype call success alone
+is not release acceptance. See [validation evidence](VALIDATION.md).
 
 ## Backup workflow
 
@@ -13,7 +17,7 @@ metadata. It does not host WhatsApp sessions remotely or claim Windows/macOS sup
   12 characters. Choose a new `.elobackup` filename outside the app data directory.
 - Keep Elo Talks open until it confirms completion. Backups include the complete
   closed encrypted filesystem: workspaces, categories, channels, images,
-  preferences and WebKit account profiles. Application binaries and updater
+  preferences and both legacy WebKit and Chromium account profiles. Application binaries and updater
   staging files are excluded.
 - On another Linux installation, choose **Encrypted backup** before creating a
   vault. Select the file and supply its backup password. That password becomes

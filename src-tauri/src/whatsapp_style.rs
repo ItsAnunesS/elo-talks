@@ -1,14 +1,5 @@
-//! Presentation only: no script, network access, DOM inspection or remote IPC.
-use webkit2gtk::{UserContentManagerExt, WebViewExt};
-
-pub fn attach(view: &webkit2gtk::WebView) {
-    if let Some(manager) = view.user_content_manager() {
-        manager.add_style_sheet(&webkit2gtk::UserStyleSheet::new(
-            include_str!("whatsapp.css"),
-            webkit2gtk::UserContentInjectedFrames::TopFrame,
-            webkit2gtk::UserStyleLevel::User,
-            &["https://web.whatsapp.com/*"],
-            &[],
-        ));
-    }
+//! Presentation only; no conversation data is read.
+pub fn attach(view: &tauri::Webview) {
+    let css = serde_json::to_string(include_str!("whatsapp.css")).expect("CSS encoding");
+    let _ = view.eval(format!("(() => {{ if (location.origin !== 'https://web.whatsapp.com' || document.getElementById('elo-theme')) return; const style = document.createElement('style'); style.id = 'elo-theme'; style.textContent = {css}; document.head.append(style); }})()"));
 }
