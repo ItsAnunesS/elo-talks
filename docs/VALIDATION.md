@@ -63,7 +63,17 @@ a pending `Browser` destructor used `TabDragServiceImpl`/`DropTargetRegistryImpl
 The runtime now posts a CEF UI-task barrier after all browser close acknowledgments
 before exiting its native loop. The reproducer then exited normally three times.
 Stage markers and a CI-only debugger capture future failures without skipping gates.
-Canonical Checks must still confirm this fix.
+Canonical Checks run 42530192725 passed on commit 2447976. The release workflow
+42531986661 then passed layout at both scales but blocked publication because the
+notification fixture delivered zero notifications. A two-CPU local run reproduced
+it: all six transport setup commands succeeded, but a deferred initial about:blank
+navigation overwrote the requested fixture URL. The runtime now shares the pending
+initial URL with explicit navigation requests, preserving the latest destination
+behind the existing document-start script barrier. The same notification fixture
+then passed 12 consecutive two-CPU runs with all three routes required. Synthetic
+page/title markers retain bounded diagnostics for future failures. After the fix,
+70 ordinary Rust tests and all-target Clippy passed again, followed by notifications,
+layout, production shell/IPC and media consent at both scales on two CPUs.
 
 Still required: green Checks and signed upgrade acceptance. No
 installed user vault or live account has been opened during these synthetic tests.

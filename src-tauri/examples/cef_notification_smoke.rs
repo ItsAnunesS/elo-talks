@@ -29,7 +29,10 @@ fn main() {
         })
         .setup(move |app| {
             let window = tauri::window::WindowBuilder::new(app,"test").title("Synthetic CEF notification transport").build()?;
-            let view = window.add_child(WebviewBuilder::new("account-test", WebviewUrl::External("about:blank".parse()?)).size(tauri::LogicalSize::new(900.,640.)))?;
+            let view = window.add_child(WebviewBuilder::new("account-test", WebviewUrl::External("about:blank".parse()?)).size(tauri::LogicalSize::new(900.,640.))
+                .on_document_title_changed(|_, title| eprintln!("FIXTURE title: {title}"))
+                .on_page_load(|_, event| eprintln!("FIXTURE page: {:?} {}", event.event(), event.url())))?;
+            // Attach immediately: the deferred initial about:blank must not replace this navigation.
             cef_notifications::attach(&view, "http://fixture.localhost", move |title, body| {
                 assert_eq!(title, "Synthetic sender");
                 assert_eq!(body, "Synthetic private body");

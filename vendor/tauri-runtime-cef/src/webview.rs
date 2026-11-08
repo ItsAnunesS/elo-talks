@@ -502,6 +502,7 @@ pub(crate) struct AppWebview {
   pub(crate) popup_family: Arc<crate::popup::PopupFamily>,
   pub(crate) dialogs: crate::dialog::DialogState,
   pub(crate) host: cef::BrowserHost,
+  initial_navigation: InitialNavigation,
   pub(crate) uri_scheme_protocols: Arc<HashMap<String, Arc<Box<UriSchemeProtocolHandler>>>>,
   pub(crate) devtools_protocol_handlers: Arc<Mutex<Vec<Arc<DevToolsProtocolHandler>>>>,
   /// Keeps the DevTools message observer registered. Dropping this unregisters the observer.
@@ -947,12 +948,13 @@ impl<T: UserEvent> WinitCefApp<T> {
         if let Some(user_agent) = &user_agent {
           apply_user_agent_override(&host, user_agent);
         }
+        let initial_navigation = Arc::new(Mutex::new(Some(real_initial_url)));
         load_initial_url_after_registering_initialization_scripts(
           &browser,
           &initialization_scripts,
           &custom_protocol_scheme,
           &custom_scheme_domain_names,
-          &real_initial_url,
+          initial_navigation.clone(),
           &pending_initial_loads,
         );
 
@@ -970,6 +972,7 @@ impl<T: UserEvent> WinitCefApp<T> {
             devtools_protocol_handlers,
             devtools_observer_registration,
             devtools_enabled,
+            initial_navigation,
             bounds_rate,
             offscreen,
             page_fullscreen: Default::default(),
@@ -1271,8 +1274,16 @@ impl<T: UserEvent> WinitCefApp<T> {
         }
       }
       WebviewMessage::Navigate(url) => {
-        if let Some(frame) = child.browser.main_frame() {
-          frame.load_url(Some(&cef::CefString::from(url.as_str())));
+        // Keep the newest requested URL behind the document-start script barrier.
+        // An already queued initial load must not overwrite an explicit navigation.
+        let mut initial = child.initial_navigation.lock().unwrap();
+        if initial.is_some() {
+          *initial = Some(url.to_string());
+        } else {
+          drop(initial);
+          if let Some(frame) = child.browser.main_frame() {
+            frame.load_url(Some(&cef::CefString::from(url.as_str())));
+          }
         }
       }
       WebviewMessage::Reload => child.browser.reload(),
@@ -2135,6 +2146,9 @@ pub(crate) const INITIAL_LOAD_URL: &str = concat!(
   "%3C%2Fhtml%3E",
 );
 
+// Shared until the first load is dispatched; explicit navigation can replace its URL.
+type InitialNavigation = Arc<Mutex<Option<String>>>;
+
 /// Maps a pending `Page.addScriptToEvaluateOnNewDocument` CDP message id to the
 /// `(browser, real_url)` whose real navigation is deferred until that message is
 /// acknowledged.
@@ -2142,7 +2156,7 @@ pub(crate) const INITIAL_LOAD_URL: &str = concat!(
 /// The keys only ever come from `allocate_runtime_devtools_message_id`, whose
 /// reserved range no caller identifier can reach, so a caller cannot release the
 /// deferred navigation early by sending a request with a hardcoded `id`.
-pub(crate) type PendingInitialLoads = Arc<Mutex<HashMap<i32, (Browser, String)>>>;
+pub(crate) type PendingInitialLoads = Arc<Mutex<HashMap<i32, (Browser, InitialNavigation)>>>;
 
 cef::wrap_dev_tools_message_observer! {
   struct TauriDevToolsProtocolObserver {
@@ -2375,7 +2389,7 @@ fn register_initialization_scripts(
   initialization_scripts: &[CefInitScript],
   custom_protocol_scheme: &str,
   custom_scheme_domain_names: &[String],
-  initial_url: String,
+  initial_url: InitialNavigation,
   pending_initial_loads: &PendingInitialLoads,
 ) -> std::result::Result<bool, crate::DevToolsMessageIdExhausted> {
   let Some(source) = devtools_initialization_script_source(
@@ -2414,17 +2428,20 @@ fn register_initialization_scripts(
 wrap_task! {
   struct LoadInitialUrlTask {
     browser: Browser,
-    initial_url: String,
+    initial_url: InitialNavigation,
   }
 
   impl Task {
     fn execute(&self) {
-      load_initial_url(&self.browser, &self.initial_url);
+      let url = self.initial_url.lock().unwrap().take();
+      if let Some(url) = url {
+        load_initial_url(&self.browser, &url);
+      }
     }
   }
 }
 
-fn post_load_initial_url(browser: Browser, initial_url: String) {
+fn post_load_initial_url(browser: Browser, initial_url: InitialNavigation) {
   let mut task = LoadInitialUrlTask::new(browser, initial_url);
   cef::post_task(sys::cef_thread_id_t::TID_UI.into(), Some(&mut task));
 }
@@ -2442,11 +2459,10 @@ pub(crate) fn load_initial_url_after_registering_initialization_scripts(
   initialization_scripts: &[CefInitScript],
   custom_protocol_scheme: &str,
   custom_scheme_domain_names: &[String],
-  initial_url: &str,
+  initial_url: InitialNavigation,
   pending_initial_loads: &PendingInitialLoads,
 ) {
   let browser_for_callback = browser.clone();
-  let initial_url = initial_url.to_string();
   let is_waiting_for_initialization_scripts = register_initialization_scripts(
     browser,
     initialization_scripts,
