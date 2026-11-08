@@ -301,3 +301,23 @@ The attempted process-counter sample found no running Elo Talks process. It is
 not a usable CPU/memory baseline and no performance improvement percentage is
 claimed. The three-account soak, clean distributions, hardware credentials and
 installed-AppImage candidate upgrade acceptance remain pending.
+
+## Voice and video permission acceptance
+
+The account adapter explicitly enables WebRTC/media streams and prompts for native
+camera/microphone requests. Unit coverage checks that media permission queries
+require consent and unrelated permissions/untrusted origins remain denied.
+
+Local validation (2026-11-08): the pinned Rust 1.99.1 toolchain in Docker with
+WebKitGTK 2.50.6 passed 64 Rust tests (3 existing ignored tests), including the new
+permission regression. The 18 Python tests also passed. The test-only TAURI_CONFIG
+override omitted unavailable packaging helper binaries; this was not an AppImage
+build or a live call test.
+
+Pending manual acceptance in an isolated desktop and then an authorized test account:
+- Confirm Allow/Deny, window close, navigation and account switching resolve requests.
+- Confirm microphone-only and camera+microphone capture with synthetic devices.
+- Verify both outgoing and incoming WhatsApp voice/video calls with the packaged
+  AppImage, including device denial, missing devices and call termination.
+- Verify packaged WebKit/GStreamer supports the required WebRTC codecs; enabling
+  settings alone does not establish compatibility or WhatsApp feature availability.

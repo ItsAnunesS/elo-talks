@@ -196,3 +196,14 @@ continues during requests, and results are discarded after locking. This is
 bounded polling rather than instantaneous revocation. Previously downloaded data
 and user-owned backups cannot be remotely erased by an ACL change. See
 SERVER-SYNC.md for lifecycle details and explicit manual acceptance limits.
+
+## Camera and microphone
+
+Account views enable WebRTC and media streams. Camera/microphone permission queries
+return prompt at the exact WhatsApp HTTPS origin; they never grant capture by
+themselves. A visible account can request capture through a native consent dialog,
+with Deny selected by default. Pending requests are denied on navigation, account
+hiding or dialog destruction. Approval rechecks the current origin and visibility.
+No capture preference is persisted by Elo Talks. Other permission types remain
+denied except the existing WhatsApp notification permission. This grants no Tauri
+capabilities and does not change TLS, sandbox or vault boundaries.

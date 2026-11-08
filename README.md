@@ -74,7 +74,13 @@ capabilities, and each account uses an isolated WebKit context.
 
 An unlocked vault cannot protect against a compromised operating system. Exported
 attachments, desktop notification history and unprotected swap are outside its
-protection. Voice and video calls are not supported.
+protection.
+
+Account views enable WebRTC for voice and video calls. WhatsApp must request
+microphone/camera access and you must approve the native permission dialog.
+Requests are cancelled when switching accounts or navigating away. Call availability
+still depends on WhatsApp Web and the installed WebKitGTK/GStreamer runtime;
+end-to-end voice/video calling has not yet been validated in the packaged AppImage.
 
 Read the [security model](docs/SECURITY.md) for details and limitations. The
 [0.4 release notes](docs/RELEASE-0.4.md) describe the current hardening work.
