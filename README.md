@@ -74,7 +74,9 @@ An unlocked vault cannot protect against a compromised operating system. Exporte
 attachments, desktop notification history and unprotected swap are outside its
 protection.
 
-Account views use Chromium WebRTC with native camera/microphone prompts. Calls
+Account views use Chromium WebRTC. Elo asks for microphone and camera access per
+account and saves your choice inside the vault. Revoke access or ask again under
+Settings → Security; changing access reloads that account and ends active calls. Calls
 worked in the separate CEF prototype; acceptance in the complete packaged app is
 tracked in [validation status](docs/VALIDATION.md).
 

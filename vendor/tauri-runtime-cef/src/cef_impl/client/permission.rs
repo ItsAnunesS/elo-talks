@@ -182,17 +182,35 @@ enum AppDecision {
 wrap_permission_handler! {
   pub struct TauriCefPermissionHandler {
     permission_request_handler: Option<Arc<PermissionRequestHandler>>,
+    media_permission_handler: Option<Arc<crate::MediaPermissionHandler>>,
   }
 
   impl PermissionHandler {
     fn on_request_media_access_permission(
       &self,
       browser: Option<&mut Browser>,
-      _frame: Option<&mut Frame>,
+      frame: Option<&mut Frame>,
       requesting_origin: Option<&CefString>,
       requested_permissions: u32,
       callback: Option<&mut MediaAccessCallback>,
     ) -> ::std::os::raw::c_int {
+      if let Some(handler) = &self.media_permission_handler {
+        if let Some(callback) = callback {
+          if let (Some(browser), Some(frame), Some(origin)) = (browser, frame, requesting_origin) {
+            handler(crate::MediaPermissionRequest {
+              browser: browser.clone(),
+              frame: frame.clone(),
+              origin: origin.to_string(),
+              permissions: requested_permissions,
+              callback: Some(callback.clone()),
+            });
+          } else {
+            callback.cont(0);
+          }
+          return 1;
+        }
+        return 0;
+      }
       let host = browser_host(browser);
 
       match self.decide(requested_permissions, media_permission_kind) {

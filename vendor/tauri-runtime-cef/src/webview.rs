@@ -788,6 +788,7 @@ impl<T: UserEvent> WinitCefApp<T> {
         .runtime_specific_attributes
         .console_message_handler
         .clone(),
+      media_permission_handler: pending.runtime_specific_attributes.media_permission_handler.clone(),
       permission_request_handler: pending.permission_request_handler.take().map(Arc::from),
       web_content_process_terminate_handler,
     };
@@ -1511,6 +1512,8 @@ pub struct CefWebviewAttributes {
   /// [`FrameNavigationState`](crate::FrameNavigationState) follows a popup's
   /// native lifecycle without exposing its URLs.
   pub frame_event_handler: Option<Arc<crate::FrameEventHandler>>,
+  /// Optional asynchronous media consent handler.
+  pub media_permission_handler: Option<Arc<crate::MediaPermissionHandler>>,
   /// Observer of the messages the renderer writes to the JavaScript console.
   ///
   /// Scoped to this webview's own native browser, so neither a CEF-owned popup's

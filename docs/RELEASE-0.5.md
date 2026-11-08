@@ -5,6 +5,9 @@ accounts, notification privacy and verified updates. The pending full-app migrat
 replaces Tauri 2/WebKit with pinned Tauri 3/CEF prereleases, without Electron.
 Server controls are hidden. The old encrypted WebKit profiles are preserved, but
 each account needs a new QR link in its separate Chromium profile.
+Elo owns microphone/camera consent, saves choices per account in the vault, and
+provides revoke/ask-again controls in Settings → Security. Revoking reloads the
+account and ends active calls.
 
 Publication remains gated on complete-app tests; prototype call success alone
 is not release acceptance. See [validation evidence](VALIDATION.md).

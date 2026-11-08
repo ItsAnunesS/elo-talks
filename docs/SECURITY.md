@@ -231,8 +231,15 @@ SERVER-SYNC.md for lifecycle details and explicit manual acceptance limits.
 ## Camera and microphone
 
 Account views use Chromium WebRTC. Only the WhatsApp top-level origin may reach
-native camera/microphone prompts; other permission kinds are denied by Elo.
-Chromium manages per-origin media choices inside the account's encrypted profile.
+Elo's asynchronous camera/microphone dialog; other permission kinds are denied.
+The native requesting frame and exact HTTPS origin are checked before prompting
+and again before answering. Navigation and revocation invalidate pending approvals.
+Decisions are separate per device/account and persisted atomically inside the
+encrypted profile. Missing decisions ask; unreadable state fails closed. Requests
+time out after 60 seconds and concurrent prompts per account are refused.
+Settings → Security can block or reset either permission. Elo updates Chromium's
+origin content setting and reloads the account to terminate existing streams.
+Remote pages cannot call the local permission settings commands.
 Permission approval grants no Tauri capability and does not change TLS, sandbox
 or vault boundaries. Real calling and hardware acceptance must be checked in the
 packaged application, separately from synthetic peer tests.

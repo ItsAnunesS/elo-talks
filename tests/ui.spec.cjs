@@ -70,6 +70,12 @@ const http = require("node:http"),
         core: {
           invoke: async (cmd, args) => {
             window.testRequests.push({ cmd, args });
+            if (cmd === "media_permissions") return window.testMediaPermissions || {};
+            if (cmd === "reset_media_permission") {
+              if (window.testMediaError) throw Error("Could not save device permissions");
+              window.testMediaPermissions[args.id][args.device] = args.block ? "block" : "ask";
+              return;
+            }
             if (cmd === "choose_backup") return window.testBackupPath ?? "/tmp/synthetic.elobackup";
             if (cmd === "test_notification" && window.testNotificationError)
               throw Error("Linux notification service unavailable");
@@ -775,7 +781,25 @@ const http = require("node:http"),
     await page.getByLabel("Search channels").press("ArrowDown");
     await page.keyboard.press("Enter");
     await page.locator('#account-list [data-account-id="account-4"].selected').waitFor();
+    await page.evaluate(() => {
+      window.testMediaPermissions = { "account-4": { microphone: "allow", camera: "ask" } };
+    });
     await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("tab", { name: "Security", exact: true }).click();
+    await page.getByRole("button", { name: "Revoke microphone", exact: true }).click();
+    await page.getByText("Microphone: Blocked", { exact: true }).waitFor();
+    assert.equal(
+      await page.getByRole("button", { name: "Revoke microphone", exact: true }).isDisabled(),
+      true,
+    );
+    await page.getByRole("button", { name: "Ask for microphone again", exact: true }).click();
+    await page.getByText("Microphone: Ask next time", { exact: true }).waitFor();
+    await page.evaluate(() => (window.testMediaError = true));
+    await page.getByRole("button", { name: "Revoke camera", exact: true }).click();
+    await page.getByText("Could not save device permissions", { exact: true }).waitFor();
+    await page.getByText("Camera: Ask next time", { exact: true }).waitFor();
+    await page.evaluate(() => (window.testMediaError = false));
+    await page.getByRole("tab", { name: "General", exact: true }).click();
     await page.getByLabel("Text size", { exact: true }).selectOption("120");
     assert.equal(await page.locator("html").getAttribute("data-text-size"), "120");
     await page.getByLabel("Text size", { exact: true }).selectOption("100");

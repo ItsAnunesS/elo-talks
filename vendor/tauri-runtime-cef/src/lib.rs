@@ -16,6 +16,8 @@ mod environment;
 mod external_message_pump;
 mod frame;
 mod header_validation;
+mod media_permission;
+pub use media_permission::{MediaPermissionRequest, MediaPermissionHandler};
 pub use dialog::{
   NativeDialogKind, NativeDialogObservation, NativeDialogSnapshot, NativeDialogToken,
 };

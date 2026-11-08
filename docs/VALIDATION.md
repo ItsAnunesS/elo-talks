@@ -8,7 +8,7 @@ Completed locally with pinned Rust/Go tools and Ubuntu 24.04 Docker builds,
 using isolated Xvfb displays and synthetic data:
 
 - Chromium 156.0.8078.88 / CEF 156.0.26, bindings 156.4.0. No Electron.
-- 68 ordinary Rust tests passed, including invalid-header regressions.
+- 70 ordinary Rust tests passed, including invalid-header and media-policy regressions.
   Four hardware/host integrations remain ignored in the ordinary suite and are
   reported separately. All-target Clippy passed with warnings denied.
 - Host FUSE encryption/persistence and backup restoration passed. Restoration
@@ -43,9 +43,18 @@ using isolated Xvfb displays and synthetic data:
 The first live full-app attempt stalled before QR display. A synthetic regression
 reproduced a synchronous URL getter inside CEF title callbacks. The callbacks now
 use the browser-reported committed origin instead; the regression passes at both
-scales. The corrected artifact still needs live acceptance.
+scales. The user subsequently reached a linked account and Chromium's microphone
+permission prompt. That establishes startup progress, not successful calls.
 
-Still required: corrected final-artifact startup, signed upgrade acceptance, green Checks,
+Elo-owned native media consent now passed synthetic getUserMedia tests at both
+scales with fake devices: allow, deny, per-device/account isolation, revoke,
+ask again, and rejection of stale/cross-origin requests. The production shell
+rejects remote access to both permission commands. Browser settings tests cover
+revocation, reset, and persistence errors; all 70 ordinary Rust tests and Clippy
+passed. The new candidate still requires real calls and permission revocation
+acceptance before publication.
+
+Still required: final artifact with Elo media consent, signed upgrade acceptance, green Checks,
 and real voice/video/incoming calls in the full artifact before publication. No
 installed user vault or live account has been opened during these synthetic tests.
 GNOME portal, hardware-key, suspend/resume and clean-distribution acceptance are not

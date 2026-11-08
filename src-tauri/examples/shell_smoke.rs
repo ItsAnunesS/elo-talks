@@ -5,6 +5,8 @@ mod account_avatar;
 #[allow(dead_code)]
 #[path = "../src/account_events.rs"]
 mod account_events;
+#[path = "../src/account_permissions.rs"]
+mod account_permissions;
 #[allow(dead_code)]
 #[path = "../src/account_profiles.rs"]
 mod account_profiles;
@@ -161,8 +163,8 @@ fn main() {
                 fixture::serve(&remote, "<!doctype html><title>Synthetic remote origin</title>");
                 remote.navigate("https://web.whatsapp.com/".parse().unwrap()).unwrap();
                 fixture::wait_for(|| fixture::evaluate(&remote, "location.origin") == "https://web.whatsapp.com");
-                fixture::evaluate(&remote, "window.denials=[];for(const command of ['request','account_snapshot','choose_backup','window_action'])window.__TAURI__.core.invoke(command,{op:'status',data:{},export:true,action:'close'}).then(()=>window.denials.push('unexpected success')).catch(error=>window.denials.push(String(error)));true");
-                fixture::wait_for(|| fixture::evaluate(&remote, "window.denials.length === 4 && window.denials.every(error => error.includes('Unauthorized origin') || error.includes('not allowed'))") == true);
+                fixture::evaluate(&remote, "window.denials=[];for(const command of ['request','account_snapshot','choose_backup','window_action','media_permissions','reset_media_permission'])window.__TAURI__.core.invoke(command,{op:'status',data:{},export:true,action:'close',id:'11111111-1111-4111-8111-111111111111',device:'microphone',block:false}).then(()=>window.denials.push('unexpected success')).catch(error=>window.denials.push(String(error)));true");
+                fixture::wait_for(|| fixture::evaluate(&remote, "window.denials.length === 6 && window.denials.every(error => error.includes('Unauthorized origin') || error.includes('not allowed'))") == true);
             }
             eprintln!("Synthetic stage: create accounts through production command");
             accounts_enabled.store(true, Ordering::SeqCst);

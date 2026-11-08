@@ -94,7 +94,7 @@ jobs:
           RELEASE_RUN_NUMBER: ${{ inputs.release_run_number }}
         run: python3 scripts/set-version.py "$RELEASE_RUN_NUMBER"
       - name: Build native regression fixtures
-        run: cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke --example clipboard_smoke --example cef_notification_smoke --example shell_smoke
+        run: cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke --example clipboard_smoke --example cef_notification_smoke --example shell_smoke --example media_permission_smoke
       - name: Native clipboard regressions
         run: bash scripts/test-native-layout.sh clipboard_smoke
       - name: Rust formatting
@@ -139,6 +139,7 @@ jobs:
           bash scripts/test-native-layout.sh layout_smoke
           bash scripts/test-native-layout.sh cef_notification_smoke
           bash scripts/test-native-layout.sh shell_smoke
+          bash scripts/test-native-layout.sh media_permission_smoke
       - name: Audit dependencies
         run: |
           # Only this locally corrected advisory is excepted; its source hash is tested above.

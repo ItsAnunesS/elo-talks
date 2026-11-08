@@ -412,6 +412,14 @@ where
 /// CEF-specific APIs of [`tauri::webview::WebviewBuilder`].
 #[cfg(feature = "unstable")]
 pub trait WebviewBuilderCefExt {
+  /// Handles media requests asynchronously on the CEF UI thread.
+  /// Overrides the portable media handler; dropping the request denies capture.
+  /// Retain and complete the request only on that same UI thread.
+  fn on_media_permission<F: Fn(crate::MediaPermissionRequest) + Send + Sync + 'static>(
+    self,
+    handler: F,
+  ) -> Self;
+
   /// Sets the browser runtime style.
   ///
   /// See [`RuntimeStyle`] for more information.
@@ -474,6 +482,16 @@ impl<R: Runtime> WebviewBuilderCefExt for tauri::webview::WebviewBuilder<R>
 where
   R::RuntimeWebviewAttributes: AsCefWebviewAttributes,
 {
+  fn on_media_permission<F: Fn(crate::MediaPermissionRequest) + Send + Sync + 'static>(
+    mut self,
+    handler: F,
+  ) -> Self {
+    with_cef_webview_attributes(self.runtime_specific_attributes_mut(), |attributes| {
+      attributes.media_permission_handler = Some(Arc::new(handler));
+    });
+    self
+  }
+
   fn browser_runtime_style(mut self, style: RuntimeStyle) -> Self {
     with_cef_webview_attributes(self.runtime_specific_attributes_mut(), |attributes| {
       attributes.runtime_style = Some(style);

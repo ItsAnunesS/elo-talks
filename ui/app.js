@@ -3,6 +3,7 @@ import { openContextMenu } from "./context-menu.js";
 import { appearanceControls } from "./appearance.js";
 import { initializeChannelDrag } from "./channel-drag.js";
 import { backupDialog, watchBackup } from "./backup.js";
+import { mediaPermissionControls } from "./media-permissions.js";
 import { updateSettings } from "./update-settings.js";
 import { initializeUpdates, restartForUpdate } from "./updates.js";
 import { prepareAccounts } from "./startup.js";
@@ -640,6 +641,7 @@ async function openSettings() {
         "Security",
         "Updates",
       ]);
+      mediaPermissionControls(security, state.accounts, showToast);
       notificationControls(notifications);
       appearanceControls(general);
       general.append(

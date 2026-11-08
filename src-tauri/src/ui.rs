@@ -12,7 +12,7 @@ use std::{path::PathBuf, sync::mpsc, time::Duration};
 use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, Manager, WebviewUrl};
 use tauri_runtime_cef::{
     Cef, DebugEnvironment, DevToolsPolicy, FrameEventKind, RemoteDebugging, SandboxPolicy,
-    WebviewBuilderCefExt,
+    WebviewBuilderCefExt, WebviewCefExt,
 };
 
 type AccountPreparation = dyn Fn(&tauri::Webview) -> tauri::Result<()> + Send + Sync;
@@ -22,6 +22,12 @@ struct UiState {
     profile: PathBuf,
     activity: mpsc::SyncSender<()>,
     prepare_account: std::sync::Arc<AccountPreparation>,
+    permissions: std::sync::Mutex<
+        std::collections::BTreeMap<
+            String,
+            std::sync::Arc<crate::account_permissions::AccountPermissions>,
+        >,
+    >,
 }
 fn local(webview: &tauri::Webview) -> Result<(), String> {
     if webview.label() != "main" {
@@ -144,6 +150,67 @@ async fn choose_backup(
     })
     .await
     .map_err(|_| "File chooser failed".to_string())?
+}
+
+#[tauri::command]
+fn media_permissions(
+    webview: tauri::Webview,
+    state: tauri::State<'_, UiState>,
+) -> Result<Value, String> {
+    local(&webview)?;
+    let values: std::collections::BTreeMap<_, _> = state
+        .permissions
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, permissions)| (id.clone(), permissions.snapshot()))
+        .collect();
+    serde_json::to_value(values).map_err(|_| "Could not read device permissions".into())
+}
+#[tauri::command]
+async fn reset_media_permission(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, UiState>,
+    id: String,
+    device: String,
+    block: bool,
+) -> Result<(), String> {
+    local(&webview)?;
+    let permissions = state
+        .permissions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .cloned()
+        .ok_or("Account not found")?;
+    let view = app
+        .get_webview(&format!("account-{id}"))
+        .ok_or("Account not found")?;
+    let saved = permissions.reset(&device, block)?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    view.with_cef_webview(move |native| {
+        use tauri_runtime_cef::cef::{ImplBrowser, ImplFrame};
+        let browser = native.browser();
+        crate::account_permissions::apply(&browser, &saved);
+        // A fresh document terminates existing streams as well as future access.
+        if let Some(frame) = browser.main_frame() {
+            frame.load_url(Some(&"https://web.whatsapp.com/".into()));
+            let _ = sender.send(Ok(()));
+        } else {
+            let _ = sender.send(Err(
+                "Could not reload the account; lock the vault to stop capture".to_string(),
+            ));
+        }
+    })
+    .map_err(|_| "Could not reset device access; lock the vault to stop capture")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|_| "Device reset timed out; lock the vault to stop capture".to_string())?
+    })
+    .await
+    .map_err(|_| "Device reset failed".to_string())?
 }
 
 #[tauri::command]
@@ -311,20 +378,24 @@ fn sync_accounts(
         // CEF callbacks can run outside a winit dispatch. Never call synchronous
         // webview getters there: they would wait for the same UI thread.
         let trusted_origin = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let permission_origin = trusted_origin.clone();
+        let permissions = crate::account_permissions::AccountPermissions::load(p.clone())
+            .map_err(|_| "Could not load device permissions")?;
+        state
+            .permissions
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), permissions.clone());
+        let permission_handler = permissions.clone();
+        let permission_navigation = permissions.clone();
+        let permission_name = a["name"].as_str().unwrap_or("WhatsApp").to_owned();
         let title_origin = trusted_origin.clone();
         let builder =
             WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()))
                 .data_directory(p)
                 .devtools(false)
-                .on_permission_request(move |_, kind| match kind {
-                    tauri::webview::PermissionKind::Camera
-                    | tauri::webview::PermissionKind::Microphone
-                        if permission_origin.load(std::sync::atomic::Ordering::Relaxed) =>
-                    {
-                        tauri::webview::PermissionResponse::Default
-                    }
-                    _ => tauri::webview::PermissionResponse::Deny,
+                .on_permission_request(|_, _| tauri::webview::PermissionResponse::Deny)
+                .on_media_permission(move |request| {
+                    permission_handler.request(request, permission_name.clone())
                 })
                 .on_document_title_changed(move |_, title| {
                     let count = crate::whatsapp::unread_count(
@@ -344,6 +415,15 @@ fn sync_accounts(
                     }
                 })
                 .on_frame_event(move |event| {
+                    if (event.is_main
+                        && matches!(
+                            event.kind,
+                            FrameEventKind::NavigationStarted { .. } | FrameEventKind::Destroyed
+                        ))
+                        || matches!(event.kind, FrameEventKind::RendererTerminated)
+                    {
+                        permission_navigation.invalidate();
+                    }
                     if event.is_main {
                         let trusted = match &event.kind {
                             FrameEventKind::DocumentCommitted { url }
@@ -433,6 +513,11 @@ fn sync_accounts(
                     )),
             )
             .map_err(|e| e.to_string())?;
+        let saved_permissions = permissions.snapshot();
+        view.with_cef_webview(move |native| {
+            crate::account_permissions::apply(&native.browser(), &saved_permissions)
+        })
+        .map_err(|e| e.to_string())?;
         view.hide().map_err(|e| e.to_string())?;
         (state.prepare_account)(&view).map_err(|error| error.to_string())?;
         crate::account_avatar::observe(&view, &h, &account_id).map_err(|e| e.to_string())?;
@@ -501,6 +586,7 @@ pub fn run_with_account_setup(
             profile: profile.clone(),
             activity,
             prepare_account: std::sync::Arc::new(prepare_account),
+            permissions: Default::default(),
         })
         .invoke_handler(tauri::generate_handler![
             request,
@@ -512,7 +598,9 @@ pub fn run_with_account_setup(
             retry_account,
             diagnostics,
             test_notification,
-            choose_backup
+            choose_backup,
+            media_permissions,
+            reset_media_permission
         ])
         .setup(move |app| {
             crate::process_security::protect_secrets()?;
@@ -540,6 +628,7 @@ pub fn run_with_account_setup(
                 .min_inner_size(900., 640.)
                 .build()?;
             crate::window_state::attach(&window, profile.join("window.json"), geometry);
+            crate::account_permissions::set_parent(&window.gtk_window()?.upcast());
             let local = WebviewBuilder::new("main", WebviewUrl::App("index.html".into()))
                 .data_directory(profile.join("chromium").join("shell"))
                 .devtools(false)
