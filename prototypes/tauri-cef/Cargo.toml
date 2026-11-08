@@ -1,0 +1,15 @@
+[package]
+name = "elo-cef-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+tauri = { version = "=3.0.0-alpha.6", default-features = false }
+tauri-runtime-cef = "=3.0.0-alpha.7"
+tempfile = "3"
+
+[build-dependencies]
+tauri-build = { version = "=3.0.0-alpha.4", default-features = false }

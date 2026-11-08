@@ -1,0 +1,14 @@
+{
+  "productName": "Elo CEF Synthetic Probe",
+  "version": "0.1.0",
+  "identifier": "dev.anuness.elotalks.cefprobe",
+  "build": { "frontendDist": "ui" },
+  "app": {
+    "windows": [],
+    "security": {
+      "capabilities": [],
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; media-src 'self' blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    }
+  },
+  "bundle": { "active": false }
+}

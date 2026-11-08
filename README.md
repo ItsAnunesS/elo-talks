@@ -115,6 +115,53 @@ data; they do not replace testing on supported systems.
 See [Contributing](CONTRIBUTING.md), [agent guidelines](AGENTS.md) and
 [release instructions](docs/RELEASING.md) before submitting changes.
 
+### Tauri 3 / CEF prototype
+
+`prototypes/tauri-cef` is a separate Cargo workspace with its own lockfile and
+Docker build environment (Rust 1.99.1, Debian Trixie / GTK4). It does not replace
+the production Tauri 2 application or change vault formats. It contains no
+Electron dependency or controller IPC commands. Its live-account route is gated
+by the supervised launcher and a verified gocryptfs mount.
+
+The synthetic probe requires Chromium sandboxing, denies device permissions,
+and checks locally generated audio/video transmission between two WebRTC peers.
+It uses a fresh temporary profile and no STUN/TURN servers.
+
+For an authorized live test, `prototypes/tauri-cef/live_test.py` creates a separate
+disposable gocryptfs vault, monitors the active login session, and stops browser
+processes before normal unmount. It never opens the installed application vault.
+Use only a test WhatsApp account: closing the window, locking the desktop,
+suspending, or reaching the 15-minute limit destroys the temporary test profile.
+The existing application password/PIN/catalog are not migrated by this prototype.
+
+```sh
+docker build -t elo-cef-prototype:local prototypes/tauri-cef
+docker run --rm \
+  --mount type=bind,src="$PWD/prototypes/tauri-cef",dst=/probe \
+  --mount type=volume,src=elo-cef-build-cache,dst=/cache \
+  -e CARGO_TARGET_DIR=/cache/target \
+  elo-cef-prototype:local cargo build --locked --release
+```
+
+The first build downloads the CEF distribution from its official CDN. A verified
+local distribution can instead be mounted read-only and selected with `CEF_PATH`.
+Do not use `--no-sandbox` or relax host/container sandbox policy to make the test
+pass. See [integration evidence](docs/WHATSAPP_INTEGRATION.md) for current results
+and outstanding gates; this prototype is not a supported account client.
+
+On a Linux desktop with PyGObject, logind and FUSE available:
+
+```sh
+python3 prototypes/tauri-cef/live_test.py \
+  --browser /absolute/path/to/elo-cef-probe \
+  --gocryptfs /absolute/path/to/verified/gocryptfs
+```
+
+Add `--vault-smoke` to validate encrypted storage without opening WhatsApp, or
+`--supervision-smoke` to check termination of a synthetic process that ignores
+SIGTERM before normal unmount. On any closure failure, retain the reported
+recovery directory; do not force or lazily detach the mount.
+
 ## License
 
 [MIT](LICENSE). Published by **AnunesS**.

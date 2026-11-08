@@ -1,5 +1,192 @@
 # WhatsApp integration evaluation
 
+## Full-app integration release gate — 2026-11-08
+
+Work is isolated on `codex/tauri3-cef-integration`. The maintainer authorized
+new Chromium profiles inside the existing encrypted vault and relinking each
+account by QR, while retaining existing WebKit profiles for recovery. No session
+database conversion or deletion is authorized by that migration strategy.
+
+**Full-app integration and publication are not complete.** The calls prototype
+is not evidence that the existing app's behavior has been preserved. Production
+dependencies and `release.json` remain unchanged; no new release was published.
+
+Before changing production notification delivery, `notification_test.py` tested
+the actual CEF build against a synthetic `org.freedesktop.Notifications` service
+on an isolated D-Bus session and Xvfb display. Chromium delivered one native
+notification successfully, including its synthetic private sender and body.
+The required Elo private-mode contract (generic summary/body, no preview)
+failed, with exit code 1 and `privateModePassed: false`. This demonstrates that
+directly allowing Chromium's native notifications cannot replace the existing
+adapter while preserving Elo's default privacy behavior. It does not indicate a
+regression in the installed, unchanged WebKit application.
+
+The inspected `tauri-runtime-cef` alpha.7 source exposes notification permission
+handling but no equivalent of WebKit's `show-notification` content/delivery hook.
+Notification presentation must be adapted and verified, including service
+workers, rather than assuming the Tauri notification plugin intercepts remote
+browser notifications. Native Chromium delivery must not bypass Elo's private,
+channel and preview modes, per-account mute/focus policy, or click routing.
+
+Reproduce the blocking gate with the built probe and an Xvfb executable:
+
+```sh
+ELO_SYNTHETIC_DBUS=1 dbus-run-session -- python3 prototypes/tauri-cef/notification_test.py \
+  /absolute/path/to/elo-cef-probe /absolute/path/to/Xvfb
+```
+
+The test refuses to replace an existing notification service, uses only fixed
+synthetic notification content, and prints booleans rather than page content.
+Its current failure must not be suppressed or treated as a passing release gate.
+Other full-app gates remain outstanding: the GTK3 launcher/GTK4 process boundary,
+multi-account layout/isolation and background delivery, avatars, clipboard and
+downloads, complete child-process shutdown before vault unmount, all existing
+authentication/backup/sync regressions, and signed AppImage update acceptance.
+
+## Tauri 3 / CEF prototype — 2026-11-08
+
+Branch: `codex/tauri3-cef-prototype`. The separate workspace at
+`prototypes/tauri-cef` pins Tauri 3.0.0-alpha.6, runtime-cef 3.0.0-alpha.7,
+tauri-build 3.0.0-alpha.4 and CEF 154.5.0 (Chromium 154.0.8037.98).
+There is no Electron dependency. Production source, vault format and runtime
+dependencies remain unchanged; this is not a migrated or released Elo client.
+
+Completed validation:
+
+- Docker release build with Rust 1.99.1 and Debian Trixie / GTK4 succeeded.
+  Bookworm's GTK 4.8 was insufficient (the runtime needs GTK >= 4.14).
+- Rust formatting and release Clippy with warnings denied passed.
+- The official CEF minimal archive was downloaded outside Docker after a DNS
+  failure in the container. Its published size and SHA-1 matched the CDN index.
+- A non-root Docker execution aborted because its sandbox could not initialize.
+  No `--no-sandbox`, privileged container, or relaxed host policy was used.
+- The same executable ran with `SandboxPolicy::Required` in isolated host Xvfb.
+  It denied capture from virtual devices and successfully transmitted generated
+  audio and video between two local peers: audio bytes arrived and video frames
+  decoded. Result code 0. Xvfb emitted GPU/GLX warnings; this is not evidence of
+  hardware-accelerated rendering or production performance.
+- The live route rejected an unsupervised launch and an unencrypted `/tmp`
+  profile before constructing a browser.
+- The separate gocryptfs test vault passed write/read and normal unmount/removal.
+  A synthetic process holding a vault file and ignoring SIGTERM was terminated
+  before normal unmount. The existing installed vault was not accessed.
+- Session policy unit tests reject locked, inactive, closing, unknown and
+  sleep-preparing states, and fail on missing monitor information.
+
+`live_test.py` creates a disposable encrypted vault with a random in-memory key,
+uses logind session checks and a sleep delay inhibitor, and supervises the browser
+process group. Account data and XDG cache/config/data directories stay inside
+that mount. The browser requires a gocryptfs-backed path and the launcher parent;
+remote pages receive no controller IPC capabilities. Native Chromium prompts
+handle camera/microphone consent; other permissions and new windows are denied.
+Closing the window, losing session safety, or the 15-minute limit triggers process
+termination followed by normal unmount. A failed unmount preserves the recovery
+directory and reports failure; it never uses lazy/forced unmount.
+
+The user authorized a test account and, after the supervised live test, reported
+that WhatsApp calls worked. This is user-observed live calling success; the reply
+does not separately enumerate voice/video or incoming/outgoing scenarios, so the
+full acceptance matrix remains unverified. The launcher subsequently exited with
+code 0 and confirmed that test processes stopped and the encrypted test vault
+was unmounted and removed. No installed account profile was migrated.
+Integrating the production controller, password/PIN,
+catalog, multiple accounts, notifications and AppImage updater remains separate
+work; their existing implementation has not been replaced by this fixture.
+
+## Calling runtime investigation — 2026-11-08
+
+The installed desktop entry points to `~/.AppImages/elo_talks.appimage`.
+Its desktop-entry cache says 0.5.12, but the desktop file inside the actual
+AppImage reports **0.5.13**. The inspected image SHA-256 is
+`06fbae85019c37c631fecf178137d4fe8844b120675c40cd9401f32885109eae`.
+No installed session or vault was opened or modified.
+
+Extracting the package with `--appimage-extract` found its bundled
+`usr/lib/libwebkit2gtk-4.1.so.0` and WebKit subprocesses. Calling that library's
+`webkit_get_{major,minor,micro}_version` functions returned **2.52.6**.
+The host's 2.54.2 library is therefore not evidence of this package's runtime.
+No Elo process was running during inspection, so live process mappings were
+not available to check for external launch-environment overrides.
+
+A synthetic GTK/WebKit probe loaded the extracted libraries and subprocesses,
+using an isolated Broadway display, an ephemeral website data manager, temporary
+XDG directories and WebKit sandboxing enabled. Both `enable-webrtc` and
+`enable-media-stream` read back as true. A synthetic HTTPS document returned:
+
+```json
+{"secure":true,"peer":"undefined","media":"function","error":"ReferenceError: Can't find variable: RTCPeerConnection"}
+```
+
+Its default user agent advertises `AppleWebKit/605.1.15` and
+`Version/60.5 Safari/605.1.15`. The absence of `RTCPeerConnection` is an actual
+engine capability failure, independent of that browser label. Changing the user
+agent or granting camera access cannot supply this missing API. The earlier
+permission fix does not make this packaged runtime capable of WebRTC calls.
+
+For comparison, installed Chrome 157, headless with its default sandbox and a
+fresh temporary profile, exposed `RTCPeerConnection` and successfully created a
+data-channel SDP offer. This verifies the basic API only: neither test accessed
+WhatsApp, captured real devices, or established a voice/video call.
+
+### Migration assessment
+
+The project locks Tauri **2.12.5** and directly uses GTK/WebKit APIs for account
+views, permissions, notifications, clipboard, avatars, readiness and layout.
+There is no supported configuration-only Chromium/Firefox switch in this setup.
+
+- **Electron/Chromium: rejected by the maintainer; do not pursue.**
+  The initial assessment below is retained only for comparison.
+  Retain the Rust controller, vault, lock/session monitoring, server sync and
+  signed updater. Port the trusted local shell and account views to
+  `WebContentsView`, with a separate `session.fromPath` under the mounted vault
+  for each account. Remote views need sandboxing, context isolation, no Node
+  integration and no privileged preload bridge. The trusted shell alone may
+  forward bounded IPC operations to the controller. Preserve the existing
+  peer UID/PID checks by making the supervised Electron main process the IPC
+  client; never widen access to arbitrary same-user processes.
+- **Tauri 3 + CEF: preferred investigation path while retaining Tauri.** The
+  official documentation currently marks it alpha. The native WebKit adapters
+  still need replacement, and Linux packaging/sandbox and lifecycle behavior
+  need qualification. Do not treat an alpha framework upgrade as a small fix.
+  Require `SandboxPolicy::Required`: the documented default `Auto` may disable
+  sandboxing for AppImages on Linux systems restricting user namespaces. A
+  candidate that cannot start sandboxed is not acceptable for this project.
+  Chromium is bundled through CEF; Electron is not involved.
+- **Tauri 2 + custom WebKitGTK:** earlier WebKit releases required experimental
+  build features for WebRTC. A custom build is a research option, not a verified
+  calling solution; it adds responsibility for engine builds and security
+  maintenance. Updating to 2.54 does not solve it: that series disables WebRTC
+  during the transition to a LibWebRTC backend. Do not downgrade or replace
+  the installed runtime on the assumption that a build flag ensures WhatsApp
+  compatibility.
+- **Qt WebEngine:** Chromium with documented WebRTC support, but introduces Qt
+  and another UI/native integration port. It offers no configuration-only
+  migration from this Tauri application.
+- **Firefox:** Mozilla's maintained GeckoView embedding path targets Android.
+  Launching Firefox externally is possible in principle, but does not preserve
+  the current embedded account views and controller lifecycle. It is not the
+  preferred engine replacement for this Linux app.
+
+Before replacing production: prototype Chromium with synthetic profiles and
+verify media permissions/denial, audio/video loopback, account isolation,
+background notifications, clipboard, and complete child-process exit before
+vault unmount. Keep every persistent Chromium cache/profile within the vault;
+closing a view alone is not proof that its storage processes have exited.
+Treat Chromium sessions as new profiles and plan to relink WhatsApp; do not
+copy WebKit cookies or IndexedDB into Chromium or erase the old profiles.
+Then validate incoming/outgoing calls with an authorized test account in the
+packaged AppImage. Engine migration removes this API blocker but cannot by
+itself guarantee WhatsApp rollout eligibility or end-to-end calling success.
+
+This investigation changes no production runtime or dependencies and publishes
+no release. Sources:
+[Tauri runtimes and alpha status](https://v3.tauri.app/develop/webview-runtime/),
+[Electron views](https://www.electronjs.org/docs/latest/api/web-contents-view),
+[Electron sessions](https://www.electronjs.org/docs/latest/api/session),
+[Electron security](https://www.electronjs.org/docs/latest/tutorial/security/),
+[Qt WebRTC](https://doc.qt.io/qt-6.8/qtwebengine-features.html),
+[GeckoView](https://firefox-source-docs.mozilla.org/mobile/android/geckoview/consumer/geckoview-quick-start.html).
+
 ## Status — 2026-10-29
 
 **A real-account notification failure was reported in Elo v0.1.17. On 2026-10-30
