@@ -38,6 +38,7 @@ fn belongs_to_app(entry: &KeyFile, appimage: &Path) -> bool {
         return false;
     }
     if field("StartupWMClass").as_deref() != Some("elo-talks")
+        && field("StartupWMClass").as_deref() != Some(crate::desktop_identity::APP_ID)
         && field("X-AppImage-Name").as_deref() != Some("Elo Talks")
     {
         return false;
@@ -165,10 +166,14 @@ fn refresh_with_icon(data_home: &Path, appimage: &Path, icon: &[u8]) -> Result<u
         if !icon_matches(&target_icon, icon) {
             replace_file(&target_icon, icon, 0o644)?;
         }
-        if entry.string(GROUP, "Icon").ok().as_deref() == Some(target_text) {
+        if entry.string(GROUP, "Icon").ok().as_deref() == Some(target_text)
+            && entry.string(GROUP, "StartupWMClass").ok().as_deref()
+                == Some(crate::desktop_identity::APP_ID)
+        {
             continue;
         }
         entry.set_string(GROUP, "Icon", target_text);
+        entry.set_string(GROUP, "StartupWMClass", crate::desktop_identity::APP_ID);
         // Avoid overwriting a concurrent manager edit. The next launch will retry.
         if read_entry(&path)? != original {
             continue;
@@ -212,6 +217,7 @@ mod tests {
         assert!(first.contains("# Manager comment"));
         assert!(first.contains("Name[pt]=Personalizado"));
         assert!(first.contains("X-Manager-Setting=keep"));
+        assert!(first.contains("StartupWMClass=dev.anuness.elotalks"));
         assert!(first.contains("Icon=action-icon"));
         assert!(first.contains(
             "Exec=env DESKTOPINTEGRATION=1 \"/home/example/My Apps/elo.appimage\" --custom"
@@ -266,6 +272,28 @@ mod tests {
             1
         );
         assert_eq!(fs::read(&path).unwrap(), repaired);
+    }
+
+    #[test]
+    fn repairs_window_identity_even_when_the_icon_is_already_current() {
+        let root = tempfile::tempdir().unwrap();
+        let appimage = Path::new("/apps/elo.appimage");
+        let path = launcher(root.path(), "elo_talks.desktop", appimage.to_str().unwrap());
+        refresh_with_icon(root.path(), appimage, b"logo").unwrap();
+        let expected = fs::read_to_string(&path).unwrap();
+        fs::write(
+            &path,
+            expected.replace(
+                "StartupWMClass=dev.anuness.elotalks",
+                "StartupWMClass=elo-talks",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            refresh_with_icon(root.path(), appimage, b"logo").unwrap(),
+            1
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), expected);
     }
 
     #[test]

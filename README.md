@@ -89,8 +89,20 @@ Read the [security model](docs/SECURITY.md) for details and limitations. The
 
 ## Development
 
+Linux launchers and native windows use the `dev.anuness.elotalks` identity.
+The AppImage includes PNG icons at 32, 128 and 512 pixels; its startup launcher
+also uses the embedded logo without relying on the desktop's icon theme.
+Existing AppImage-manager launchers retain their names and launch commands when
+their icon and window association are refreshed.
+
+Windows ICO and macOS ICNS assets are included for future packaging. The current
+desktop implementation and release workflow support Linux only; these assets
+do not establish Windows or macOS compatibility. GNOME, KDE Plasma and Xfce
+desktop integration still requires acceptance on each supported distribution.
+
 Use the pinned Rust toolchain and lockfiles. Native builds require GTK4 >= 4.14,
-CEF, libfido2, D-Bus and the packaging tools listed in the
+`glib-compile-resources` from the GLib development tools, CEF, libfido2, D-Bus
+and the packaging tools listed in the
 [release workflow](.github/workflows/release.yml). The local interface uses HTML,
 CSS and JavaScript with no runtime npm dependencies.
 

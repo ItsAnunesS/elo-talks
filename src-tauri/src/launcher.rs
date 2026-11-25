@@ -98,9 +98,11 @@ fn can_continue(phase: &str) -> bool {
 }
 
 pub fn run(runtime: PathBuf) -> Result<()> {
+    crate::desktop_identity::prepare();
     gtk::init()?;
     let window = gtk::Window::new();
-    window.set_title(Some("Elo Talks — Starting"));
+    crate::desktop_identity::apply(&window)?;
+    window.set_title(Some("Elo Talks - Starting"));
     window.set_decorated(false);
     window.set_default_size(500, 400);
     window.set_size_request(460, 380);

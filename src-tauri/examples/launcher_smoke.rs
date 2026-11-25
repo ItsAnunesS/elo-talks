@@ -1,4 +1,6 @@
 //! Isolated GTK bootstrap smoke test with synthetic IPC only. Run under Xvfb.
+#[path = "../src/desktop_identity.rs"]
+mod desktop_identity;
 #[path = "../src/ipc.rs"]
 mod ipc;
 #[path = "../src/launcher.rs"]
@@ -11,6 +13,7 @@ use std::{
     time::Duration,
 };
 fn main() {
+    desktop_identity::prepare();
     gtk::init().unwrap();
     let scenario = std::env::args().nth(1).unwrap_or("current".into());
     let root = tempfile::tempdir().unwrap();
@@ -116,6 +119,14 @@ fn main() {
         gtk::glib::timeout_add_local(Duration::from_millis(1000), move || {
             fn click(widget: &gtk::Widget, action: &str, installing: bool) -> bool {
                 if let Some(window) = widget.downcast_ref::<gtk::Window>() {
+                    assert!(
+                        gtk::IconTheme::for_display(&gtk::prelude::WidgetExt::display(window))
+                            .has_icon(desktop_identity::APP_ID)
+                    );
+                    assert_eq!(
+                        window.icon_name().as_deref(),
+                        Some(desktop_identity::APP_ID)
+                    );
                     assert!(
                         !window.is_decorated(),
                         "The launcher must not have a native title bar"

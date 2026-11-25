@@ -544,6 +544,7 @@ pub fn run_with_account_setup(
     ready: impl FnOnce(&mut tauri::App) -> Result<()> + Send + 'static,
     prepare_account: impl Fn(&tauri::Webview) -> tauri::Result<()> + Send + Sync + 'static,
 ) -> Result<()> {
+    crate::desktop_identity::prepare();
     let rt = runtime.clone();
     let (activity, activity_events) = mpsc::sync_channel(1);
     let activity_runtime = runtime.clone();
@@ -627,6 +628,7 @@ pub fn run_with_account_setup(
                 .maximized(geometry.maximized)
                 .min_inner_size(900., 640.)
                 .build()?;
+            crate::desktop_identity::apply(&window.gtk_window()?)?;
             crate::window_state::attach(&window, profile.join("window.json"), geometry);
             crate::account_permissions::set_parent(&window.gtk_window()?.upcast());
             let local = WebviewBuilder::new("main", WebviewUrl::App("index.html".into()))

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/dev/anuness/elotalks/icons">
+    <file alias="32x32/apps/dev.anuness.elotalks.png">32x32.png</file>
+    <file alias="128x128/apps/dev.anuness.elotalks.png">128x128.png</file>
+    <file alias="512x512/apps/dev.anuness.elotalks.png">icon.png</file>
+  </gresource>
+</gresources>

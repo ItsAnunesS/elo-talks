@@ -44,13 +44,18 @@ done
 install -Dm644 vendor/phf_generator/LICENSE "$app_dir/usr/share/licenses/phf_generator/LICENSE"
 install -Dm644 src-tauri/helpers/gocryptfs-LICENSE "$app_dir/usr/share/licenses/gocryptfs/LICENSE"
 install -Dm644 src-tauri/icons/icon.png "$app_dir/usr/share/icons/hicolor/512x512/apps/elo-talks.png"
+for size in 32 128 512; do
+  source_icon="src-tauri/icons/${size}x${size}.png"
+  if [[ "$size" == 512 ]]; then source_icon=src-tauri/icons/icon.png; fi
+  install -Dm644 "$source_icon" "$app_dir/usr/share/icons/hicolor/${size}x${size}/apps/dev.anuness.elotalks.png"
+done
 mkdir -p "$app_dir/usr/share/applications"
 cat > "$app_dir/usr/share/applications/dev.anuness.elotalks.desktop" <<'DESKTOP'
 [Desktop Entry]
 Type=Application
 Name=Elo Talks
 Exec=elo-talks
-Icon=elo-talks
+Icon=dev.anuness.elotalks
 Categories=Network;InstantMessaging;
 Terminal=false
 StartupWMClass=dev.anuness.elotalks
@@ -93,7 +98,7 @@ LD_LIBRARY_PATH="$CEF_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
   --executable "$app_dir/usr/bin/elo-talks" --executable "$app_dir/usr/bin/gocryptfs" \
   --executable "$app_dir/usr/bin/elo-updater" "${libraries[@]}" \
   --desktop-file "$app_dir/usr/share/applications/dev.anuness.elotalks.desktop" \
-  --icon-file "$app_dir/usr/share/icons/hicolor/512x512/apps/elo-talks.png" \
+  --icon-file "$app_dir/usr/share/icons/hicolor/512x512/apps/dev.anuness.elotalks.png" \
   --custom-apprun "$app_run" --output appimage
 zsyncmake -u "$(basename "$OUTPUT")" -o "$OUTPUT.zsync" "$OUTPUT"
 python3 scripts/verify-appimage-update.py "$output"

@@ -19,6 +19,8 @@ mod account_runtime;
 mod account_script;
 #[path = "../src/cef_notifications.rs"]
 mod cef_notifications;
+#[path = "../src/desktop_identity.rs"]
+mod desktop_identity;
 #[path = "../src/desktop_notifications.rs"]
 mod desktop_notifications;
 #[allow(dead_code)]
@@ -115,6 +117,10 @@ fn main() {
         assert_eq!(unsafe { libc::prctl(libc::PR_GET_DUMPABLE) }, 0);
         let handle = app.handle().clone();
         let shell = app.get_webview("main").unwrap();
+        let native = app.get_window("main").unwrap().gtk_window()?;
+        assert!(gtk::IconTheme::for_display(&gtk::prelude::WidgetExt::display(&native)).has_icon(desktop_identity::APP_ID));
+        assert_eq!(native.icon_name().as_deref(), Some(desktop_identity::APP_ID));
+        assert_eq!(native.application().unwrap().application_id().as_deref(), Some(desktop_identity::APP_ID));
         let remote = if external.is_none() {
             let view = app.get_window("main").unwrap().add_child(
                 WebviewBuilder::new("account-untrusted-fixture", WebviewUrl::External("about:blank".parse().unwrap()))

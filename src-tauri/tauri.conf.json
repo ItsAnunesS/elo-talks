@@ -7,6 +7,7 @@
     "frontendDist": "../ui"
   },
   "app": {
+    "enableGTKAppId": true,
     "withGlobalTauri": true,
     "windows": [],
     "security": {
@@ -25,7 +26,9 @@
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
     ],
     "linux": {
       "appimage": {}

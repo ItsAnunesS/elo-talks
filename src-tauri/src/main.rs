@@ -11,6 +11,7 @@ mod backup;
 mod cef_notifications;
 mod controller;
 mod crypto;
+mod desktop_identity;
 mod desktop_integration;
 mod desktop_notifications;
 mod ipc;

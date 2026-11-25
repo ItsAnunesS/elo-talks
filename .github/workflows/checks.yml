@@ -134,6 +134,7 @@ jobs:
           for scenario in current ready error installing closure cooldown close; do
             xvfb-run -a dbus-run-session -- timeout 15s target/debug/examples/launcher_smoke "$scenario"
           done
+          xvfb-run -a dbus-run-session -- python3 scripts/test-native-icon.py target/debug/examples/launcher_smoke
       - name: Native CEF regressions
         run: |
           bash scripts/test-native-layout.sh layout_smoke

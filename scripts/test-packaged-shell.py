@@ -35,6 +35,26 @@ def main():
             check=True,
         )
         appdir = root / "squashfs-root"
+        desktop = (
+            appdir / "usr/share/applications/dev.anuness.elotalks.desktop"
+        ).read_text()
+        if (
+            "Icon=dev.anuness.elotalks\n" not in desktop
+            or "StartupWMClass=dev.anuness.elotalks\n" not in desktop
+        ):
+            raise RuntimeError("Packaged launcher and window identity do not match")
+        for size in (32, 128, 512):
+            icon = (
+                appdir
+                / f"usr/share/icons/hicolor/{size}x{size}/apps/dev.anuness.elotalks.png"
+            )
+            header = icon.read_bytes()[:24]
+            if header[:8] != b"\x89PNG\r\n\x1a\n" or struct.unpack(
+                ">II", header[16:24]
+            ) != (size, size):
+                raise RuntimeError(
+                    "Packaged application icon is missing or has invalid dimensions"
+                )
         binary = appdir / "usr/bin/elo-talks"
         profile = root / "apparmor"
         loaded = False

@@ -92,10 +92,32 @@ identifies each registration stage in its diagnostics. With the fix, twenty
 layout runs passed with one-CPU affinity, ten at each scale; the shell fixture
 also passed at both scales. Rust tests, Clippy and the dependency audit passed.
 
-Still required: green Checks and signed upgrade acceptance. No
-installed user vault or live account has been opened during these synthetic tests.
-GNOME portal, hardware-key, suspend/resume and clean-distribution acceptance are not
-certified by this list.
+Canonical run `45679771137` passed all checks, AppImage packaging, signature
+verification and publication for v0.5.19. Authorized installed-image validation
+then confirmed a signed v0.5.14 to v0.5.19 upgrade: normal controller shutdown,
+confirmed vault unmount, installation through the official updater, preservation
+of the previous image, and startup of the normal UI with the expected-version
+guard. The installed checksum matched the signed release. Unlocking and checking
+existing accounts remains manual; no installed account content was inspected.
+GNOME portal, hardware-key, suspend/resume and clean-distribution acceptance
+remain pending.
+
+## Desktop identity and icons (2026-11-25)
+
+Native windows, existing AppImage-manager launchers and the packaged desktop file
+now share `dev.anuness.elotalks`. GTK icon resources are embedded at 32, 128 and
+512 pixels, so the launcher does not depend on a separately installed icon theme.
+The CEF runtime now forwards Tauri's GTK application ID instead of discarding it.
+Manager launcher names, commands and unrelated fields remain preserved.
+
+Local Ubuntu 24.04 Docker validation passed 71 Rust tests (four explicit host
+integrations remain ignored), Clippy, Python checks, and native launcher/shell
+fixtures. A new isolated X11 regression checked the actual `WM_CLASS` and
+`_NET_WM_ICON` properties at both scales. The AppImage passed icon inventory,
+native IPC startup and normal shutdown checks. Windows ICO and macOS ICNS files
+were generated from the existing logo and decoded successfully; no native
+Windows/macOS build or desktop acceptance is claimed. GNOME, KDE Plasma and Xfce
+integration on real desktops still requires acceptance of this new icon build.
 
 ## Automated checks
 
