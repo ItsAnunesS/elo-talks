@@ -75,6 +75,13 @@ this environment; the fix passed twenty runs, ten at each scale. The fixture
 also requires exactly two accounts and reports bounded, content-free health
 changes while waiting. No live account or installed vault was accessed.
 
+Remote run `45670146827` then passed all native CEF regressions, including
+`shell_smoke` at both scales. Its subsequent dependency audit found the newly
+reported `cookie` and `url` advisories. The lockfile now uses their patched
+versions, 0.18.3 and 2.5.9, plus the required `form_urlencoded` 1.2.3. The local
+audit passes without new exceptions; five unmaintained dependency warnings
+remain visible.
+
 Still required: green Checks and signed upgrade acceptance. No
 installed user vault or live account has been opened during these synthetic tests.
 GNOME portal, hardware-key, suspend/resume and clean-distribution acceptance are not

@@ -89,7 +89,11 @@ historical patch checksum and the runtime regression remain tested. The legacy
 patch is not selected by the new dependency graph. New unsoundness advisories
 still block publication.
 
-The audit also reports unmaintained dependencies: `fxhash`, `zbus_names`, `zvariant`, and `zvariant_derive`. These remain visible maintenance debt; they are not described as proven safe libraries.
+The audit also reports unmaintained dependencies: `chrono`, `fxhash`, `zbus_names`, `zvariant`, and `zvariant_derive`. These remain visible maintenance debt; they are not described as proven safe libraries.
+
+The lockfile includes `cookie` 0.18.3 and `url` 2.5.9, fixing
+`RUSTSEC-2026-0594` and `RUSTSEC-2026-0592`. The latter also requires
+`form_urlencoded` 1.2.3. These patch updates introduce no audit exception.
 
 The helper is built from a pinned gocryptfs 2.6.1 revision with explicit updates to `x/crypto`, `x/sys`, and `x/term`. Its crypto, content, and filename tests run before packaging. `govulncheck` uses the same build tags: an OpenPGP advisory exists in x/crypto, but that package is neither imported nor reachable. No Go audit exception is used. Packaging tool versions and checksums are pinned; a changed mutable download must fail verification until reviewed.
 
