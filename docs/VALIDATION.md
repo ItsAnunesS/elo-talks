@@ -82,6 +82,16 @@ versions, 0.18.3 and 2.5.9, plus the required `form_urlencoded` 1.2.3. The local
 audit passes without new exceptions; five unmaintained dependency warnings
 remain visible.
 
+Remote run `45675415750` captured a separate layout startup deadlock. Its UI
+thread was waiting for the shared script map in a load callback while the
+adapter-registration thread held that mutex and waited for a CEF command.
+Script registration now completes before locking the map for insertion. The
+layout fixture prepares both offline responders before starting the adapters,
+checks that exactly two accounts reach completed loads and chat readiness, and
+identifies each registration stage in its diagnostics. With the fix, twenty
+layout runs passed with one-CPU affinity, ten at each scale; the shell fixture
+also passed at both scales. Rust tests, Clippy and the dependency audit passed.
+
 Still required: green Checks and signed upgrade acceptance. No
 installed user vault or live account has been opened during these synthetic tests.
 GNOME portal, hardware-key, suspend/resume and clean-distribution acceptance are not

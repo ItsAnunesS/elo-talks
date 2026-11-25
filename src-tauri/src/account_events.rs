@@ -139,11 +139,14 @@ pub fn attach(
     id: &str,
     activity: mpsc::SyncSender<()>,
 ) -> tauri::Result<()> {
+    // CEF registration can wait for the UI thread, whose load callbacks read
+    // this shared map for other accounts. Do not hold its mutex while waiting.
+    let script = crate::account_script::Script::attach(view)?;
     app.state::<AccountEvents>()
         .scripts
         .lock()
         .unwrap()
-        .insert(id.to_owned(), crate::account_script::Script::attach(view)?);
+        .insert(id.to_owned(), script);
     use tauri_runtime_cef::{DevToolsProtocol, WebviewCefExt};
     let tls_handle = app.clone();
     let tls_account = id.to_owned();

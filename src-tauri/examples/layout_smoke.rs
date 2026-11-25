@@ -88,11 +88,20 @@ fn main() {
                     } else { html };
                     fixture::serve(view,&html);
                     account_avatar::observe(view,&app,id).unwrap();
+                }
+                // Register the next account while the previous document can
+                // still finish loading and query its readiness on the UI thread.
+                for (view,id) in [(first,"one"),(second,"two")] {
+                    eprintln!("STAGE: attach account adapter {id}");
                     account_events::attach(view,&app,id,activity.clone()).unwrap();
                     fixture::wait_for(|| fixture::evaluate(view,"location.origin") == "https://web.whatsapp.com");
                 }
                 eprintln!("STAGE: account readiness");
-                fixture::wait_for(|| app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.values().all(|state| state.readiness == account_runtime::Readiness::Chats));
+                fixture::wait_for(|| {
+                    let events = app.state::<account_events::AccountEvents>();
+                    let runtime = events.runtime.lock().unwrap();
+                    runtime.accounts.len() == 2 && runtime.accounts.values().all(|state| state.page == account_runtime::PageState::Ready && state.readiness == account_runtime::Readiness::Chats)
+                });
                 eprintln!("STAGE: account avatars");
                 fixture::wait_for(|| account_avatar::current(&app,"one").is_some() && account_avatar::current(&app,"two").is_some());
                 assert_eq!(fixture::evaluate(second,"window.canvasBlocked"), true);
