@@ -498,6 +498,7 @@ pub(crate) struct AppWebview {
   pub(crate) label: String,
   pub(crate) browser: cef::Browser,
   pub(crate) browser_id: i32,
+  pending_initial_url: PendingInitialUrl,
   pub(crate) frame_navigation_state: crate::FrameNavigationState,
   pub(crate) popup_family: Arc<crate::popup::PopupFamily>,
   pub(crate) dialogs: crate::dialog::DialogState,
@@ -947,7 +948,7 @@ impl<T: UserEvent> WinitCefApp<T> {
         if let Some(user_agent) = &user_agent {
           apply_user_agent_override(&host, user_agent);
         }
-        load_initial_url_after_registering_initialization_scripts(
+        let pending_initial_url = load_initial_url_after_registering_initialization_scripts(
           &browser,
           &initialization_scripts,
           &custom_protocol_scheme,
@@ -962,6 +963,7 @@ impl<T: UserEvent> WinitCefApp<T> {
             label,
             browser,
             browser_id,
+            pending_initial_url,
             frame_navigation_state,
             popup_family,
             dialogs,
@@ -1271,8 +1273,20 @@ impl<T: UserEvent> WinitCefApp<T> {
         }
       }
       WebviewMessage::Navigate(url) => {
-        if let Some(frame) = child.browser.main_frame() {
-          frame.load_url(Some(&cef::CefString::from(url.as_str())));
+        // A caller may navigate before the document-start registration is
+        // acknowledged or its UI task runs. Replace that deferred destination
+        // so the initial load cannot later cancel the caller's navigation.
+        let deferred = {
+          let mut initial_url = child.pending_initial_url.lock().unwrap();
+          if let Some(initial_url) = initial_url.as_mut() {
+            *initial_url = url.to_string();
+            true
+          } else {
+            false
+          }
+        };
+        if !deferred {
+          load_initial_url(&child.browser, url.as_str());
         }
       }
       WebviewMessage::Reload => child.browser.reload(),
@@ -2142,7 +2156,8 @@ pub(crate) const INITIAL_LOAD_URL: &str = concat!(
 /// The keys only ever come from `allocate_runtime_devtools_message_id`, whose
 /// reserved range no caller identifier can reach, so a caller cannot release the
 /// deferred navigation early by sending a request with a hardcoded `id`.
-pub(crate) type PendingInitialLoads = Arc<Mutex<HashMap<i32, (Browser, String)>>>;
+type PendingInitialUrl = Arc<Mutex<Option<String>>>;
+pub(crate) type PendingInitialLoads = Arc<Mutex<HashMap<i32, (Browser, PendingInitialUrl)>>>;
 
 cef::wrap_dev_tools_message_observer! {
   struct TauriDevToolsProtocolObserver {
@@ -2375,7 +2390,7 @@ fn register_initialization_scripts(
   initialization_scripts: &[CefInitScript],
   custom_protocol_scheme: &str,
   custom_scheme_domain_names: &[String],
-  initial_url: String,
+  initial_url: PendingInitialUrl,
   pending_initial_loads: &PendingInitialLoads,
 ) -> std::result::Result<bool, crate::DevToolsMessageIdExhausted> {
   let Some(source) = devtools_initialization_script_source(
@@ -2414,17 +2429,20 @@ fn register_initialization_scripts(
 wrap_task! {
   struct LoadInitialUrlTask {
     browser: Browser,
-    initial_url: String,
+    initial_url: PendingInitialUrl,
   }
 
   impl Task {
     fn execute(&self) {
-      load_initial_url(&self.browser, &self.initial_url);
+      let initial_url = self.initial_url.lock().unwrap().take();
+      if let Some(initial_url) = initial_url {
+        load_initial_url(&self.browser, &initial_url);
+      }
     }
   }
 }
 
-fn post_load_initial_url(browser: Browser, initial_url: String) {
+fn post_load_initial_url(browser: Browser, initial_url: PendingInitialUrl) {
   let mut task = LoadInitialUrlTask::new(browser, initial_url);
   cef::post_task(sys::cef_thread_id_t::TID_UI.into(), Some(&mut task));
 }
@@ -2444,9 +2462,9 @@ pub(crate) fn load_initial_url_after_registering_initialization_scripts(
   custom_scheme_domain_names: &[String],
   initial_url: &str,
   pending_initial_loads: &PendingInitialLoads,
-) {
+) -> PendingInitialUrl {
   let browser_for_callback = browser.clone();
-  let initial_url = initial_url.to_string();
+  let initial_url = Arc::new(Mutex::new(Some(initial_url.to_string())));
   let is_waiting_for_initialization_scripts = register_initialization_scripts(
     browser,
     initialization_scripts,
@@ -2457,7 +2475,7 @@ pub(crate) fn load_initial_url_after_registering_initialization_scripts(
   );
 
   match is_waiting_for_initialization_scripts {
-    Ok(false) => post_load_initial_url(browser_for_callback, initial_url),
+    Ok(false) => post_load_initial_url(browser_for_callback, initial_url.clone()),
     Ok(true) => {}
     Err(error) => {
       // Exhaustion cannot fall through to a navigation without the requested
@@ -2468,6 +2486,7 @@ pub(crate) fn load_initial_url_after_registering_initialization_scripts(
       }
     }
   }
+  initial_url
 }
 
 fn load_initial_url(browser: &Browser, initial_url: &str) {

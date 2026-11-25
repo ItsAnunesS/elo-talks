@@ -99,7 +99,10 @@ page fullscreen in windows containing multiple child views, preserving trusted
 account and vault controls. Its CEF bindings are updated to 156.4.0 and the
 runtime is pinned to CEF 156.0.26 / Chromium 156.0.8078.88 with an archive SHA-256.
 The adapter also rejects invalid request headers without panicking; shared
-regressions exercise that boundary. Both upstream runtime licenses are retained
+regressions exercise that boundary. Navigation requested during browser startup
+replaces the deferred initial destination and still waits for document-start
+script registration, preventing a late initial load from cancelling the account.
+Both upstream runtime licenses are retained
 and bundled.
 
 The build-only `phf_generator` 0.8.0 source is retained from upstream commit

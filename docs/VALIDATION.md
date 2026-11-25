@@ -65,6 +65,16 @@ before exiting its native loop. The reproducer then exited normally three times.
 Stage markers and a CI-only debugger capture future failures without skipping gates.
 Canonical Checks must still confirm this fix.
 
+The subsequent release check reached `shell_smoke` but timed out at scale 2
+while waiting for account readiness and title counters. On 2026-11-25, pinning
+the synthetic fixture to one CPU reproduced an account navigation cancelled by
+the runtime's delayed initial `about:blank` load. The runtime now replaces its
+pending initial destination when the application requests navigation, retaining
+the document-start registration barrier. The original source failed twice in
+this environment; the fix passed twenty runs, ten at each scale. The fixture
+also requires exactly two accounts and reports bounded, content-free health
+changes while waiting. No live account or installed vault was accessed.
+
 Still required: green Checks and signed upgrade acceptance. No
 installed user vault or live account has been opened during these synthetic tests.
 GNOME portal, hardware-key, suspend/resume and clean-distribution acceptance are not

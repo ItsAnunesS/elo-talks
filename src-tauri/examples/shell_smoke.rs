@@ -173,7 +173,17 @@ fn main() {
             assert!(handle.get_webview("account-11111111-1111-4111-8111-111111111111").is_some());
             assert!(handle.get_webview("account-22222222-2222-4222-8222-222222222222").is_some());
             eprintln!("Synthetic stage: account load/title callbacks keep the shell responsive");
-            fixture::wait_for(|| handle.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.values().all(|account| account.readiness == account_runtime::Readiness::Chats && account.unread_count == Some(1)));
+            let mut last_health = String::new();
+            fixture::wait_for(|| {
+                let events = handle.state::<account_events::AccountEvents>();
+                let runtime = events.runtime.lock().unwrap();
+                let health = runtime.diagnostics().to_string();
+                if health != last_health {
+                    eprintln!("Synthetic account health: {health}");
+                    last_health = health;
+                }
+                runtime.accounts.len() == 2 && runtime.accounts.values().all(|account| account.readiness == account_runtime::Readiness::Chats && account.unread_count == Some(1))
+            });
             assert_eq!(fixture::evaluate(&shell,"document.readyState"), "complete");
             handle.exit(0);
         });
