@@ -357,9 +357,9 @@ Real WhatsApp acceptance remains necessary: receive messages in an inactive acco
 
 ## Unified startup
 
-The encrypted catalog persists the last selected account and falls back to an existing account after deletion. Locked status does not expose this preference. The primary view starts first; other views start at 500 ms intervals and do not gate the primary view. Structural readiness is tested with a delayed synthetic chat-list element after document load, including a hidden native WebKit view. UI tests cover restoring a non-first account, waiting after page load, QR readiness, background loading without blocking, and explicit Continue anyway. The detector never reads QR contents or messages.
+The encrypted catalog persists the last selected account and falls back to an existing account after deletion. Locked status does not expose this preference. The primary view starts first; other views start at 500 ms intervals and do not gate the primary view. Structural readiness is tested with a delayed synthetic chat-list element after document load, including hidden native CEF views and a delayed synthetic QR container with a centered logo. UI tests cover restoring a non-first account, waiting after page load, QR readiness, background loading without blocking, explicit Continue anyway, automatic access after the 40-second probe deadline, and retaining manual recovery for load errors. The detector never reads QR contents or messages.
 
-Real WhatsApp markup and network behavior still need acceptance on the supported desktops. If its structural selectors change, the app preserves access through Continue anyway rather than inferring authentication or weakening origin/sandbox policy.
+Real WhatsApp markup and network behavior still need acceptance on the supported desktops. If its structural selectors change, the app removes its loading overlay after 40 seconds so the channel remains accessible. Load errors still require explicit recovery. Neither fallback infers authentication or weakens origin/sandbox policy.
 
 
 ## Account card avatar regression

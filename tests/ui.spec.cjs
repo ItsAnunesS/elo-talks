@@ -36,6 +36,7 @@ const http = require("node:http"),
   });
   try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    await page.clock.install();
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(() => {
@@ -927,6 +928,30 @@ const http = require("node:http"),
     await page.getByRole("button", { name: "Continue anyway" }).click();
     await page.locator('#account-list [data-account-id="b"].selected').waitFor();
     assert.equal(await page.locator("#startup-screen").isVisible(), false);
+    await page.evaluate(() => localStorage.removeItem("elo-space"));
+    await page.reload();
+    await page.locator("#startup-screen:not([hidden])").waitFor();
+    await page.waitForFunction(() => window.testRequests.some((r) => r.cmd === "account_snapshot"));
+    await page.clock.fastForward(41000);
+    await page.locator('#account-list [data-account-id="b"].selected').waitFor();
+    assert.equal(await page.locator("#startup-screen").isVisible(), false);
+    assert.equal(
+      await page.evaluate(() => window.testAccountStatus.accounts.b.readiness),
+      "preparing",
+    );
+    await page.evaluate(() => localStorage.removeItem("elo-space"));
+    await page.reload();
+    await page.locator("#startup-screen:not([hidden])").waitFor();
+    await page.evaluate(() => {
+      window.testAccountStatus.accounts.b.page = "tls-failed";
+    });
+    await page.clock.fastForward(41000);
+    assert.equal(await page.locator("#startup-screen").isVisible(), true);
+    await page
+      .getByText("WhatsApp could not load. Continue to retry the account.", { exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: "Continue anyway" }).click();
+    await page.locator('#account-list [data-account-id="b"].selected').waitFor();
     await page.evaluate(() => localStorage.setItem("startupScenario", "priority-failed"));
     await page.reload();
     await page.locator("#startup-screen[hidden]").waitFor({ state: "attached" });
@@ -1144,6 +1169,20 @@ const http = require("node:http"),
       };
     });
     assert.equal(await readinessPage.evaluate(readinessScript), 2);
+    for (const code of ["canvas", "svg", "img"]) {
+      await readinessPage.setContent(
+        `<body><div data-testid="qrcode" style="position:relative;width:160px;height:160px"><${code} width="160" height="160"></${code}><div style="position:absolute;left:60px;top:60px;width:40px;height:40px">Synthetic logo</div></div></body>`,
+      );
+      assert.equal(await readinessPage.evaluate(readinessScript), 2);
+      await readinessPage.evaluate(() => {
+        const splash = document.createElement("div");
+        splash.style.cssText = "position:fixed;inset:0;z-index:999;background:white";
+        document.body.append(splash);
+      });
+      assert.equal(await readinessPage.evaluate(readinessScript), 0);
+    }
+    await readinessPage.setContent('<body><canvas width="160" height="160"></canvas></body>');
+    assert.equal(await readinessPage.evaluate(readinessScript), 0);
     await readinessPage.setContent('<body><div id="pane-side" style="height:20px"></div></body>');
     assert.equal(await readinessPage.evaluate(readinessScript), 1);
     await readinessPage.evaluate(() => {

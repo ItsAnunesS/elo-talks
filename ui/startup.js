@@ -69,16 +69,14 @@ export async function prepareAccounts(accounts, lastAccount, openAccount, waitFo
         );
       }
       proceed.hidden = elapsed < 5000 && !failed;
-      if (failed || elapsed >= 40000) {
-        showLoading(
-          failed
-            ? "WhatsApp could not load. Continue to retry the account."
-            : "WhatsApp is taking longer than usual. You can continue while it finishes.",
-        );
-        // End snapshot polling after the bounded readiness probe expires.
+      if (failed) {
+        showLoading("WhatsApp could not load. Continue to retry the account.");
         await continued;
         break;
       }
+      // Unknown login markup must not leave the app's overlay blocking the page.
+      // Keep readiness unchanged and preserve explicit handling of load errors.
+      if (elapsed >= 40000) break;
       await pause(400);
     }
     await openAccount(priority.id);

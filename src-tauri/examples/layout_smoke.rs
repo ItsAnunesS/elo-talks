@@ -59,7 +59,7 @@ fn main() {
             let shell = window.add_child(WebviewBuilder::new("main",WebviewUrl::App("index.html".into())).size(LogicalSize::new(1200.,800.)))?;
             ui_layout::attach(&window,&shell)?;
             let mut accounts = Vec::new();
-            for id in ["one","two"] {
+            for id in ["one","two","qr"] {
                 app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts.insert(id.into(),account_runtime::AccountHealth::default());
                 let view = window.add_child(WebviewBuilder::new(format!("account-{id}"),WebviewUrl::External("about:blank".parse()?))
                     .data_directory(root.path().join(id)).devtools(false)
@@ -78,20 +78,23 @@ fn main() {
             }
             let app = app.handle().clone();
             std::thread::spawn(move || {
-                let [first,second] = accounts.as_slice() else { unreachable!() };
+                let [first,second,qr] = accounts.as_slice() else { unreachable!() };
                 let (activity,_receiver) = mpsc::sync_channel(1);
                 eprintln!("STAGE: attach account adapters");
-                for (view,id) in [(first,"one"),(second,"two")] {
+                for (view,id) in [(first,"one"),(second,"two"),(qr,"qr")] {
                     let html = format!("{HTML}<script>const bytes=Uint8Array.from(atob('{}'),c=>c.charCodeAt(0));const own=document.createElement('button');own.title='You';own.style.cssText='position:fixed;left:16px;bottom:16px;width:48px;height:48px';const image=document.createElement('img');image.style.cssText='width:32px;height:32px';image.src=URL.createObjectURL(new Blob([bytes],{{type:'image/png'}}));own.append(image);document.body.append(own);</script>",gtk::glib::base64_encode(include_bytes!("../icons/32x32.png")));
                     let html = if id == "two" {
                         html.replace("image.src=URL.createObjectURL(new Blob([bytes],{type:'image/png'}));", "image.onload=()=>{const canvas=document.createElement('canvas');canvas.getContext('2d').drawImage(image,0,0);try{canvas.toDataURL();window.canvasBlocked=false;}catch{window.canvasBlocked=true;}};image.src='https://avatar.example/self.png';")
+                    } else { html };
+                    let html = if id == "qr" {
+                        r#"<!doctype html><body><script>setTimeout(()=>{document.body.innerHTML='<div data-ref="synthetic" style="position:relative;width:160px;height:160px"><canvas width="160" height="160"></canvas><div style="position:absolute;left:60px;top:60px;width:40px;height:40px">Synthetic logo</div></div>';},750);document.querySelector=()=>null;</script>"#.to_owned()
                     } else { html };
                     fixture::serve(view,&html);
                     account_avatar::observe(view,&app,id).unwrap();
                 }
                 // Register the next account while the previous document can
                 // still finish loading and query its readiness on the UI thread.
-                for (view,id) in [(first,"one"),(second,"two")] {
+                for (view,id) in [(first,"one"),(second,"two"),(qr,"qr")] {
                     eprintln!("STAGE: attach account adapter {id}");
                     account_events::attach(view,&app,id,activity.clone()).unwrap();
                     fixture::wait_for(|| fixture::evaluate(view,"location.origin") == "https://web.whatsapp.com");
@@ -100,7 +103,7 @@ fn main() {
                 fixture::wait_for(|| {
                     let events = app.state::<account_events::AccountEvents>();
                     let runtime = events.runtime.lock().unwrap();
-                    runtime.accounts.len() == 2 && runtime.accounts.values().all(|state| state.page == account_runtime::PageState::Ready && state.readiness == account_runtime::Readiness::Chats)
+                    runtime.accounts.len() == 3 && runtime.accounts.iter().all(|(id,state)| state.page == account_runtime::PageState::Ready && state.readiness == if id == "qr" { account_runtime::Readiness::QrCode } else { account_runtime::Readiness::Chats })
                 });
                 eprintln!("STAGE: account avatars");
                 fixture::wait_for(|| account_avatar::current(&app,"one").is_some() && account_avatar::current(&app,"two").is_some());
