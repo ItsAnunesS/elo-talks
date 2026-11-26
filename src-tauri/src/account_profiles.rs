@@ -1,6 +1,10 @@
 //! Chromium storage is additive: legacy WebKit profiles remain recoverable.
-use anyhow::Result;
-use std::path::{Path, PathBuf};
+use anyhow::{Context, Result};
+use std::{
+    ffi::CString,
+    fs,
+    path::{Path, PathBuf},
+};
 pub fn root(vault: &Path) -> Result<PathBuf> {
     let root = vault.join("chromium");
     crate::storage::private_dir(&root)?;
@@ -8,9 +12,42 @@ pub fn root(vault: &Path) -> Result<PathBuf> {
 }
 pub fn account(vault: &Path, id: &str) -> Result<PathBuf> {
     uuid::Uuid::parse_str(id)?;
-    let accounts = root(vault)?.join("accounts");
-    crate::storage::private_dir(&accounts)?;
-    let profile = accounts.join(id);
+    let root = root(vault)?;
+    // Chrome-backed CEF supports only direct children of root_cache_path.
+    let profile = root.join(id);
+    let previous_parent = root.join("accounts");
+    match fs::symlink_metadata(&previous_parent) {
+        Ok(_) => {
+            crate::storage::private_dir(&previous_parent)?;
+            let previous = previous_parent.join(id);
+            match fs::symlink_metadata(&previous) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+                Ok(_) => {
+                    crate::storage::private_dir(&previous)?;
+                    let source = CString::new(previous.as_os_str().as_encoded_bytes())?;
+                    let target = CString::new(profile.as_os_str().as_encoded_bytes())?;
+                    // Never replace another profile, even if it appears during migration.
+                    if unsafe {
+                        libc::renameat2(
+                            libc::AT_FDCWD,
+                            source.as_ptr(),
+                            libc::AT_FDCWD,
+                            target.as_ptr(),
+                            libc::RENAME_NOREPLACE,
+                        )
+                    } != 0
+                    {
+                        return Err(std::io::Error::last_os_error()).context("Account profile migration could not complete. Existing profiles were preserved; recovery is required.");
+                    }
+                    fs::File::open(&root)?.sync_all()?;
+                    fs::File::open(&previous_parent)?.sync_all()?;
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     crate::storage::private_dir(&profile)?;
     Ok(profile)
 }
@@ -100,11 +137,44 @@ mod tests {
         );
         assert_eq!(account(vault.path(), &first).unwrap(), chromium);
         assert_eq!(
+            chromium.parent(),
+            Some(root(vault.path()).unwrap().as_path())
+        );
+        assert_eq!(
             fs::metadata(chromium).unwrap().permissions().mode() & 0o777,
             0o700
         );
         assert!(account(vault.path(), "../outside").is_err());
     }
+    #[test]
+    fn nested_profiles_move_intact_and_conflicts_never_overwrite_data() {
+        let vault = tempfile::tempdir().unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let root = root(vault.path()).unwrap();
+        let previous = root.join("accounts").join(&id);
+        fs::create_dir_all(&previous).unwrap();
+        fs::write(previous.join("session"), b"saved synthetic login").unwrap();
+        let current = account(vault.path(), &id).unwrap();
+        assert_eq!(current, root.join(&id));
+        assert!(!previous.exists());
+        assert_eq!(
+            fs::read(current.join("session")).unwrap(),
+            b"saved synthetic login"
+        );
+        assert_eq!(account(vault.path(), &id).unwrap(), current);
+        fs::create_dir_all(&previous).unwrap();
+        fs::write(previous.join("session"), b"other synthetic login").unwrap();
+        assert!(account(vault.path(), &id).is_err());
+        assert_eq!(
+            fs::read(current.join("session")).unwrap(),
+            b"saved synthetic login"
+        );
+        assert_eq!(
+            fs::read(previous.join("session")).unwrap(),
+            b"other synthetic login"
+        );
+    }
+
     #[test]
     fn profile_parents_cannot_redirect_storage_outside_the_vault() {
         let vault = tempfile::tempdir().unwrap();

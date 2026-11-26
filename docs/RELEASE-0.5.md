@@ -15,7 +15,11 @@ is not release acceptance. See [validation evidence](VALIDATION.md).
 ## Session preservation
 
 Development builds now use separate data and IPC directories. Production keeps
-its existing vault and profile paths. Browser account contexts explicitly persist
+its existing vault. Account profiles move atomically from
+`chromium/accounts/<UUID>` to `chromium/<UUID>` inside that vault, without
+overwriting another profile. CEF requires direct-child profiles; the previous
+nested layout could silently create temporary private contexts and lose login
+state on exit. Browser account contexts explicitly persist
 session cookies, including when the global context is memory-only, and use the
 system secret store consistently. Shutdown allows ten seconds for browser writes;
 a forced stop produces an explicit recovery error. Existing data is neither

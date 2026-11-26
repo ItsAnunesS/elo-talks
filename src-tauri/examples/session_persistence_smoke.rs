@@ -117,6 +117,16 @@ fn main() {
         }
         assert!(process_shutdown::stop(&mut child, Duration::from_secs(10)).unwrap());
         assert!(child.wait().unwrap().success());
+        if phase == "write" {
+            // Exercise migration of a closed, fully populated synthetic profile.
+            let chromium = root.path().join("profile/chromium");
+            std::fs::create_dir_all(chromium.join("accounts")).unwrap();
+            std::fs::rename(
+                chromium.join(ACCOUNT),
+                chromium.join("accounts").join(ACCOUNT),
+            )
+            .unwrap();
+        }
     }
     println!("PASS: session and persistent cookies, localStorage, IndexedDB CryptoKey and account isolation survive two process restarts");
 }
@@ -143,6 +153,7 @@ fn phase(root: &Path, write: bool) {
         for id in [ACCOUNT, OTHER] {
             let view = window.add_child(WebviewBuilder::new(id, WebviewUrl::External("about:blank".parse()?))
                 .data_directory(account_profiles::account(&profile, id)?).devtools(false)
+                .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
                 .size(LogicalSize::new(800.,600.)))?;
             views.push(view);
         }
@@ -155,6 +166,7 @@ fn phase(root: &Path, write: bool) {
                 fixture::wait_for(|| fixture::evaluate(view, "window.result || ''") != "");
                 assert_eq!(fixture::evaluate(view, "window.result"), "passed", "Synthetic storage flags: {}", fixture::evaluate(view, "JSON.stringify(window.storageState || {})"));
             }
+            assert_eq!(fixture::page_targets(&views[0]), 2, "Unexpected restored browser targets");
             std::fs::write(ready, b"synthetic").unwrap();
         });
         Ok(())

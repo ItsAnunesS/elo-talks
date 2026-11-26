@@ -277,6 +277,34 @@ fn apply_proxy(request_context: &RequestContext, proxy_url: &url::Url) {
   }
 }
 
+wrap_completion_callback! {
+  struct CookieStoreReady {
+    continuation: Arc<Mutex<Option<RequestContextInitContinuation>>>,
+    context: RequestContext,
+  }
+  impl CompletionCallback {
+    fn on_complete(&self) {
+      let callback = self.continuation.lock().unwrap().take();
+      if let Some(callback) = callback { callback(Some(self.context.clone())); }
+    }
+  }
+}
+
+wrap_task! {
+  struct CookieStoreDeadline {
+    continuation: Arc<Mutex<Option<RequestContextInitContinuation>>>,
+  }
+  impl Task {
+    fn execute(&self) {
+      let callback = self.continuation.lock().unwrap().take();
+      if let Some(callback) = callback {
+        log::error!("cookie store initialization exceeded its startup deadline");
+        callback(None);
+      }
+    }
+  }
+}
+
 /// Creates a per-webview [`RequestContext`], registers Tauri's custom URI
 /// scheme handler factories on it, and arranges for `on_initialized` to fire
 /// once the underlying Chromium `Profile` is fully created.
@@ -363,12 +391,9 @@ pub(crate) fn request_context_from_webview_attributes<'a>(
   // we don't race with reference-count releases on shutdown paths.
   let rc_holder: Arc<Mutex<Option<RequestContext>>> = Arc::new(Mutex::new(None));
   let proxy_url = webview_attributes.proxy_url.clone();
-  let wrapped_callback: RequestContextInitContinuation = Box::new({
+  let configured: RequestContextInitContinuation = Box::new({
     let rc_holder = rc_holder.clone();
     move |rc| {
-      // Preferences and content settings can only be set once the request context's
-      // underlying profile has finished initializing, which is exactly what this
-      // continuation signals.
       if let Some(rc) = rc.as_ref() {
         preferences::apply_app_webview_preferences(rc, &profile_preferences);
         preferences::apply_default_content_settings(rc, &content_settings);
@@ -379,6 +404,27 @@ pub(crate) fn request_context_from_webview_attributes<'a>(
       on_initialized(rc);
       let _released = rc_holder.lock().unwrap().take();
     }
+  });
+  let wrapped_callback: RequestContextInitContinuation = Box::new(move |rc| {
+    if persist_session_cookies {
+      if let Some(context) = rc.as_ref() {
+        // CEF initially enables cookie restoration through session.restore_on_startup.
+        // Initialize the network cookie store before applying our NewTab policy;
+        // otherwise session cookies are lost. Restore no previous browser windows.
+        let continuation = Arc::new(Mutex::new(Some(configured)));
+        let mut ready = CookieStoreReady::new(continuation.clone(), context.clone());
+        let mut deadline = CookieStoreDeadline::new(continuation.clone());
+        let scheduled = cef::post_delayed_task(ThreadId::UI, Some(&mut deadline), 5000) != 0;
+        let started = scheduled && context.cookie_manager(None)
+          .is_some_and(|manager| manager.flush_store(Some(&mut ready)) != 0);
+        if !started {
+          let callback = continuation.lock().unwrap().take();
+          if let Some(callback) = callback { callback(None); }
+        }
+        return;
+      }
+    }
+    configured(rc);
   });
 
   let mut handler = WebviewRequestContextHandler::new(Arc::new(Mutex::new(Some(wrapped_callback))));

@@ -639,6 +639,7 @@ impl Controller {
         for p in [
             self.vault.mount.join("accounts"),
             self.vault.mount.join("chromium/accounts"),
+            self.vault.mount.join("chromium"),
         ] {
             if !p.exists() {
                 continue;

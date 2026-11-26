@@ -93,3 +93,39 @@ pub fn wait_for(mut check: impl FnMut() -> bool) {
     }
     panic!("Synthetic condition did not become true");
 }
+
+/// Count browser page targets without returning URLs or page content.
+#[allow(dead_code)]
+pub fn page_targets(view: &tauri::Webview) -> usize {
+    let id = allocate_devtools_message_id().unwrap();
+    let (sender, receiver) = mpsc::sync_channel(1);
+    view.on_dev_tools_protocol(move |event| {
+        if let DevToolsProtocol::MethodResult {
+            message_id,
+            success,
+            result,
+        } = event
+        {
+            if message_id == id && success {
+                let value: Value = serde_json::from_slice(&result).unwrap();
+                let count = value["targetInfos"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|target| target["type"] == "page")
+                    .count();
+                let _ = sender.try_send(count);
+            }
+        }
+    })
+    .unwrap();
+    view.send_dev_tools_message(
+        json!({"id":id,"method":"Target.getTargets"})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap();
+    receiver
+        .recv_timeout(Duration::from_secs(3))
+        .expect("Synthetic target count")
+}

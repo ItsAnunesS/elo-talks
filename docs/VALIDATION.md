@@ -371,12 +371,23 @@ It enables session-cookie persistence on every independent account context while
 keeping the bootstrap context memory-only. The fixture stores session cookies,
 persistent cookies, localStorage and an IndexedDB record containing a
 non-extractable CryptoKey. It restarts the browser process twice using the
-controller's shutdown helper, checks the stored key can still decrypt its synthetic
-record, and checks another account has none of this state. All requests are
+controller's shutdown helper, migrates a closed populated profile from the old
+nested directory, checks the stored key can still decrypt its synthetic record,
+and checks another account has none of this state. It also rejects unexpected
+restored browser targets. All requests are
 fulfilled offline. The fixture explicitly uses a mock cookie key in its temporary
 synthetic profile; it does not exercise a real system keyring or WhatsApp account.
 
-Local Docker validation on 2026-11-26 passed 74 Rust tests (four host-dependent
+CI reproduced loss of all four storage types across a clean restart with the
+previous nested profile layout. Chrome-backed CEF accepts only direct children of
+its root cache and otherwise falls back to an off-the-record profile, as documented
+in [CEF issue 3930](https://github.com/chromiumembedded/cef/issues/3930). The corrected
+account layout preserves the root cache and renames account directories atomically
+without overwriting a destination. Cookie-store initialization completes before
+applying the runtime's no-tab-restoration preference, so session-cookie restoration
+is retained without restoring old browser windows.
+
+Local Docker validation on 2026-11-26 passed 75 Rust tests (four host-dependent
 tests ignored), Clippy for all targets, 18 Python tests, browser workflows and
 Rust/Python/Prettier formatting. The process tests cover a session write taking
 more than one second and a forced stop reported as unsuccessful. The native
