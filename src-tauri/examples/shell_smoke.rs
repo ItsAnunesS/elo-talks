@@ -2,6 +2,8 @@
 #[allow(dead_code)]
 #[path = "../src/account_avatar.rs"]
 mod account_avatar;
+#[path = "../src/account_browser.rs"]
+mod account_browser;
 #[allow(dead_code)]
 #[path = "../src/account_events.rs"]
 mod account_events;

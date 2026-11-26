@@ -10,10 +10,7 @@ use gtk::prelude::*;
 use serde_json::Value;
 use std::{path::PathBuf, sync::mpsc, time::Duration};
 use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, Manager, WebviewUrl};
-use tauri_runtime_cef::{
-    Cef, DebugEnvironment, DevToolsPolicy, FrameEventKind, RemoteDebugging, SandboxPolicy,
-    WebviewBuilderCefExt, WebviewCefExt,
-};
+use tauri_runtime_cef::{FrameEventKind, WebviewBuilderCefExt, WebviewCefExt};
 
 type AccountPreparation = dyn Fn(&tauri::Webview) -> tauri::Result<()> + Send + Sync;
 
@@ -561,26 +558,7 @@ pub fn run_with_account_setup(
             );
         }
     });
-    let chromium_root = crate::account_profiles::root(&profile)?;
-    let cef = Cef::default()
-        .sandbox(SandboxPolicy::Required)
-        .certificate_errors(tauri_runtime_cef::CertificateErrorPolicy::Cancel)
-        .root_cache_path(&chromium_root)
-        .with_settings(move |settings| {
-            // Bootstrap without opening persistent browser data. Each account
-            // receives its own context only after protect_secrets below.
-            settings.root_cache_path = chromium_root.to_string_lossy().as_ref().into();
-            settings.cache_path = Default::default();
-        })
-        .debug_environment(DebugEnvironment::Deny)
-        .log_severity(tauri_runtime_cef::cef::LogSeverity::DISABLE)
-        .remote_debugging(RemoteDebugging::Disabled)
-        .devtools(DevToolsPolicy::Disallowed)
-        .allow_chromium_command_line_args(false)
-        .default_content_setting(
-            tauri_runtime_cef::cef::ContentSettingTypes::NOTIFICATIONS,
-            tauri_runtime_cef::cef::ContentSettingValues::BLOCK,
-        );
+    let cef = crate::account_browser::runtime(&profile)?;
     tauri::Builder::default()
         .runtime(cef)
         .manage(AccountEvents::default())

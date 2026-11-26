@@ -1091,7 +1091,7 @@ impl Cef {
     self
   }
 
-  /// Whether session cookies survive a restart (`CefSettings.persist_session_cookies`).
+  /// Whether session cookies survive a restart, including independent request contexts.
   ///
   /// Off by default, matching a browser: a session cookie is dropped when the application
   /// exits. A desktop application that should keep users signed in across restarts wants
@@ -1239,6 +1239,7 @@ pub(crate) struct RuntimeContext<T: UserEvent> {
   /// [`cef::initialize`]. Per-webview `data_directory` profiles must resolve
   /// under this root for CEF request contexts to be accepted.
   pub(crate) cache_path: Arc<PathBuf>,
+  pub(crate) persist_session_cookies: bool,
   /// Chromium profile preferences the application asked for, applied to every
   /// webview's request context after the runtime's own defaults. See
   /// [`Cef::profile_preference`].
@@ -3422,6 +3423,7 @@ impl<T: UserEvent> CefRuntime<T> {
       app_wide_theme: Default::default(),
       cef_pump,
       cache_path: Arc::new(cache_path.clone()),
+      persist_session_cookies,
       profile_preferences: Arc::new(profile_preferences),
       content_settings: Arc::new(content_settings),
       certificate_errors,

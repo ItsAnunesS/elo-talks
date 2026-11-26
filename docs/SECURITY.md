@@ -130,8 +130,13 @@ Accounts use `chromium/accounts/<UUID>` inside the unlocked vault. Browser
 temporary files also stay inside that profile at `.cef-tmp` and are removed only
 after browser shutdown, before backup or normal unmount. Legacy
 `accounts/<UUID>` profiles remain intact for recovery and require fresh QR linking
-in Chromium. The controller requests graceful UI shutdown, then kills remaining
-members of the browser process group before normal unmount. Only the exact
+in Chromium. Account contexts persist session cookies inside their encrypted profiles and use
+the system secret store consistently across build modes. Development builds use
+separate `elo-talks-dev` data and runtime namespaces and do not refresh the
+production autostart entry. The controller allows up to ten seconds for graceful
+UI shutdown, then stops remaining members of its own browser process group. A
+forced shutdown is reported as a closure failure rather than a successful save;
+normal unmount remains authoritative. Only the exact
 Chromium singleton rendezvous links are removed after shutdown so encrypted
 backups can retain their prohibition on symlinks and special files. Failure to
 close the vault leaves an explicit recovery state.

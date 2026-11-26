@@ -391,19 +391,15 @@ impl Controller {
     }
     fn stop_ui(&mut self) -> Result<()> {
         if let Some(mut c) = self.child.take() {
-            let pg = c.id() as i32;
-            unsafe {
-                libc::kill(pg, libc::SIGTERM);
-            }
-            let start = Instant::now();
-            while c.try_wait()?.is_none() && start.elapsed() < Duration::from_secs(1) {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            unsafe {
-                libc::kill(-pg, libc::SIGKILL);
-            }
-            let _ = c.wait();
+            let graceful = match crate::process_shutdown::stop(&mut c, Duration::from_secs(10)) {
+                Ok(graceful) => graceful,
+                Err(error) => {
+                    self.child = Some(c);
+                    return Err(error);
+                }
+            };
             crate::account_events::clear_desktop_badge();
+            ensure!(graceful, "Accounts could not close normally. Retry locking the vault before continuing; recent session data may be incomplete.");
             // Unmount is authoritative: it must fail if another process still holds the mount.
         }
         if self.vault.master.is_some() {

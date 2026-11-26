@@ -12,6 +12,16 @@ account and ends active calls.
 Publication remains gated on complete-app tests; prototype call success alone
 is not release acceptance. See [validation evidence](VALIDATION.md).
 
+## Session preservation
+
+Development builds now use separate data and IPC directories. Production keeps
+its existing vault and profile paths. Browser account contexts explicitly persist
+session cookies, including when the global context is memory-only, and use the
+system secret store consistently. Shutdown allows ten seconds for browser writes;
+a forced stop produces an explicit recovery error. Existing data is neither
+cleared nor automatically migrated between cookie encryption modes. These changes
+cannot restore a WhatsApp link that has already been revoked.
+
 ## Backup workflow
 
 - Lock the vault normally before exporting. From Settings > General, choose

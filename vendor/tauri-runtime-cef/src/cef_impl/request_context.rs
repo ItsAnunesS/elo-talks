@@ -307,6 +307,7 @@ fn apply_proxy(request_context: &RequestContext, proxy_url: &url::Url) {
 /// on the IO thread.
 pub(crate) fn request_context_from_webview_attributes<'a>(
   global_cache_path: &Path,
+  persist_session_cookies: bool,
   webview_attributes: &WebviewAttributes,
   profile_preferences: Arc<Vec<(String, serde_json::Value)>>,
   content_settings: Arc<Vec<(ContentSettingTypes, ContentSettingValues)>>,
@@ -348,6 +349,9 @@ pub(crate) fn request_context_from_webview_attributes<'a>(
   };
 
   let settings = RequestContextSettings {
+    // Account contexts use a different cache from the memory-only global context.
+    // CEF requires the persistence policy on each independent context as well.
+    persist_session_cookies: (persist_session_cookies && !webview_attributes.incognito) as i32,
     cache_path,
     ..Default::default()
   };

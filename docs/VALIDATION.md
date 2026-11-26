@@ -364,6 +364,27 @@ Local validation on 2026-11-26 passed 71 Rust tests (four host-dependent tests i
 Real WhatsApp markup and network behavior still need acceptance on the supported desktops. If its structural selectors change, the app removes its loading overlay after 40 seconds so the channel remains accessible. Load errors still require explicit recovery. Neither fallback infers authentication or weakens origin/sandbox policy.
 
 
+## Session persistence regression
+
+The browser policy is shared by the production UI and `session_persistence_smoke`.
+It enables session-cookie persistence on every independent account context while
+keeping the bootstrap context memory-only. The fixture stores session cookies,
+persistent cookies, localStorage and an IndexedDB record containing a
+non-extractable CryptoKey. It restarts the browser process twice using the
+controller's shutdown helper, checks the stored key can still decrypt its synthetic
+record, and checks another account has none of this state. All requests are
+fulfilled offline. The fixture explicitly uses a mock cookie key in its temporary
+synthetic profile; it does not exercise a real system keyring or WhatsApp account.
+
+Local Docker validation on 2026-11-26 passed 74 Rust tests (four host-dependent
+tests ignored), Clippy for all targets, 18 Python tests, browser workflows and
+Rust/Python/Prettier formatting. The process tests cover a session write taking
+more than one second and a forced stop reported as unsuccessful. The native
+persistence fixture compiled, but Docker denied Chromium's namespace creation
+with its required sandbox. No sandbox or host restriction was disabled. The
+Checks workflow now requires this fixture at both desktop scale factors before
+packaging; its result and real WhatsApp acceptance remain separate evidence.
+
 ## Account card avatar regression
 
 Synthetic coverage includes PNG normalization and input limits, resource scheme and

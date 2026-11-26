@@ -1,11 +1,13 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod account_avatar;
+mod account_browser;
 mod account_events;
 mod account_permissions;
 mod account_profiles;
 mod account_readiness;
 mod account_runtime;
 mod account_script;
+mod app_paths;
 mod auth;
 mod backup;
 mod cef_notifications;
@@ -18,6 +20,7 @@ mod ipc;
 mod launcher;
 mod notification_content;
 mod process_security;
+mod process_shutdown;
 mod server_sync;
 mod session_monitor;
 mod storage;
@@ -75,13 +78,14 @@ fn run() -> Result<()> {
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .unwrap_or_else(|| home.join(".local/share"));
-    let data = data_home.join("elo-talks");
+    let namespace = app_paths::namespace(cfg!(debug_assertions) || tauri::is_dev());
+    let data = data_home.join(namespace);
     let runtime = PathBuf::from(
         std::env::var_os("XDG_RUNTIME_DIR").context("Linux session has no runtime directory")?,
     )
-    .join("elo-talks");
+    .join(namespace);
     // Register the original AppImage path, not the transient mount path.
-    if let Some(appimage) = std::env::var_os("APPIMAGE") {
+    if let Some(appimage) = std::env::var_os("APPIMAGE").filter(|_| namespace == "elo-talks") {
         if desktop_integration::refresh(&data_home, std::path::Path::new(&appimage)).is_err() {
             // Desktop cosmetics must not prevent vault access; retry on the next launch.
             eprintln!("Elo Talks: desktop icon refresh was unavailable; it will be retried on next launch.");

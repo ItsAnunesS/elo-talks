@@ -89,6 +89,13 @@ Read the [security model](docs/SECURITY.md) for details and limitations. The
 
 ## Development
 
+Development builds use `elo-talks-dev` below the XDG data and runtime directories;
+installed production builds retain `elo-talks`. Development does not reuse the
+installed vault, IPC socket or autostart entry. Existing development accounts that
+were linked in the production vault are not automatically copied into this new
+namespace. Browser cookies use the system secret store consistently, while all
+account storage remains inside the encrypted vault.
+
 Linux launchers and native windows use the `dev.anuness.elotalks` identity.
 The AppImage includes PNG icons at 32, 128 and 512 pixels; its startup launcher
 also uses the embedded logo without relying on the desktop's icon theme.

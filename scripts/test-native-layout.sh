@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 example="${1:-layout_smoke}"
 case "$example" in
-  layout_smoke|clipboard_smoke|cef_notification_smoke|shell_smoke|media_permission_smoke) ;;
+  layout_smoke|clipboard_smoke|cef_notification_smoke|shell_smoke|media_permission_smoke|session_persistence_smoke) ;;
   *) echo 'Unsupported native fixture.' >&2; exit 1 ;;
 esac
 : "${CEF_PATH:?Prepare the pinned CEF distribution first}"
@@ -48,6 +48,7 @@ mkdir -p tests/test-results/native
 # Exercise GTK fallback dialogs on this isolated display; a real desktop portal
 # requires its owning desktop session and is checked during artifact acceptance.
 runner=(timeout 30s)
+if [[ "$example" == session_persistence_smoke ]]; then runner=(timeout 90s); fi
 # Debug only synthetic fixtures; production processes and live profiles are never traced.
 if [[ "$example" == layout_smoke && "${GITHUB_ACTIONS:-}" == true ]]; then
   runner=(timeout --signal=INT --kill-after=10s 30s gdb --batch --return-child-result
@@ -57,8 +58,13 @@ arguments=()
 if [[ "$example" == media_permission_smoke ]]; then arguments+=(--use-fake-device-for-media-stream); fi
 for scale in 1 2; do
   echo "Running $example at scale $scale"
+  environment_root="$(realpath "$stage")/environment-$scale"
+  mkdir -m 700 -p "$environment_root"/{home,config,data,cache,run,tmp}
   xvfb-run -a -s '-screen 0 3200x2000x24' \
-    env LD_LIBRARY_PATH="$CEF_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    env HOME="$environment_root/home" XDG_CONFIG_HOME="$environment_root/config" \
+    XDG_DATA_HOME="$environment_root/data" XDG_CACHE_HOME="$environment_root/cache" \
+    XDG_RUNTIME_DIR="$environment_root/run" TMPDIR="$environment_root/tmp" \
+    LD_LIBRARY_PATH="$CEF_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     GDK_SCALE="$scale" LIBGL_ALWAYS_SOFTWARE=1 GTK_USE_PORTAL=0 GDK_DEBUG=no-portals GIO_USE_VFS=local \
     dbus-run-session -- "${runner[@]}" "$binary" "${arguments[@]}" 2>&1 | tee "tests/test-results/native/$example-scale-$scale.log" || {
       code=$?

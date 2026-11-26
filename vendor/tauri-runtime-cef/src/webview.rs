@@ -987,6 +987,7 @@ impl<T: UserEvent> WinitCefApp<T> {
     });
     let request_context = request_context::request_context_from_webview_attributes(
       &context.cache_path,
+      context.persist_session_cookies,
       &pending.webview_attributes,
       context.profile_preferences.clone(),
       context.content_settings.clone(),
