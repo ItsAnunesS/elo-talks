@@ -150,6 +150,17 @@ done
 Use `scripts/test-native-layout.sh` only in its documented compatible environment.
 Live-account diagnostics require the user's authorization and a test account. Never
 open, terminate or modify the installed app's real sessions just to run a smoke test.
+Code changes, builds and test requests do not authorize access to installed-app
+sessions. Prefer Docker with only the repository mounted; never mount the user's
+home, installed-app data, vault or session runtime into a test container. Native
+host tests must use synthetic accounts, a fresh temporary profile and isolated
+HOME, XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_CACHE_HOME and XDG_RUNTIME_DIR. Never run
+the production entry point with the user's default directories for a development
+check. Never reuse a real profile through ELO_TEST_PROFILE or another override,
+clear its cookies/cache, unlink WhatsApp, replace its installation, or stop its
+processes. Avoid broad process-name termination such as pkill or killall; clean up
+only processes started by the current isolated test. If isolation cannot be
+verified, report that validation as pending and leave the installed app untouched.
 Synthetic tests do not certify GNOME, clean-distribution compatibility, FIDO2,
 suspend/resume or a real AppImage upgrade. Report those limits explicitly.
 
