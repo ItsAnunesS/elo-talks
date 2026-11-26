@@ -16,12 +16,14 @@ binary="$(realpath "$stage/$example")"
 profile="elo-talks-ci-$example"
 profile_file="$(mktemp)"
 loaded=false
+# Chromium's Unix-domain singleton socket must fit Linux's short sun_path limit.
+environment_root="$(mktemp -d /tmp/elo-native.XXXXXX)"
 cleanup() {
   if [[ "$loaded" == true ]]; then
     sudo apparmor_parser -R "$profile_file"
   fi
   rm -f "$profile_file"
-  rm -rf "$stage"
+  rm -rf "$stage" "$environment_root"
 }
 trap cleanup EXIT
 
@@ -58,12 +60,12 @@ arguments=()
 if [[ "$example" == media_permission_smoke ]]; then arguments+=(--use-fake-device-for-media-stream); fi
 for scale in 1 2; do
   echo "Running $example at scale $scale"
-  environment_root="$(realpath "$stage")/environment-$scale"
-  mkdir -m 700 -p "$environment_root"/{home,config,data,cache,run,tmp}
+  scale_environment="$environment_root/$scale"
+  mkdir -m 700 -p "$scale_environment"/{home,config,data,cache,run,tmp}
   xvfb-run -a -s '-screen 0 3200x2000x24' \
-    env HOME="$environment_root/home" XDG_CONFIG_HOME="$environment_root/config" \
-    XDG_DATA_HOME="$environment_root/data" XDG_CACHE_HOME="$environment_root/cache" \
-    XDG_RUNTIME_DIR="$environment_root/run" TMPDIR="$environment_root/tmp" \
+    env HOME="$scale_environment/home" XDG_CONFIG_HOME="$scale_environment/config" \
+    XDG_DATA_HOME="$scale_environment/data" XDG_CACHE_HOME="$scale_environment/cache" \
+    XDG_RUNTIME_DIR="$scale_environment/run" TMPDIR="$scale_environment/tmp" \
     LD_LIBRARY_PATH="$CEF_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     GDK_SCALE="$scale" LIBGL_ALWAYS_SOFTWARE=1 GTK_USE_PORTAL=0 GDK_DEBUG=no-portals GIO_USE_VFS=local \
     dbus-run-session -- "${runner[@]}" "$binary" "${arguments[@]}" 2>&1 | tee "tests/test-results/native/$example-scale-$scale.log" || {
