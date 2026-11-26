@@ -1,23 +1,11 @@
 //! Bounded isolated-world startup queries; no conversation content is returned.
 use crate::{
     account_events::{self, AccountEvents},
-    account_runtime::Readiness,
+    account_runtime::{PageState, Readiness},
 };
 use std::time::{Duration, Instant};
 use tauri::Manager;
 pub fn attach(view: &tauri::Webview, app: &tauri::AppHandle, id: &str) {
-    let generation = {
-        let events = app.state::<AccountEvents>();
-        let mut runtime = events.runtime.lock().unwrap();
-        let Some(health) = runtime.accounts.get_mut(id) else {
-            return;
-        };
-        if health.readiness_probe_active || health.readiness != Readiness::Preparing {
-            return;
-        }
-        health.readiness_probe_active = true;
-        health.generation
-    };
     let Some(script) = app
         .state::<AccountEvents>()
         .scripts
@@ -27,6 +15,21 @@ pub fn attach(view: &tauri::Webview, app: &tauri::AppHandle, id: &str) {
         .cloned()
     else {
         return;
+    };
+    let generation = {
+        let events = app.state::<AccountEvents>();
+        let mut runtime = events.runtime.lock().unwrap();
+        let Some(health) = runtime.accounts.get_mut(id) else {
+            return;
+        };
+        if health.readiness_probe_active
+            || health.readiness != Readiness::Preparing
+            || !matches!(health.page, PageState::Loading | PageState::Ready)
+        {
+            return;
+        }
+        health.readiness_probe_active = true;
+        health.generation
     };
     let view = view.clone();
     let app = app.clone();
@@ -43,7 +46,9 @@ pub fn attach(view: &tauri::Webview, app: &tauri::AppHandle, id: &str) {
                 .accounts
                 .get(&id)
                 .is_none_or(|health| {
-                    health.generation != generation || health.readiness != Readiness::Preparing
+                    health.generation != generation
+                        || health.readiness != Readiness::Preparing
+                        || !matches!(health.page, PageState::Loading | PageState::Ready)
                 })
             {
                 break;
@@ -62,11 +67,10 @@ pub fn attach(view: &tauri::Webview, app: &tauri::AppHandle, id: &str) {
                 {
                     let events = handle.state::<AccountEvents>();
                     let mut runtime = events.runtime.lock().unwrap();
-                    let Some(health) = runtime
-                        .accounts
-                        .get_mut(&account)
-                        .filter(|health| health.generation == generation)
-                    else {
+                    let Some(health) = runtime.accounts.get_mut(&account).filter(|health| {
+                        health.generation == generation
+                            && matches!(health.page, PageState::Loading | PageState::Ready)
+                    }) else {
                         return;
                     };
                     health.readiness = readiness;

@@ -64,10 +64,11 @@ fn main() {
                 let view = window.add_child(WebviewBuilder::new(format!("account-{id}"),WebviewUrl::External("about:blank".parse()?))
                     .data_directory(root.path().join(id)).devtools(false)
                     .on_page_load(|view,event| {
-                        if event.event() == tauri::webview::PageLoadEvent::Finished && whatsapp::is_origin(event.url()) {
-                            let id = view.label().strip_prefix("account-").unwrap();
+                        if !whatsapp::is_origin(event.url()) { return; }
+                        let id = view.label().strip_prefix("account-").unwrap();
+                        account_readiness::attach(&view,view.app_handle(),id);
+                        if event.event() == tauri::webview::PageLoadEvent::Finished {
                             account_events::page(view.app_handle(),id,account_runtime::PageState::Ready);
-                            account_readiness::attach(&view,view.app_handle(),id);
                             account_avatar::attach(&view,view.app_handle(),id);
                             whatsapp_style::attach(&view);
                         }
@@ -87,7 +88,7 @@ fn main() {
                         html.replace("image.src=URL.createObjectURL(new Blob([bytes],{type:'image/png'}));", "image.onload=()=>{const canvas=document.createElement('canvas');canvas.getContext('2d').drawImage(image,0,0);try{canvas.toDataURL();window.canvasBlocked=false;}catch{window.canvasBlocked=true;}};image.src='https://avatar.example/self.png';")
                     } else { html };
                     let html = if id == "qr" {
-                        r#"<!doctype html><body><script>setTimeout(()=>{document.body.innerHTML='<div data-ref="synthetic" style="position:relative;width:160px;height:160px"><canvas width="160" height="160"></canvas><div style="position:absolute;left:60px;top:60px;width:40px;height:40px">Synthetic logo</div></div>';},750);document.querySelector=()=>null;</script>"#.to_owned()
+                        r#"<!doctype html><body><img src="https://web.whatsapp.com/synthetic-pending.png"><script>setTimeout(()=>{document.body.insertAdjacentHTML('beforeend','<div data-ref="synthetic" style="position:relative;width:160px;height:160px"><canvas width="160" height="160"></canvas><div style="position:absolute;left:60px;top:60px;width:40px;height:40px">Synthetic logo</div></div>');},750);document.querySelector=()=>null;</script>"#.to_owned()
                     } else { html };
                     fixture::serve(view,&html);
                     account_avatar::observe(view,&app,id).unwrap();
@@ -103,7 +104,7 @@ fn main() {
                 fixture::wait_for(|| {
                     let events = app.state::<account_events::AccountEvents>();
                     let runtime = events.runtime.lock().unwrap();
-                    runtime.accounts.len() == 3 && runtime.accounts.iter().all(|(id,state)| state.page == account_runtime::PageState::Ready && state.readiness == if id == "qr" { account_runtime::Readiness::QrCode } else { account_runtime::Readiness::Chats })
+                    runtime.accounts.len() == 3 && runtime.accounts.iter().all(|(id,state)| state.page == if id == "qr" { account_runtime::PageState::Loading } else { account_runtime::PageState::Ready } && state.readiness == if id == "qr" { account_runtime::Readiness::QrCode } else { account_runtime::Readiness::Chats })
                 });
                 eprintln!("STAGE: account avatars");
                 fixture::wait_for(|| account_avatar::current(&app,"one").is_some() && account_avatar::current(&app,"two").is_some());

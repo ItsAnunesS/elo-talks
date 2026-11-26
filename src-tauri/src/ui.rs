@@ -457,12 +457,14 @@ fn sync_accounts(
                     }
                 })
                 .on_page_load(move |view, event| {
-                    if event.event() == tauri::webview::PageLoadEvent::Finished
-                        && crate::whatsapp::is_origin(event.url())
-                    {
-                        let id = view.label().strip_prefix("account-").unwrap_or_default();
+                    if !crate::whatsapp::is_origin(event.url()) {
+                        return;
+                    }
+                    let id = view.label().strip_prefix("account-").unwrap_or_default();
+                    // Login can be usable while cold-start resources still delay Finished.
+                    crate::account_readiness::attach(&view, view.app_handle(), id);
+                    if event.event() == tauri::webview::PageLoadEvent::Finished {
                         account_events::page(view.app_handle(), id, PageState::Ready);
-                        crate::account_readiness::attach(&view, view.app_handle(), id);
                         crate::account_avatar::attach(&view, view.app_handle(), id);
                         crate::whatsapp_style::attach(&view);
                     }

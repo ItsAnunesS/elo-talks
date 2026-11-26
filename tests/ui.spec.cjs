@@ -919,6 +919,8 @@ const http = require("node:http"),
       false,
     );
     await page.evaluate(() => {
+      // The QR screen can be usable before pending resources finish loading.
+      window.testAccountStatus.accounts.b.page = "loading";
       window.testAccountStatus.accounts.b.readiness = "qr-code";
     });
     await page.locator('#account-list [data-account-id="b"].selected').waitFor();

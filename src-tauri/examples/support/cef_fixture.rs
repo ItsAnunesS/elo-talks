@@ -31,6 +31,10 @@ pub fn serve(view: &tauri::Webview, html: &str) {
         }
         DevToolsProtocol::Event { method, params } if method == "Fetch.requestPaused" => {
             let value: Value = serde_json::from_slice(&params).unwrap();
+            // Keep a synthetic cold-start subresource pending without network access.
+            if value["request"]["url"] == "https://web.whatsapp.com/synthetic-pending.png" {
+                return;
+            }
             requests
                 .try_send((
                     value["requestId"].as_str().unwrap().to_owned(),
