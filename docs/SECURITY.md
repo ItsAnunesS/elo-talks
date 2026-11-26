@@ -128,7 +128,8 @@ controller and authentication helpers become nondumpable immediately.
 
 Accounts use `chromium/<UUID>` inside the unlocked vault, as direct children of
 CEF's root cache. Nested Chromium profiles at `chromium/accounts/<UUID>` are
-renamed atomically inside the vault before opening the account. Migration never
+renamed atomically inside the vault before initializing CEF, which can otherwise
+recreate a missing profile directory during bootstrap. Migration never
 overwrites an existing destination; conflicts require explicit recovery. Browser
 temporary files also stay inside that profile at `.cef-tmp` and are removed only
 after browser shutdown, before backup or normal unmount. Legacy

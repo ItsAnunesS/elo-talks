@@ -10,6 +10,27 @@ pub fn root(vault: &Path) -> Result<PathBuf> {
     crate::storage::private_dir(&root)?;
     Ok(root)
 }
+/// Migrate closed profiles before Chromium's ProfileManager can recreate their paths.
+pub fn prepare(vault: &Path) -> Result<PathBuf> {
+    let root = root(vault)?;
+    let previous = root.join("accounts");
+    match fs::symlink_metadata(&previous) {
+        Ok(_) => {
+            crate::storage::private_dir(&previous)?;
+            for entry in fs::read_dir(&previous)? {
+                let entry = entry?;
+                let name = entry.file_name();
+                if let Some(id) = name.to_str().filter(|id| uuid::Uuid::parse_str(id).is_ok()) {
+                    account(vault, id)?;
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(root)
+}
+
 pub fn account(vault: &Path, id: &str) -> Result<PathBuf> {
     uuid::Uuid::parse_str(id)?;
     let root = root(vault)?;
@@ -173,6 +194,22 @@ mod tests {
             fs::read(previous.join("session")).unwrap(),
             b"other synthetic login"
         );
+    }
+
+    #[test]
+    fn bootstrap_prepares_closed_profiles_before_chromium_starts() {
+        let vault = tempfile::tempdir().unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let previous = root(vault.path()).unwrap().join("accounts").join(&id);
+        fs::create_dir_all(&previous).unwrap();
+        fs::write(previous.join("session"), b"saved before bootstrap").unwrap();
+        let chromium = prepare(vault.path()).unwrap();
+        assert!(!previous.exists());
+        assert_eq!(
+            fs::read(chromium.join(&id).join("session")).unwrap(),
+            b"saved before bootstrap"
+        );
+        assert_eq!(prepare(vault.path()).unwrap(), chromium);
     }
 
     #[test]

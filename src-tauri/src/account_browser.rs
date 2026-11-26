@@ -2,7 +2,7 @@
 use tauri_runtime_cef::{Cef, DebugEnvironment, DevToolsPolicy, RemoteDebugging, SandboxPolicy};
 
 pub fn runtime(profile: &std::path::Path) -> anyhow::Result<Cef> {
-    let chromium_root = crate::account_profiles::root(profile)?;
+    let chromium_root = crate::account_profiles::prepare(profile)?;
     Ok(Cef::default()
         .secret_storage(tauri_runtime_cef::SecretStorage::System)
         .persist_session_cookies(true)

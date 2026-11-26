@@ -387,7 +387,10 @@ without overwriting a destination. Cookie-store initialization completes before
 applying the runtime's no-tab-restoration preference, so session-cookie restoration
 is retained without restoring old browser windows.
 
-Local Docker validation on 2026-11-26 passed 75 Rust tests (four host-dependent
+Migration runs before CEF initialization so ProfileManager cannot recreate an
+empty destination from its previous profile metadata before migration finishes.
+
+Local Docker validation on 2026-11-26 passed 76 Rust tests (four host-dependent
 tests ignored), Clippy for all targets, 18 Python tests, browser workflows and
 Rust/Python/Prettier formatting. The process tests cover a session write taking
 more than one second and a forced stop reported as unsuccessful. The native
