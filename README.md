@@ -1,10 +1,18 @@
-![Elo Talks — Separate accounts. One private space.](docs/assets/banner.svg)
+<p align="center">
+  <img src="docs/assets/banner.svg" width="100%" alt="Elo Talks - Separate accounts. One private space." />
+</p>
 
 <p align="center">
-  <a href="https://github.com/ItsAnunesS/elo-talks/releases/latest">Download</a> ·
-  <a href="docs/SECURITY.md">Security</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a> ·
-  <a href="https://github.com/ItsAnunesS/elo-talks/issues">Report an issue</a>
+  <a href="https://github.com/ItsAnunesS/elo-talks/releases/latest"><img src="docs/assets/button-download.svg" width="146" height="42" alt="Download" /></a>
+  <a href="docs/SECURITY.md"><img src="docs/assets/button-security.svg" width="146" height="42" alt="Security" /></a>
+  <a href="docs/RELEASE-0.5.md"><img src="docs/assets/button-releases.svg" width="146" height="42" alt="Release notes" /></a>
+  <a href="https://github.com/ItsAnunesS/elo-talks/issues"><img src="docs/assets/button-issues.svg" width="146" height="42" alt="Issues" /></a>
+  <a href="CONTRIBUTING.md"><img src="docs/assets/button-contribute.svg" width="146" height="42" alt="Contribute" /></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ItsAnunesS/elo-talks/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/ItsAnunesS/elo-talks/release.yml?branch=release&amp;style=for-the-badge&amp;label=build&amp;labelColor=24252e&amp;logo=githubactions&amp;logoColor=b3a4ff" alt="Build status" /></a>
+  <a href="https://github.com/ItsAnunesS/elo-talks/releases/latest"><img src="https://img.shields.io/github/v/release/ItsAnunesS/elo-talks?style=for-the-badge&amp;label=version&amp;labelColor=24252e&amp;color=b3a4ff" alt="Latest release" /></a>
 </p>
 
 # Elo Talks
@@ -85,7 +93,7 @@ Link each account again by QR: Chromium uses new profiles inside the same vault.
 WebKit session databases are not copied into Chromium.
 
 Read the [security model](docs/SECURITY.md) for details and limitations. The
-[0.4 release notes](docs/RELEASE-0.4.md) describe the current hardening work.
+[0.5 release notes](docs/RELEASE-0.5.md) describe the current release series.
 
 ## Development
 
