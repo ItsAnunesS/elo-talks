@@ -370,22 +370,24 @@ The browser policy is shared by the production UI and `session_persistence_smoke
 It enables session-cookie persistence on every independent account context while
 keeping the bootstrap context memory-only. The fixture stores session cookies,
 persistent cookies, localStorage and an IndexedDB record containing a
-non-extractable CryptoKey. It restarts the browser process twice using the
-controller's shutdown helper, migrates a closed populated profile from the old
-nested directory, checks the stored key can still decrypt its synthetic record,
+non-extractable CryptoKey. It restarts the browser process using the
+controller's shutdown helper, including a forced-stop recovery, migrates a closed
+populated profile from the old nested directory, checks the stored key can still decrypt its synthetic record,
 and checks another account has none of this state. It also rejects unexpected
 restored browser targets. All requests are
-fulfilled offline. The fixture explicitly uses a mock cookie key in its temporary
-synthetic profile; it does not exercise a real system keyring or WhatsApp account.
+fulfilled offline, and DNS resolution is blocked in this fixture to prevent
+unhandled restored targets from contacting external sites. The fixture explicitly
+uses a mock cookie key in its temporary synthetic profile; it does not exercise a real system keyring or WhatsApp account.
 
 CI reproduced loss of all four storage types across a clean restart with the
 previous nested profile layout. Chrome-backed CEF accepts only direct children of
 its root cache and otherwise falls back to an off-the-record profile, as documented
 in [CEF issue 3930](https://github.com/chromiumembedded/cef/issues/3930). The corrected
 account layout preserves the root cache and renames account directories atomically
-without overwriting a destination. Cookie-store initialization completes before
-applying the runtime's no-tab-restoration preference, so session-cookie restoration
-is retained without restoring old browser windows.
+without overwriting a destination. The runtime's restore-on-startup preference now
+follows CEF's session-cookie persistence policy, instead of replacing it with NewTab and discarding session
+cookies. The native fixture rejects any additional browser targets after reopening;
+new-window requests remain denied.
 
 Migration runs before CEF initialization so ProfileManager cannot recreate an
 empty destination from its previous profile metadata before migration finishes.

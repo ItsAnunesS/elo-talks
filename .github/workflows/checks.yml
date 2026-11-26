@@ -95,6 +95,8 @@ jobs:
         run: python3 scripts/set-version.py "$RELEASE_RUN_NUMBER"
       - name: Build native regression fixtures
         run: cargo build --locked --example layout_smoke --example notifications_smoke --example launcher_smoke --example clipboard_smoke --example cef_notification_smoke --example shell_smoke --example media_permission_smoke --example session_persistence_smoke
+      - name: Native session persistence regressions
+        run: bash scripts/test-native-layout.sh session_persistence_smoke
       - name: Native clipboard regressions
         run: bash scripts/test-native-layout.sh clipboard_smoke
       - name: Rust formatting
@@ -137,7 +139,6 @@ jobs:
           xvfb-run -a dbus-run-session -- python3 scripts/test-native-icon.py target/debug/examples/launcher_smoke
       - name: Native CEF regressions
         run: |
-          bash scripts/test-native-layout.sh session_persistence_smoke
           bash scripts/test-native-layout.sh layout_smoke
           bash scripts/test-native-layout.sh cef_notification_smoke
           bash scripts/test-native-layout.sh shell_smoke

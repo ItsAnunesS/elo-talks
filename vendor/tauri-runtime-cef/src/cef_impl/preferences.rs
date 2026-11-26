@@ -121,7 +121,9 @@ const PREFERENCES: &[(&str, bool)] = &[
 /// each launch would bring back hidden copies of the previous run's windows that the
 /// runtime does not own, never closes, and that keep the process alive once the
 /// application's windows are gone. `5` is Chrome's "open the New Tab page", which for a
-/// CEF browser restores nothing.
+/// CEF browser restores nothing. Explicit session-cookie persistence must retain
+/// CEF's restore policy instead: resetting it to NewTab also discards session
+/// cookies when the profile closes. Applications opting in must gate new windows.
 const SESSION_RESTORE_ON_STARTUP: (&str, i64) = ("session.restore_on_startup", 5);
 
 /// Converts a JSON value into the `CefValue` the preference API takes.
@@ -196,13 +198,14 @@ fn to_cef_value(value: &serde_json::Value) -> Option<Value> {
 pub(crate) fn apply_app_webview_preferences(
   request_context: &RequestContext,
   overrides: &[(String, serde_json::Value)],
+  persist_session_cookies: bool,
 ) {
   let defaults = PREFERENCES
     .iter()
     .map(|(name, enabled)| ((*name).to_string(), serde_json::Value::Bool(*enabled)))
     .chain(std::iter::once((
       SESSION_RESTORE_ON_STARTUP.0.to_string(),
-      serde_json::Value::from(SESSION_RESTORE_ON_STARTUP.1),
+      serde_json::Value::from(if persist_session_cookies { 1 } else { SESSION_RESTORE_ON_STARTUP.1 }),
     )));
 
   for (name, value) in defaults.chain(overrides.iter().cloned()) {

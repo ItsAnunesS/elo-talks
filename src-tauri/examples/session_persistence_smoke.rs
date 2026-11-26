@@ -85,7 +85,7 @@ fn main() {
     for name in ["home", "config", "data", "cache", "run", "tmp"] {
         storage::private_dir(&root.path().join(name)).unwrap();
     }
-    for phase in ["write", "read", "read"] {
+    for phase in ["write", "read", "crash", "read"] {
         eprintln!("STAGE: synthetic persistence {phase}");
         let ready = root.path().join("ready");
         if ready.exists() {
@@ -115,8 +115,13 @@ fn main() {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert!(process_shutdown::stop(&mut child, Duration::from_secs(10)).unwrap());
-        assert!(child.wait().unwrap().success());
+        if phase == "crash" {
+            assert!(!process_shutdown::stop(&mut child, Duration::ZERO).unwrap());
+            assert!(!child.wait().unwrap().success());
+        } else {
+            assert!(process_shutdown::stop(&mut child, Duration::from_secs(10)).unwrap());
+            assert!(child.wait().unwrap().success());
+        }
         if phase == "write" {
             // Exercise migration of a closed, fully populated synthetic profile.
             let chromium = root.path().join("profile/chromium");
@@ -128,7 +133,7 @@ fn main() {
             .unwrap();
         }
     }
-    println!("PASS: session and persistent cookies, localStorage, IndexedDB CryptoKey and account isolation survive two process restarts");
+    println!("PASS: session and persistent cookies, localStorage, IndexedDB CryptoKey and account isolation survive clean restarts, migration and forced shutdown");
 }
 
 fn phase(root: &Path, write: bool) {
@@ -136,7 +141,8 @@ fn phase(root: &Path, write: bool) {
     // This synthetic profile never contains real account data or system keyring keys.
     let runtime = account_browser::runtime(&profile)
         .unwrap()
-        .secret_storage(SecretStorage::Mock);
+        .secret_storage(SecretStorage::Mock)
+        .command_line_arg("host-resolver-rules", Some("MAP * ~NOTFOUND"));
     let ready = root.join("ready");
     tauri::Builder::default().runtime(runtime).setup(move |app| {
         let shutdown = Arc::new(AtomicBool::new(false));
