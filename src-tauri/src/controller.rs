@@ -562,8 +562,8 @@ impl Controller {
                     }
                     "account.add" | "account.rename" | "account.remove" | "account.reorder"
                     | "account.move" | "account.update" | "workspace.add" | "workspace.update"
-                    | "workspace.remove" | "category.add" | "category.rename"
-                    | "category.remove" => {
+                    | "workspace.remove" | "workspace.reorder" | "category.add"
+                    | "category.rename" | "category.remove" => {
                         let mut catalog = Catalog::load(&self.vault.mount)?;
                         ensure!(!server_sync::managed_mutation(&catalog, &r.op, d), "Manage this server workspace in the server panel. Local edits are not permitted.");
                         if r.op == "workspace.remove" {
@@ -1055,6 +1055,7 @@ mod tests {
             "server.disconnect",
             "workspace.add",
             "workspace.image",
+            "workspace.reorder",
             "workspace.update",
             "workspace.remove",
             "category.rename",

@@ -1036,17 +1036,37 @@ getElement("channel-settings").addEventListener("click", () => {
 let undoMove = null;
 let moveBusy = false;
 initializeChannelDrag(
-  async (id, workspaceId, categoryId) => {
+  async (id, workspaceId, categoryId, beforeId) => {
     if (moveBusy) return;
     const previous = state.organization.placements[id];
-    if (!previous || (previous.workspaceId === workspaceId && previous.categoryId === categoryId))
-      return;
+    if (!previous) return;
+    const sameGroup = previous.workspaceId === workspaceId && previous.categoryId === categoryId;
+    if (sameGroup && beforeId === undefined) return;
+    const siblings = state.accounts.filter((account) => {
+      const placement = state.organization.placements[account.id];
+      return (
+        placement.workspaceId === previous.workspaceId &&
+        placement.categoryId === previous.categoryId
+      );
+    });
+    const previousNext =
+      siblings[siblings.findIndex((account) => account.id === id) + 1]?.id || null;
     moveBusy = true;
     try {
-      await request("account.move", { id, workspaceId, categoryId });
-      undoMove = { id, workspaceId: previous.workspaceId, categoryId: previous.categoryId || null };
+      await request("account.move", { id, workspaceId, categoryId, beforeId });
+      if (!sameGroup)
+        undoMove = {
+          id,
+          workspaceId: previous.workspaceId,
+          categoryId: previous.categoryId || null,
+          beforeId: previousNext,
+        };
       await refreshState();
-      await selectWorkspace(workspaceId);
+      if (!sameGroup) await selectWorkspace(workspaceId);
+      if (sameGroup) {
+        showToast("Channel order updated.");
+        return;
+      }
       getElement("move-label").textContent = "Channel moved.";
       getElement("move-feedback").hidden = false;
     } finally {
@@ -1054,6 +1074,18 @@ initializeChannelDrag(
     }
   },
   (error) => showToast(errorMessage(error)),
+  async (id, beforeId) => {
+    const ids = state.organization.workspaces
+      .filter((workspace) => !serverManaged(workspace.id))
+      .map((workspace) => workspace.id)
+      .filter((value) => value !== id);
+    const index = beforeId ? ids.indexOf(beforeId) : ids.length;
+    if (index < 0) return;
+    ids.splice(index, 0, id);
+    await request("workspace.reorder", { ids });
+    await refreshState();
+    showToast("Workspace order updated.");
+  },
 );
 getElement("undo-move").addEventListener("click", async () => {
   if (!undoMove || moveBusy) return;

@@ -131,8 +131,12 @@ export function renderNavigation(state, workspaceId, selected, actions) {
     );
     bindContextMenu(button, (event) => actions.workspaceMenu(event, item));
     button.dataset.workspaceId = item.id;
+    const managed = state.managedWorkspaces?.includes(item.id) || false;
+    button.draggable = !managed;
+    button.dataset.managed = String(managed);
+    button.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
     button.dataset.dropWorkspace = item.id;
-    button.title = item.name;
+    button.title = `${item.name}${managed ? "" : " · Drag to reorder or use Alt+Up/Down"}`;
     button.setAttribute("aria-label", item.name);
     button.setAttribute("aria-pressed", String(item.id === workspaceId));
     button.classList.toggle("selected", item.id === workspaceId);
@@ -150,6 +154,9 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   getElement("workspace-summary").textContent =
     `${accounts.length} ${accounts.length === 1 ? "channel" : "channels"} · ${workspace.categories.length} ${workspace.categories.length === 1 ? "category" : "categories"}`;
   getElement("manage-workspace").dataset.dropWorkspace = workspaceId;
+  const managed = state.managedWorkspaces?.includes(workspaceId) || false;
+  getElement("manage-workspace").dataset.managed = String(managed);
+  getElement("account-list").dataset.managed = String(managed);
   getElement("account-list").dataset.dropWorkspace = workspaceId;
   getElement("account-list").replaceChildren();
   getElement("cards").replaceChildren();
@@ -158,11 +165,13 @@ export function renderNavigation(state, workspaceId, selected, actions) {
       const row = createElement("div", "account-row");
       bindContextMenu(row, (event) => actions.channelMenu(event, account));
       row.dataset.accountId = account.id;
-      row.draggable = true;
-      row.title = "Drag to a workspace or category. Manage channel also offers move controls.";
+      row.draggable = !managed;
+      row.title =
+        "Drag to reorder or move to a workspace or category. Alt+Up/Down reorders channels.";
       row.classList.toggle("selected", selected === account.id);
       const button = createButton("", () => actions.selectAccount(account.id), "account-name");
       button.setAttribute("aria-label", account.name);
+      button.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
       button.append(
         serviceIcon(placements[account.id].service),
         createElement(
@@ -180,6 +189,7 @@ export function renderNavigation(state, workspaceId, selected, actions) {
   appendChannels(getElement("account-list"), null);
   for (const category of workspace.categories) {
     const section = createElement("section", "channel-category");
+    section.dataset.managed = String(managed);
     section.dataset.dropWorkspace = workspaceId;
     section.dataset.dropCategory = category.id;
     const heading = createElement("div", "category-heading");

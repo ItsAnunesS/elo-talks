@@ -21,6 +21,11 @@ A Linux desktop app for managing multiple WhatsApp accounts in one place. Organi
 personal and work accounts into workspaces, keep them connected in the background,
 and protect their local profiles with an encrypted vault.
 
+Local workspaces and channels can be reordered by dragging them onto an insertion
+marker, or with Alt+Up/Down while focused. Drag a channel onto a category or
+workspace to move it. The order is saved in the encrypted vault. Server-managed
+structure remains read-only.
+
 Built with **Tauri 3, Rust and Chromium Embedded Framework (CEF)**, without Electron.
 The Tauri/CEF prereleases and Chromium distribution are pinned. Server controls are
 hidden; local accounts and encrypted backups remain available.

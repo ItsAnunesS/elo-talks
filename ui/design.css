@@ -637,3 +637,32 @@ select:focus {
 #lock-recovery summary {
   cursor: pointer;
 }
+
+/* Insertion markers do not change native account-view geometry. */
+.account-row,
+.workspace-icon {
+  position: relative;
+}
+.drop-before::after,
+.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent, #5b9dff);
+  pointer-events: none;
+}
+.drop-before::after {
+  top: -2px;
+}
+.drop-after::after {
+  bottom: -2px;
+}
+[draggable="true"] {
+  cursor: grab;
+}
+[draggable="true"]:active {
+  cursor: grabbing;
+}

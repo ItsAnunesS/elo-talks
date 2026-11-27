@@ -203,6 +203,42 @@ impl Catalog {
                 }
                 self.workspaces.push(workspace);
             }
+            "workspace.reorder" => {
+                let ids: Vec<String> = serde_json::from_value(data["ids"].clone())?;
+                let local: Vec<_> =
+                    self.workspaces
+                        .iter()
+                        .filter(|workspace| {
+                            !self.server.as_ref().is_some_and(|server| {
+                                server.managed_workspaces.contains(&workspace.id)
+                            })
+                        })
+                        .cloned()
+                        .collect();
+                ensure!(ids.len() == local.len(), "Invalid workspace order");
+                let mut ordered = Vec::new();
+                for id in ids {
+                    ensure!(
+                        !ordered
+                            .iter()
+                            .any(|workspace: &Workspace| workspace.id == id),
+                        "Duplicate workspace"
+                    );
+                    ordered.push(
+                        local
+                            .iter()
+                            .find(|workspace| workspace.id == id)
+                            .context("Local workspace not found")?
+                            .clone(),
+                    );
+                }
+                let mut ordered = ordered.into_iter();
+                for workspace in &mut self.workspaces {
+                    if local.iter().any(|item| item.id == workspace.id) {
+                        *workspace = ordered.next().context("Invalid workspace order")?;
+                    }
+                }
+            }
             "workspace.update" => {
                 let workspace = self.workspace_mut(text(data, "id")?)?;
                 workspace.name = name(data)?;
@@ -290,10 +326,39 @@ impl Catalog {
             }
             "account.move" => {
                 let placement = self.placement(data)?;
-                *self
-                    .placements
-                    .get_mut(text(data, "id")?)
-                    .context("Account not found")? = placement;
+                let id = text(data, "id")?;
+                ensure!(self.placements.contains_key(id), "Account not found");
+                let mut accounts = self.accounts.clone();
+                if data.get("beforeId").is_some() {
+                    let before: Option<String> = serde_json::from_value(data["beforeId"].clone())?;
+                    ensure!(
+                        before.as_deref() != Some(id),
+                        "Cannot move a channel before itself"
+                    );
+                    if let Some(before) = &before {
+                        let target = self
+                            .placements
+                            .get(before)
+                            .context("Target account not found")?;
+                        ensure!(
+                            target.workspace_id == placement.workspace_id
+                                && target.category_id == placement.category_id,
+                            "Target channel belongs to a different group"
+                        );
+                    }
+                    let index = accounts
+                        .iter()
+                        .position(|account| account.id == id)
+                        .context("Account not found")?;
+                    let account = accounts.remove(index);
+                    let index = before
+                        .as_ref()
+                        .and_then(|id| accounts.iter().position(|account| &account.id == id))
+                        .unwrap_or(accounts.len());
+                    accounts.insert(index, account);
+                }
+                self.placements.insert(id.into(), placement);
+                self.accounts = accounts;
             }
             "account.rename" => {
                 self.accounts
@@ -339,6 +404,112 @@ impl Catalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn workspace_order_keeps_server_managed_slots_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = Catalog::load(dir.path()).unwrap();
+        for name in ["Managed", "Local"] {
+            catalog
+                .apply("workspace.add", &json!({"name":name}))
+                .unwrap();
+        }
+        let first = catalog.workspaces[0].id.clone();
+        let managed = catalog.workspaces[1].id.clone();
+        let last = catalog.workspaces[2].id.clone();
+        catalog.server = Some(
+            serde_json::from_value(json!({
+                "origin":"https://server.example", "username":"synthetic", "token":"synthetic",
+                "certificate":null, "organization_id":null, "managed_workspaces":[managed]
+            }))
+            .unwrap(),
+        );
+        assert!(catalog
+            .apply("workspace.reorder", &json!({"ids":[managed,first]}))
+            .is_err());
+        catalog
+            .apply("workspace.reorder", &json!({"ids":[last,first]}))
+            .unwrap();
+        assert_eq!(catalog.workspaces[0].id, last);
+        assert_eq!(catalog.workspaces[1].id, managed);
+        assert_eq!(catalog.workspaces[2].id, first);
+    }
+
+    #[test]
+    fn reordering_is_validated_and_persisted_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = Catalog::load(dir.path()).unwrap();
+        catalog
+            .apply("workspace.add", &json!({"name":"Second"}))
+            .unwrap();
+        let first = catalog.workspaces[0].id.clone();
+        let second = catalog.workspaces[1].id.clone();
+        for ids in [
+            json!([first, first]),
+            json!([first]),
+            json!([first, "unknown"]),
+        ] {
+            assert!(catalog
+                .apply("workspace.reorder", &json!({"ids":ids}))
+                .is_err());
+            assert_eq!(catalog.workspaces[0].id, first);
+        }
+        catalog
+            .apply("workspace.reorder", &json!({"ids":[second,first]}))
+            .unwrap();
+        for name in ["One", "Two", "Three"] {
+            catalog
+                .apply(
+                    "account.add",
+                    &json!({"name":name,"workspaceId":first,"categoryId":null}),
+                )
+                .unwrap();
+        }
+        let a = catalog.accounts[0].id.clone();
+        let b = catalog.accounts[1].id.clone();
+        let c = catalog.accounts[2].id.clone();
+        catalog
+            .apply(
+                "account.move",
+                &json!({"id":c,"workspaceId":first,"categoryId":null,"beforeId":a}),
+            )
+            .unwrap();
+        assert_eq!(catalog.accounts[0].id, c);
+        let before = serde_json::to_value(&catalog).unwrap();
+        assert!(catalog
+            .apply(
+                "account.move",
+                &json!({"id":b,"workspaceId":second,"categoryId":null,"beforeId":a})
+            )
+            .is_err());
+        assert_eq!(serde_json::to_value(&catalog).unwrap(), before);
+        for before_id in [json!(c), json!("unknown")] {
+            assert!(catalog
+                .apply(
+                    "account.move",
+                    &json!({"id":c,"workspaceId":first,"categoryId":null,"beforeId":before_id})
+                )
+                .is_err());
+            assert_eq!(serde_json::to_value(&catalog).unwrap(), before);
+        }
+        catalog
+            .apply(
+                "account.move",
+                &json!({"id":c,"workspaceId":second,"categoryId":null,"beforeId":null}),
+            )
+            .unwrap();
+        assert_eq!(catalog.accounts.last().unwrap().id, c);
+        catalog
+            .apply(
+                "account.move",
+                &json!({"id":c,"workspaceId":first,"categoryId":null,"beforeId":a}),
+            )
+            .unwrap();
+        catalog.save(dir.path()).unwrap();
+        let loaded = Catalog::load(dir.path()).unwrap();
+        assert_eq!(loaded.workspaces[0].id, second);
+        assert_eq!(loaded.accounts[0].id, c);
+    }
+
     #[test]
     fn remembers_only_existing_accounts_and_falls_back_after_removal() {
         let dir = tempfile::tempdir().unwrap();

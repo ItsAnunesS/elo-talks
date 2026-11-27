@@ -208,7 +208,29 @@ const http = require("node:http"),
                   if (placement.categoryId === data.id) placement.categoryId = null;
                 return structuredClone(window.testState);
               }
+              if (args.op === "workspace.reorder") {
+                const ordered = data.ids.map((id) =>
+                  organization.workspaces.find((workspace) => workspace.id === id),
+                );
+                organization.workspaces = organization.workspaces.map((workspace) =>
+                  data.ids.includes(workspace.id) ? ordered.shift() : workspace,
+                );
+                return structuredClone(window.testState);
+              }
               if (args.op === "account.move") {
+                if (window.testMoveError) {
+                  window.testMoveError = false;
+                  throw Error("Synthetic move failure");
+                }
+                if (data.beforeId !== undefined) {
+                  const accounts = window.testState.accounts;
+                  const index = accounts.findIndex((account) => account.id === data.id);
+                  const [account] = accounts.splice(index, 1);
+                  const target = data.beforeId
+                    ? accounts.findIndex((item) => item.id === data.beforeId)
+                    : accounts.length;
+                  accounts.splice(target, 0, account);
+                }
                 organization.placements[data.id] = {
                   ...organization.placements[data.id],
                   workspaceId: data.workspaceId,
@@ -375,6 +397,60 @@ const http = require("node:http"),
     await page.locator("#account-list").waitFor();
     assert.equal(await page.locator("#account-list .service-icon").count(), 3);
     assert.equal(await page.locator("#account-list img:not(.service-icon)").count(), 0);
+    const selectionCount = await page.evaluate(
+      () => window.testRequests.filter((request) => request.cmd === "select_account").length,
+    );
+    await page
+      .locator('.account-row[data-account-id="a"]')
+      .dispatchEvent("drop", { dataTransfer: await page.evaluateHandle(() => new DataTransfer()) });
+    assert.equal(
+      await page.evaluate(() =>
+        window.testRequests.some((request) => request.args?.op === "account.move"),
+      ),
+      false,
+    );
+    await page.evaluate(() => {
+      window.testMoveError = true;
+    });
+    await page
+      .locator('.account-row[data-account-id="c"]')
+      .dragTo(page.locator('.account-row[data-account-id="a"]'), {
+        targetPosition: { x: 20, y: 2 },
+      });
+    await page.getByRole("status").filter({ hasText: "Synthetic move failure" }).waitFor();
+    assert.deepEqual(
+      await page.evaluate(() => window.testState.accounts.map((account) => account.id)),
+      ["a", "b", "c"],
+    );
+    const channelOrder = () =>
+      page
+        .locator("#account-list .account-row")
+        .evaluateAll((rows) => rows.map((row) => row.dataset.accountId));
+    await page
+      .locator('.account-row[data-account-id="c"]')
+      .dragTo(page.locator('.account-row[data-account-id="a"]'), {
+        targetPosition: { x: 20, y: 2 },
+      });
+    await page.waitForFunction(
+      () => document.querySelector("#account-list .account-row").dataset.accountId === "c",
+    );
+    assert.deepEqual(await channelOrder(), ["c", "a", "b"]);
+    assert.equal(
+      await page.evaluate(
+        () => window.testRequests.filter((request) => request.cmd === "select_account").length,
+      ),
+      selectionCount,
+    );
+    await page.locator('.account-row[data-account-id="c"] .account-name').press("Alt+ArrowDown");
+    await page.waitForFunction(
+      () => document.querySelector("#account-list .account-row").dataset.accountId === "a",
+    );
+    await page.locator('.account-row[data-account-id="c"] .account-name').press("Alt+ArrowDown");
+    await page.waitForFunction(
+      () =>
+        document.querySelector("#account-list .account-row:last-child").dataset.accountId === "c",
+    );
+    assert.deepEqual(await channelOrder(), ["a", "b", "c"]);
     await page.screenshot({ animations: "disabled", path: "/tmp/elo-workspace.png" });
     assert.equal(await page.locator("#channel-service").textContent(), "WhatsApp");
     assert.equal(await page.locator("#channel-avatar").isVisible(), true);
@@ -493,6 +569,13 @@ const http = require("node:http"),
     });
     await page.getByRole("button", { name: "Save lock timeout", exact: true }).click();
     await page.getByRole("button", { name: "Close", exact: true }).click();
+    assert.equal(
+      await page
+        .locator('#workspace-icons [data-workspace-id="personal"]')
+        .getAttribute("draggable"),
+      "false",
+    );
+    assert.equal(await page.locator('#account-list .account-row[draggable="true"]').count(), 0);
     await page.getByRole("button", { name: "Manage workspace", exact: true }).click();
     await page.getByRole("heading", { name: "Managed by your server", exact: true }).waitFor();
     assert.equal(await page.getByLabel("Workspace name", { exact: true }).count(), 0);
@@ -609,6 +692,26 @@ const http = require("node:http"),
       ),
       32768,
     );
+    const workspaceOrder = () =>
+      page
+        .locator("#workspace-icons .workspace-icon")
+        .evaluateAll((items) => items.map((item) => item.dataset.workspaceId));
+    await page
+      .locator('[data-workspace-id="workspace-1"]')
+      .dragTo(page.locator('[data-workspace-id="personal"]'), { targetPosition: { x: 20, y: 2 } });
+    await page.waitForFunction(
+      () =>
+        document.querySelector("#workspace-icons .workspace-icon").dataset.workspaceId ===
+        "workspace-1",
+    );
+    assert.deepEqual(await workspaceOrder(), ["workspace-1", "personal"]);
+    await page.locator('[data-workspace-id="workspace-1"]').press("Alt+ArrowDown");
+    await page.waitForFunction(
+      () =>
+        document.querySelector("#workspace-icons .workspace-icon").dataset.workspaceId ===
+        "personal",
+    );
+    assert.deepEqual(await workspaceOrder(), ["personal", "workspace-1"]);
     await page.getByRole("button", { name: "Add category", exact: false }).click();
     await page.getByLabel("Category name").fill("Operations");
     await page.locator("#dialog-submit").click();
@@ -1222,7 +1325,7 @@ const http = require("node:http"),
     await readinessPage.close();
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: encrypted backup workflows, credentials, safe labels, account switching, workspaces, raster uploads, category moves, notification badges and private diagnostics.",
+      "PASS: encrypted backup workflows, credentials, safe labels, account switching, workspace/channel drag and keyboard ordering, move recovery, raster uploads, category moves, notification badges and private diagnostics.",
     );
   } finally {
     await browser.close();
