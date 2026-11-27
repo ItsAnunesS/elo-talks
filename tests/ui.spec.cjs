@@ -37,6 +37,18 @@ const http = require("node:http"),
   try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     await page.clock.install();
+    const pointerDrag = async (source, target, options = {}) => {
+      const from = await source.boundingBox();
+      const to = await target.boundingBox();
+      assert.ok(from && to);
+      const position = options.targetPosition || { x: to.width / 2, y: to.height / 2 };
+      await page.mouse.move(from.x + 30, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x + position.x, to.y + position.y, { steps: 12 });
+      await options.beforeDrop?.();
+      await page.mouse.up();
+    };
+
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(() => {
@@ -397,6 +409,27 @@ const http = require("node:http"),
     await page.locator("#account-list").waitFor();
     assert.equal(await page.locator("#account-list .service-icon").count(), 3);
     assert.equal(await page.locator("#account-list img:not(.service-icon)").count(), 0);
+    const dragSource = page.locator('.account-row[data-account-id="c"]');
+    const dragTarget = page.locator('.account-row[data-account-id="a"]');
+    const sourceBox = await dragSource.boundingBox();
+    const targetBox = await dragTarget.boundingBox();
+    await page.mouse.move(sourceBox.x + 30, sourceBox.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(targetBox.x + 30, targetBox.y + 2, { steps: 12 });
+    assert.equal(await page.locator(".drop-before").count(), 1);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    assert.equal(await page.locator(".is-dragging, .drop-before, .drop-after").count(), 0);
+    assert.equal(
+      await page.evaluate(() =>
+        window.testRequests.some((request) => request.args?.op === "account.move"),
+      ),
+      false,
+    );
+    await page.locator('.account-row[data-account-id="b"] .account-name').click();
+    await page.locator('.account-row[data-account-id="b"].selected').waitFor();
+    await page.locator('.account-row[data-account-id="a"] .account-name').click();
+    await page.locator('.account-row[data-account-id="a"].selected').waitFor();
     const selectionCount = await page.evaluate(
       () => window.testRequests.filter((request) => request.cmd === "select_account").length,
     );
@@ -412,11 +445,13 @@ const http = require("node:http"),
     await page.evaluate(() => {
       window.testMoveError = true;
     });
-    await page
-      .locator('.account-row[data-account-id="c"]')
-      .dragTo(page.locator('.account-row[data-account-id="a"]'), {
+    await pointerDrag(
+      page.locator('.account-row[data-account-id="c"]'),
+      page.locator('.account-row[data-account-id="a"]'),
+      {
         targetPosition: { x: 20, y: 2 },
-      });
+      },
+    );
     await page.getByRole("status").filter({ hasText: "Synthetic move failure" }).waitFor();
     assert.deepEqual(
       await page.evaluate(() => window.testState.accounts.map((account) => account.id)),
@@ -426,11 +461,13 @@ const http = require("node:http"),
       page
         .locator("#account-list .account-row")
         .evaluateAll((rows) => rows.map((row) => row.dataset.accountId));
-    await page
-      .locator('.account-row[data-account-id="c"]')
-      .dragTo(page.locator('.account-row[data-account-id="a"]'), {
+    await pointerDrag(
+      page.locator('.account-row[data-account-id="c"]'),
+      page.locator('.account-row[data-account-id="a"]'),
+      {
         targetPosition: { x: 20, y: 2 },
-      });
+      },
+    );
     await page.waitForFunction(
       () => document.querySelector("#account-list .account-row").dataset.accountId === "c",
     );
@@ -575,7 +612,10 @@ const http = require("node:http"),
         .getAttribute("draggable"),
       "false",
     );
-    assert.equal(await page.locator('#account-list .account-row[draggable="true"]').count(), 0);
+    assert.equal(
+      await page.locator('#account-list .account-row[data-reorderable="true"]').count(),
+      0,
+    );
     await page.getByRole("button", { name: "Manage workspace", exact: true }).click();
     await page.getByRole("heading", { name: "Managed by your server", exact: true }).waitFor();
     assert.equal(await page.getByLabel("Workspace name", { exact: true }).count(), 0);
@@ -696,9 +736,11 @@ const http = require("node:http"),
       page
         .locator("#workspace-icons .workspace-icon")
         .evaluateAll((items) => items.map((item) => item.dataset.workspaceId));
-    await page
-      .locator('[data-workspace-id="workspace-1"]')
-      .dragTo(page.locator('[data-workspace-id="personal"]'), { targetPosition: { x: 20, y: 2 } });
+    await pointerDrag(
+      page.locator('[data-workspace-id="workspace-1"]'),
+      page.locator('[data-workspace-id="personal"]'),
+      { targetPosition: { x: 20, y: 2 } },
+    );
     await page.waitForFunction(
       () =>
         document.querySelector("#workspace-icons .workspace-icon").dataset.workspaceId ===
@@ -1203,9 +1245,10 @@ const http = require("node:http"),
     const beforeMove = await page.evaluate(() =>
       structuredClone(window.testState.organization.placements["account-3"]),
     );
-    await page
-      .locator('#account-list [data-account-id="account-3"]')
-      .dragTo(page.locator('#workspace-icons [data-workspace-id="personal"]'));
+    await pointerDrag(
+      page.locator('#account-list [data-account-id="account-3"]'),
+      page.locator('#workspace-icons [data-workspace-id="personal"]'),
+    );
     await page.locator("#move-feedback:not([hidden])").waitFor();
     assert.equal(
       await page.evaluate(() => window.testState.organization.placements["account-3"].workspaceId),

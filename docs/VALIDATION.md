@@ -2,6 +2,19 @@
 
 This document distinguishes completed checks from outstanding acceptance criteria. A successful build does not certify WhatsApp compatibility or package security.
 
+## Navigation pointer reordering - 2026-11-27
+
+Local channel and workspace reordering uses pointer capture instead of HTML5
+native drag events. Browser regressions exercise real mouse movement, insertion
+markers, Escape cancellation, normal clicks, keyboard reordering, managed-item
+restrictions, failed saves and cross-workspace moves with Undo.
+
+`channel_drag_smoke` exercises the same gesture handler with real X11 mouse input
+and offline synthetic rows in CEF. Checks runs it at 1x and 2x. Local execution
+remains pending because the Docker environment could not initialize Chromium's
+required sandbox. No host policy or installed-app session was changed. Browser
+success does not establish native desktop acceptance.
+
 ## Full-app CEF candidate — 2026-11-08, unpublished
 
 Completed locally with pinned Rust/Go tools and Ubuntu 24.04 Docker builds,

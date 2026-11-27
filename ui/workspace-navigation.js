@@ -132,7 +132,8 @@ export function renderNavigation(state, workspaceId, selected, actions) {
     bindContextMenu(button, (event) => actions.workspaceMenu(event, item));
     button.dataset.workspaceId = item.id;
     const managed = state.managedWorkspaces?.includes(item.id) || false;
-    button.draggable = !managed;
+    button.draggable = false;
+    button.dataset.reorderable = String(!managed);
     button.dataset.managed = String(managed);
     button.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
     button.dataset.dropWorkspace = item.id;
@@ -165,7 +166,8 @@ export function renderNavigation(state, workspaceId, selected, actions) {
       const row = createElement("div", "account-row");
       bindContextMenu(row, (event) => actions.channelMenu(event, account));
       row.dataset.accountId = account.id;
-      row.draggable = !managed;
+      row.draggable = false;
+      row.dataset.reorderable = String(!managed);
       row.title =
         "Drag to reorder or move to a workspace or category. Alt+Up/Down reorders channels.";
       row.classList.toggle("selected", selected === account.id);

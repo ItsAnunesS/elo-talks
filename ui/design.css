@@ -484,9 +484,6 @@ select:focus {
   outline-offset: -2px;
   background: #b3a4ff16 !important;
 }
-.account-row[draggable="true"] {
-  cursor: grab;
-}
 .move-feedback {
   display: flex;
   align-items: center;
@@ -660,9 +657,15 @@ select:focus {
 .drop-after::after {
   bottom: -2px;
 }
-[draggable="true"] {
+[data-reorderable="true"] {
   cursor: grab;
+  touch-action: none;
 }
-[draggable="true"]:active {
-  cursor: grabbing;
+.navigation-dragging,
+.navigation-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+.is-dragging {
+  opacity: 0.5;
 }
