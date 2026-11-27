@@ -15,6 +15,12 @@ remains pending because the Docker environment could not initialize Chromium's
 required sandbox. No host policy or installed-app session was changed. Browser
 success does not establish native desktop acceptance.
 
+The first CI run of this fixture (`46041297340`, source `7ae16bf`) timed out
+at 1x after reporting pointer events. Other native CEF fixtures passed. The input
+runner now bounds each xdotool invocation and avoids synchronous focus/movement
+waits. Stage and move/error counters distinguish input hangs from failed reorder
+assertions; native acceptance remains pending a successful run at both scales.
+
 ## Full-app CEF candidate — 2026-11-08, unpublished
 
 Completed locally with pinned Rust/Go tools and Ubuntu 24.04 Docker builds,
