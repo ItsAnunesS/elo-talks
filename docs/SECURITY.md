@@ -151,6 +151,10 @@ upstream MIT license is retained. No new audit exception is introduced.
 
 ## AppImage sandbox
 
+Accounts and the local shell use Alloy-style embedded browsers, with new-window
+requests denied. Cookie persistence does not opt the UI into Chrome's standalone
+window restoration. Existing session files remain inside the encrypted vault.
+
 CEF uses `SandboxPolicy::Required`, rejects debugging environment overrides and
 remote debugging, and cancels certificate errors without a bypass interstitial.
 The package ships no sandbox-disabling flags, setuid helper or host-policy hook.

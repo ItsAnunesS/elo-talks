@@ -412,6 +412,7 @@ fn sync_accounts(
         let attachment_origin = trusted_origin.clone();
         let builder =
             WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()))
+                .browser_runtime_style(crate::account_browser::EMBEDDED_STYLE)
                 .data_directory(p)
                 .devtools(false)
                 .on_native_paste(move |browser| {
@@ -663,6 +664,8 @@ pub fn run_with_account_setup(
             crate::window_state::attach(&window, profile.join("window.json"), geometry);
             crate::account_permissions::set_parent(&window.gtk_window()?.upcast());
             let local = WebviewBuilder::new("main", WebviewUrl::App("index.html".into()))
+                .browser_runtime_style(crate::account_browser::EMBEDDED_STYLE)
+                .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
                 .data_directory(profile.join("chromium").join("shell"))
                 .devtools(false)
                 .on_navigation(|url| {

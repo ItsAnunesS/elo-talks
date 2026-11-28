@@ -22,7 +22,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{webview::WebviewBuilder, LogicalSize, WebviewUrl};
-use tauri_runtime_cef::SecretStorage;
+use tauri_runtime_cef::{SecretStorage, WebviewBuilderCefExt, WebviewCefExt};
 
 const ACCOUNT: &str = "11111111-1111-4111-8111-111111111111";
 const OTHER: &str = "22222222-2222-4222-8222-222222222222";
@@ -156,23 +156,37 @@ fn phase(root: &Path, write: bool) {
         });
         let window = tauri::window::WindowBuilder::new(app, "synthetic").inner_size(900.,640.).build()?;
         let mut views = Vec::new();
-        for id in [ACCOUNT, OTHER] {
+        for id in [ACCOUNT, OTHER, "shell"] {
             let view = window.add_child(WebviewBuilder::new(id, WebviewUrl::External("about:blank".parse()?))
-                .data_directory(account_profiles::account(&profile, id)?).devtools(false)
+                .browser_runtime_style(if write { tauri_runtime_cef::RuntimeStyle::Chrome } else { account_browser::EMBEDDED_STYLE })
+                .data_directory(if id == "shell" { profile.join("chromium/shell") } else { account_profiles::account(&profile, id)? }).devtools(false)
                 .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
                 .size(LogicalSize::new(800.,600.)))?;
             views.push(view);
         }
         std::thread::spawn(move || {
             for (index, view) in views.iter().enumerate() {
+                let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+                view.with_cef_webview(move |native| {
+                    use tauri_runtime_cef::cef::{ImplBrowser, ImplBrowserHost};
+                    sender.send(native.browser().host().unwrap().runtime_style()).unwrap();
+                }).unwrap();
+                assert_eq!(receiver.recv_timeout(Duration::from_secs(3)).unwrap(), if write { tauri_runtime_cef::cef::RuntimeStyle::CHROME } else { tauri_runtime_cef::cef::RuntimeStyle::ALLOY });
                 fixture::serve(view, HTML);
-                view.navigate("https://web.whatsapp.com/".parse().unwrap()).unwrap();
+                // Seed a legacy shell session with an unrelated, offline-only page.
+                let url = if write && view.label() == "shell" { "https://unrelated.invalid/" } else { "https://web.whatsapp.com/" };
+                view.navigate(url.parse().unwrap()).unwrap();
                 fixture::wait_for(|| fixture::evaluate(view, "typeof window.checkSession") == "function");
                 fixture::evaluate(view, &format!("window.checkSession({},{}).then(()=>window.result='passed').catch(()=>window.result='failed');true",write && index == 0,index != 0));
                 fixture::wait_for(|| fixture::evaluate(view, "window.result || ''") != "");
                 assert_eq!(fixture::evaluate(view, "window.result"), "passed", "Synthetic storage flags: {}", fixture::evaluate(view, "JSON.stringify(window.storageState || {})"));
             }
-            assert_eq!(fixture::page_targets(&views[0]), 2, "Unexpected restored browser targets");
+            for view in &views {
+                assert_eq!(fixture::evaluate(view, "window.open('https://unrelated.invalid/') === null"), true);
+            }
+            // Allow delayed Chrome session restoration to expose extra targets.
+            std::thread::sleep(Duration::from_secs(1));
+            assert_eq!(fixture::page_targets(&views[0]), 3, "Unexpected restored browser targets");
             std::fs::write(ready, b"synthetic").unwrap();
         });
         Ok(())

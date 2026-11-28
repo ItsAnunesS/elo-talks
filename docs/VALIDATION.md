@@ -2,6 +2,25 @@
 
 This document distinguishes completed checks from outstanding acceptance criteria. A successful build does not certify WhatsApp compatibility or package security.
 
+## Embedded browser startup - 2026-11-28
+
+Accounts and the local shell explicitly use CEF Alloy style. Chrome style can
+restore last-session tabs in standalone browser windows outside the webview
+new-window handler. Alloy embeds the document directly and does not construct
+Chrome's tabbed browser. Popups are denied for both accounts and shell.
+Session-cookie persistence and existing vault profiles are retained.
+
+The persistence fixture seeds Chrome-style profiles, then reopens them in Alloy
+style across clean and forced shutdowns. It checks the native runtime style,
+session/persistent cookies, localStorage, IndexedDB keys, popup denial and the
+absence of extra browser targets. Local validation passed 82 Rust tests (four
+host-dependent tests ignored), Clippy, formatting and compilation of the fixture.
+Native execution aborted during the legacy Chrome seed phase because the
+container could not initialize Chromium's required sandbox. No sandbox or host
+policy was weakened. Native execution, real GNOME and existing-profile acceptance
+remain pending.
+No installed-app or personal browser profiles are accessed by these tests.
+
 ## Native account presentation - 2026-11-28
 
 Linux browser views are raised above sibling views when shown, instead of merely
@@ -459,7 +478,8 @@ account layout preserves the root cache and renames account directories atomical
 without overwriting a destination. The runtime's restore-on-startup preference now
 follows CEF's session-cookie persistence policy, instead of replacing it with NewTab and discarding session
 cookies. The native fixture rejects any additional browser targets after reopening;
-new-window requests remain denied.
+new-window requests remain denied. Accounts and shell now explicitly use Alloy
+style to avoid Chrome browser-session restoration while preserving cookies.
 
 Migration runs before CEF initialization so ProfileManager cannot recreate an
 empty destination from its previous profile metadata before migration finishes.

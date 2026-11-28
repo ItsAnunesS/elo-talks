@@ -1,6 +1,11 @@
 //! Shared production browser policy, including persistent account contexts.
 use tauri_runtime_cef::{Cef, DebugEnvironment, DevToolsPolicy, RemoteDebugging, SandboxPolicy};
 
+// Alloy embeds WebContents directly. Chrome style can restore its own top-level
+// browser windows without going through the webview's new-window handler.
+// Keep CEF's session-cookie policy intact so linking survives a restart.
+pub const EMBEDDED_STYLE: tauri_runtime_cef::RuntimeStyle = tauri_runtime_cef::RuntimeStyle::Alloy;
+
 pub fn runtime(profile: &std::path::Path) -> anyhow::Result<Cef> {
     let chromium_root = crate::account_profiles::prepare(profile)?;
     Ok(Cef::default()
