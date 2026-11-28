@@ -83,12 +83,12 @@ for library in libEGL.so libGLESv2.so; do
     ln -s "../lib/$library" "$app_dir/usr/bin/$library"
   fi
 done
-# NSS loads these modules dynamically; ldd alone cannot discover them.
-for library in libsoftokn3.so libfreeblpriv3.so libnssckbi.so; do
-  resolved="$(find /usr/lib -name "$library" -print -quit)"
-  [[ -n "$resolved" ]] || { echo "Missing NSS module: $library" >&2; exit 1; }
+# NSS loads these modules dynamically; ldd alone cannot discover them. Select
+# package-owned system modules, never Firefox's private NSS/SQLite builds.
+nss_modules="$(python3 scripts/nss_modules.py)"
+while IFS= read -r resolved; do
   libraries+=(--library "$resolved")
-done
+done <<< "$nss_modules"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
 export PATH="$cache:$PATH"
 export APPIMAGE_EXTRACT_AND_RUN=1

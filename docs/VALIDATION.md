@@ -2,6 +2,20 @@
 
 This document distinguishes completed checks from outstanding acceptance criteria. A successful build does not certify WhatsApp compatibility or package security.
 
+## System NSS modules during packaging - 2026-11-28
+
+Run `46160013574`, source `50343ce`, passed all test stages, including native
+clipboard/drop at 1x and 2x, UI, CEF, Rust, Python and dependency audit. AppImage
+packaging then selected Firefox's private `libsoftokn3.so` through an unordered
+filesystem search and failed on its private `libmozsqlite3.so` dependency.
+
+The bundler now resolves the three dynamically loaded NSS modules exclusively
+from `dpkg-query --listfiles libnss3`. Missing, ambiguous or non-file entries fail
+before output; it does not fall back to private browser copies. Regression tests
+cover Firefox copies alongside system modules and incomplete package contents.
+No library or dependency verification is skipped. Packaging acceptance requires
+the next complete CI run.
+
 ## HiDPI drag-source placement - 2026-11-28
 
 Run `46159488485`, source `37378bb`, passed the complete clipboard fixture at 1x:
