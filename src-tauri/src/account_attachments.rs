@@ -24,6 +24,48 @@ const DISPATCH: &str = include_str!("attachment_dispatch.js");
 const CLEANUP: &str = "function () { this.eloCancelled = true; this.remove(); }";
 type Eligible = dyn Fn() -> bool + Send + Sync;
 
+/// Register GTK's top-level XDND destination for embedded, foreign X11 children.
+/// Listening for a window event alone does not advertise a native file target.
+pub fn install_native_drop(
+    widget: &impl IsA<gtk::Widget>,
+    handler: impl Fn(Vec<PathBuf>, tauri::PhysicalPosition<f64>) -> bool + 'static,
+) {
+    let target = gtk::DropTarget::new(
+        gtk::gdk::FileList::static_type(),
+        gtk::gdk::DragAction::COPY,
+    );
+    target.set_propagation_phase(gtk::PropagationPhase::Capture);
+    target.connect_drop(move |target, value, x, y| {
+        let Ok(list) = value.get::<gtk::gdk::FileList>() else {
+            return false;
+        };
+        let files = list.files();
+        if files.is_empty() || files.len() > MAX_FILES {
+            return false;
+        }
+        let Some(paths) = files
+            .into_iter()
+            .map(|file| file.path())
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        let Some(widget) = target.widget() else {
+            return false;
+        };
+        // The drag source may still own keyboard focus when GTK accepts the drop.
+        if let Some(window) = widget
+            .root()
+            .and_then(|root| root.downcast::<gtk::Window>().ok())
+        {
+            window.present();
+        }
+        let scale = widget.scale_factor().max(1) as f64;
+        handler(paths, tauri::PhysicalPosition::new(x * scale, y * scale))
+    });
+    widget.add_controller(target);
+}
+
 pub struct Attachments {
     view: tauri::Webview,
     script: Arc<crate::account_script::Script>,
@@ -124,36 +166,39 @@ impl Attachments {
         });
         true
     }
-    /// Coordinates and paths must come from the native window's OS drop event.
-    pub fn drop_at(self: &Arc<Self>, paths: Vec<PathBuf>, position: tauri::PhysicalPosition<f64>) {
-        if !self.active() {
-            return;
+    /// Coordinates and paths must come from GTK's native content-area drop.
+    pub fn drop_at(
+        self: &Arc<Self>,
+        paths: Vec<PathBuf>,
+        position: tauri::PhysicalPosition<f64>,
+    ) -> bool {
+        if !self.begin() {
+            return false;
         }
-        if let (Ok(origin), Ok(size)) = (self.view.position(), self.view.size()) {
-            if size.width > 0 && size.height > 0 {
-                self.drop_files(
-                    paths,
+        let this = self.clone();
+        std::thread::spawn(move || {
+            // GTK callbacks can run outside winit's dispatch scope. Synchronous
+            // geometry getters must run here so they cannot block the GTK loop.
+            let point = (|| {
+                let origin = this.view.position().ok()?;
+                let size = this.view.size().ok()?;
+                (size.width > 0 && size.height > 0).then(|| {
                     [
                         (position.x - origin.x as f64) / size.width as f64,
                         (position.y - origin.y as f64) / size.height as f64,
-                    ],
-                );
-            }
-        }
-    }
-
-    /// Accept only paths from the native window's OS drop event.
-    pub fn drop_files(self: &Arc<Self>, paths: Vec<PathBuf>, point: [f64; 2]) {
-        if !point
-            .iter()
-            .all(|value| value.is_finite() && (0. ..1.).contains(value))
-            || !self.begin()
-        {
-            return;
-        }
-        let _ = self.view.set_focus();
-        let this = self.clone();
-        std::thread::spawn(move || {
+                    ]
+                })
+            })()
+            .filter(|point: &[f64; 2]| {
+                point
+                    .iter()
+                    .all(|value| value.is_finite() && (0. ..1.).contains(value))
+            });
+            let Some(point) = point else {
+                this.busy.store(false, Ordering::Release);
+                return;
+            };
+            let _ = this.view.set_focus();
             let object = this.capture();
             let result = object
                 .as_deref()
@@ -167,6 +212,7 @@ impl Attachments {
             }
             this.busy.store(false, Ordering::Release);
         });
+        true
     }
     fn capture(&self) -> Option<String> {
         if !self.active() {

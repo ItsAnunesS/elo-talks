@@ -734,32 +734,35 @@ pub fn run_with_account_setup(
             app.state::<AccountEvents>().runtime.lock().unwrap().focused =
                 window.is_focused().unwrap_or(false);
             account_events::publish(app.handle());
-            window.on_window_event(move |event| {
-                if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop {
-                    paths,
-                    position,
-                }) = event
-                {
-                    let selected = handle
+            let drop_handle = handle.clone();
+            let drop_widget = window
+                .gtk_window()?
+                .child()
+                .ok_or_else(|| anyhow::anyhow!("Account drop area unavailable"))?;
+            crate::account_attachments::install_native_drop(
+                &drop_widget,
+                move |paths, position| {
+                    let selected = drop_handle
                         .state::<AccountEvents>()
                         .runtime
                         .lock()
                         .unwrap()
                         .selected
                         .clone();
-                    if let Some(id) = selected {
-                        let transfer = handle
-                            .state::<UiState>()
-                            .attachments
-                            .lock()
-                            .unwrap()
-                            .get(&id)
-                            .cloned();
-                        if let Some(transfer) = transfer {
-                            transfer.drop_at(paths.clone(), *position);
-                        }
-                    }
-                }
+                    let Some(id) = selected else {
+                        return false;
+                    };
+                    let transfer = drop_handle
+                        .state::<UiState>()
+                        .attachments
+                        .lock()
+                        .unwrap()
+                        .get(&id)
+                        .cloned();
+                    transfer.is_some_and(|transfer| transfer.drop_at(paths, position))
+                },
+            );
+            window.on_window_event(move |event| {
                 if let tauri::WindowEvent::Focused(focused) = event {
                     {
                         let events = handle.state::<AccountEvents>();

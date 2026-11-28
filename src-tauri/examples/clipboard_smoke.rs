@@ -243,11 +243,13 @@ fn main() {
             std::fs::write(&archive, b"PK\x03\x04synthetic attachment")?;
 
             let drop_transfer = first_transfer.clone();
-            window.on_window_event(move |event| {
-                if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event {
-                    eprintln!("STAGE: native root-window file drop received");
-                    drop_transfer.drop_at(paths.clone(), *position);
-                }
+            let native_deliveries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let drop_count = native_deliveries.clone();
+            let drop_widget = window.gtk_window()?.child().unwrap();
+            account_attachments::install_native_drop(&drop_widget, move |paths, position| {
+                eprintln!("STAGE: GTK native file drop received");
+                drop_count.fetch_add(1, Ordering::SeqCst);
+                drop_transfer.drop_at(paths, position)
             });
             let drag_content = format!("{}\n{}\n", tauri::Url::from_file_path(&image).unwrap(), tauri::Url::from_file_path(&archive).unwrap());
             let source_button = gtk::Button::with_label("Drag synthetic attachments");
@@ -320,7 +322,7 @@ fn main() {
                     assert_eq!(fixture::evaluate(&first,&format!("pastes[{}].files.map(file=>file.name)",expected-1)),serde_json::json!(["synthetic.png","synthetic.zip"]));
                 }
                 eprintln!("STAGE: adapter file drop");
-                first_transfer.drop_files(vec![image.clone(),archive], [0.2,0.2]);
+                first_transfer.drop_at(vec![image.clone(),archive], tauri::PhysicalPosition::new(100., 100.));
                 fixture::wait_for(|| fixture::evaluate(&first,"drops.length") == 1);
                 assert_eq!(fixture::evaluate(&first,"drops[0].map(file=>file.name)"),serde_json::json!(["synthetic.png","synthetic.zip"]));
                 eprintln!("STAGE: native file drag and drop");
@@ -336,7 +338,8 @@ fn main() {
                     assert!(std::time::Instant::now() < deadline, "Native file drop did not arrive: {state}");
                     std::thread::sleep(std::time::Duration::from_millis(25));
                 }
-                assert_eq!(fixture::evaluate(&first,"nativeDrops"), 1, "OS drag must deliver one trusted Chromium drop");
+                assert_eq!(native_deliveries.load(Ordering::SeqCst), 1, "OS drag must deliver exactly one GTK drop");
+                assert_eq!(fixture::evaluate(&first,"nativeDrops"), 0, "GTK delivery must not duplicate Chromium delivery");
                 assert_eq!(fixture::evaluate(&first,"drops[1].map(file=>file.name)"),serde_json::json!(["synthetic.png","synthetic.zip"]));
                 app.run_on_main_thread(|| {
                     for widget in gtk::Window::list_toplevels() {

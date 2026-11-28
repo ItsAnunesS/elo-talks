@@ -2,6 +2,27 @@
 
 This document distinguishes completed checks from outstanding acceptance criteria. A successful build does not certify WhatsApp compatibility or package security.
 
+## GTK native file-drop registration - 2026-11-28
+
+Run `46158475014`, source `5b19ef6`, confirmed GTK drag begin followed by
+`NoTarget`. No native browser drag events arrived; the reported enter/over counts
+belonged to the preceding adapter check. A window event listener alone did not
+register a GTK file destination for the foreign X11 browser children.
+
+The content widget now registers a capture-phase GTK FileList drop target. It
+accepts local file lists with copy semantics, bounds the count, scales content
+coordinates and routes the gesture to the selected account's existing attachment
+adapter. Remote items, inactive accounts, invalid positions and busy transfers
+are rejected. The destination window is presented before restoring browser focus.
+Only this path handles native drops, avoiding duplicate window-event forwarding.
+
+The native fixture uses this shared target and still performs the real GTK mouse
+gesture. It requires exactly one GTK delivery and one adapter attachment event,
+with both expected files and no additional browser-native drop. A separate
+Docker/Xvfb GTK probe received the gesture with a foreign X11 child over the target.
+Local Rust tests, Clippy and fixture builds passed; full GTK-to-CEF acceptance
+requires the sandboxed CI run and does not certify real WhatsApp/GNOME behavior.
+
 ## Native file-drop fixture - 2026-11-28
 
 Run `46157119725`, source `c13f883`, passed bitmap/text paste, malformed-image

@@ -76,8 +76,10 @@ Text and bitmap-image paste uses Chromium's native pipeline. File-manager lists
 (`text/uri-list` and GNOME copied-file lists) are read only after a native Ctrl+V
 shortcut in the selected WhatsApp account. Page-generated key events cannot
 invoke the native hook. No persistent clipboard-read capability is granted, and
-popups do not inherit the hook. Native window drop events supply dropped paths;
-page messages cannot supply them to the filesystem adapter.
+popups do not inherit the hook. A capture-phase GTK FileList target on the content widget receives native drops,
+with copy semantics and coordinates scaled to the selected account view. Remote
+file items and oversized lists are rejected. Page messages cannot supply paths
+to this filesystem adapter.
 
 File-manager transfers accept at most 100 local, regular files and 2 GiB in total.
 Remote URLs, directories, special files and paths resolving inside the vault are
