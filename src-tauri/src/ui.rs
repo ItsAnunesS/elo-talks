@@ -19,6 +19,9 @@ struct UiState {
     profile: PathBuf,
     activity: mpsc::SyncSender<()>,
     prepare_account: std::sync::Arc<AccountPreparation>,
+    attachments: std::sync::Mutex<
+        std::collections::BTreeMap<String, std::sync::Arc<crate::account_attachments::Attachments>>,
+    >,
     permissions: std::sync::Mutex<
         std::collections::BTreeMap<
             String,
@@ -354,6 +357,22 @@ fn sync_accounts(
                 id.to_owned(),
                 a["name"].as_str().ok_or("Invalid channel name")?.to_owned(),
             );
+        let workspace_id = status["organization"]["placements"][id]["workspaceId"].as_str();
+        let workspace = status["organization"]["workspaces"]
+            .as_array()
+            .and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item["id"].as_str() == workspace_id)
+            })
+            .and_then(|item| item["name"].as_str())
+            .unwrap_or_default();
+        app.state::<AccountEvents>()
+            .runtime
+            .lock()
+            .unwrap()
+            .workspace_names
+            .insert(id.to_owned(), workspace.to_owned());
         let label = format!("account-{id}");
         if app.get_webview(&label).is_some() {
             continue;
@@ -386,10 +405,19 @@ fn sync_accounts(
         let permission_navigation = permissions.clone();
         let permission_name = a["name"].as_str().unwrap_or("WhatsApp").to_owned();
         let title_origin = trusted_origin.clone();
+        let paste_slot = std::sync::Arc::new(std::sync::Mutex::new(
+            None::<std::sync::Arc<crate::account_attachments::Attachments>>,
+        ));
+        let paste_handler = paste_slot.clone();
+        let attachment_origin = trusted_origin.clone();
         let builder =
             WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()))
                 .data_directory(p)
                 .devtools(false)
+                .on_native_paste(move |browser| {
+                    let transfer = paste_handler.lock().unwrap().clone();
+                    transfer.is_none_or(|transfer| transfer.paste(browser))
+                })
                 .on_permission_request(|_, _| tauri::webview::PermissionResponse::Deny)
                 .on_media_permission(move |request| {
                     permission_handler.request(request, permission_name.clone())
@@ -458,8 +486,6 @@ fn sync_accounts(
                         return;
                     }
                     let id = view.label().strip_prefix("account-").unwrap_or_default();
-                    // Login can be usable while cold-start resources still delay Finished.
-                    crate::account_readiness::attach(&view, view.app_handle(), id);
                     if event.event() == tauri::webview::PageLoadEvent::Finished {
                         account_events::page(view.app_handle(), id, PageState::Ready);
                         crate::account_avatar::attach(&view, view.app_handle(), id);
@@ -512,6 +538,30 @@ fn sync_accounts(
                     )),
             )
             .map_err(|e| e.to_string())?;
+        let attachment_id = id.to_owned();
+        let attachment_app = app.clone();
+        let attachments = crate::account_attachments::Attachments::attach(
+            &view,
+            state.profile.clone(),
+            move || {
+                attachment_origin.load(std::sync::atomic::Ordering::Relaxed)
+                    && attachment_app
+                        .state::<AccountEvents>()
+                        .runtime
+                        .lock()
+                        .unwrap()
+                        .selected
+                        .as_deref()
+                        == Some(attachment_id.as_str())
+            },
+        )
+        .map_err(|error| error.to_string())?;
+        *paste_slot.lock().unwrap() = Some(attachments.clone());
+        state
+            .attachments
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), attachments);
         let saved_permissions = permissions.snapshot();
         view.with_cef_webview(move |native| {
             crate::account_permissions::apply(&native.browser(), &saved_permissions)
@@ -568,6 +618,7 @@ pub fn run_with_account_setup(
             activity,
             prepare_account: std::sync::Arc::new(prepare_account),
             permissions: Default::default(),
+            attachments: Default::default(),
         })
         .invoke_handler(tauri::generate_handler![
             request,
@@ -681,6 +732,31 @@ pub fn run_with_account_setup(
                 window.is_focused().unwrap_or(false);
             account_events::publish(app.handle());
             window.on_window_event(move |event| {
+                if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop {
+                    paths,
+                    position,
+                }) = event
+                {
+                    let selected = handle
+                        .state::<AccountEvents>()
+                        .runtime
+                        .lock()
+                        .unwrap()
+                        .selected
+                        .clone();
+                    if let Some(id) = selected {
+                        let transfer = handle
+                            .state::<UiState>()
+                            .attachments
+                            .lock()
+                            .unwrap()
+                            .get(&id)
+                            .cloned();
+                        if let Some(transfer) = transfer {
+                            transfer.drop_at(paths.clone(), *position);
+                        }
+                    }
+                }
                 if let tauri::WindowEvent::Focused(focused) = event {
                     {
                         let events = handle.state::<AccountEvents>();

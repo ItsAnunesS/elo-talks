@@ -1,14 +1,24 @@
 //! Native Chromium paste with synthetic clipboard data on an isolated X11 display.
+#[path = "../src/account_attachments.rs"]
+mod account_attachments;
+#[allow(dead_code)]
+#[path = "../src/account_script.rs"]
+mod account_script;
 #[path = "support/cef_fixture.rs"]
 mod fixture;
+#[allow(dead_code)]
+#[path = "../src/whatsapp.rs"]
+mod whatsapp;
 use gtk::prelude::*;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Arc,
 };
 use tauri::{webview::WebviewBuilder, LogicalSize, Manager, WebviewUrl};
-use tauri_runtime_cef::{Cef, DebugEnvironment, DevToolsPolicy, RemoteDebugging, SandboxPolicy};
-const HTML: &str = r#"<!doctype html><body style="margin:0"><div id="editor" contenteditable style="width:500px;height:400px"></div><script>window.pastes=[];editor.addEventListener('paste',event=>{event.preventDefault();const record={text:event.clipboardData.getData('text/plain'),files:[...event.clipboardData.files].map(file=>({type:file.type,size:file.size}))};pastes.push(record);const file=event.clipboardData.files[0];if(file)createImageBitmap(file).then(image=>{record.decoded=[image.width,image.height];image.close();}).catch(()=>record.invalid=true);});editor.focus();</script>"#;
+use tauri_runtime_cef::{
+    Cef, DebugEnvironment, DevToolsPolicy, RemoteDebugging, SandboxPolicy, WebviewBuilderCefExt,
+};
+const HTML: &str = r#"<!doctype html><body style="margin:0"><div id="editor" contenteditable style="width:500px;height:400px"></div><script>window.pastes=[];editor.addEventListener('paste',event=>{event.preventDefault();const record={text:event.clipboardData.getData('text/plain'),files:[...event.clipboardData.files].map(file=>({name:file.name,type:file.type,size:file.size}))};pastes.push(record);const file=event.clipboardData.files[0];if(file)createImageBitmap(file).then(image=>{record.decoded=[image.width,image.height];image.close();}).catch(()=>record.invalid=true);});window.drops=[];document.addEventListener('drop',event=>{event.preventDefault();drops.push([...event.dataTransfer.files].map(file=>({name:file.name,type:file.type,size:file.size})));});editor.focus();</script>"#;
 fn paste() {
     let program = std::env::var_os("XDOTOOL").unwrap_or_else(|| "xdotool".into());
     assert!(std::process::Command::new(program)
@@ -65,6 +75,83 @@ fn clipboard(app: &tauri::AppHandle, kind: u8) {
         .recv_timeout(std::time::Duration::from_secs(2))
         .unwrap();
 }
+fn drag_files() {
+    assert!(std::process::Command::new("timeout")
+        .args([
+            "8s",
+            "xdotool",
+            "search",
+            "--onlyvisible",
+            "--pid",
+            &std::process::id().to_string(),
+            "--name",
+            "Attachment source",
+            "windowmove",
+            "%1",
+            "1100",
+            "20",
+            "mousemove",
+            "--window",
+            "%1",
+            "30",
+            "50",
+            "mousedown",
+            "1",
+            "sleep",
+            "0.1",
+            "mousemove",
+            "--window",
+            "%1",
+            "60",
+            "50",
+            "sleep",
+            "0.3",
+            "mousemove",
+            "1200",
+            "200",
+            "sleep",
+            "0.1",
+            "mousemove",
+            "200",
+            "200",
+            "sleep",
+            "0.3",
+            "mouseup",
+            "1",
+        ])
+        .status()
+        .unwrap()
+        .success());
+}
+
+fn clipboard_files(
+    app: &tauri::AppHandle,
+    first: &std::path::Path,
+    second: &std::path::Path,
+    mime: &'static str,
+    prefix: &str,
+) {
+    let content = format!(
+        "{}{}\n{}\n",
+        prefix,
+        tauri::Url::from_file_path(first).unwrap(),
+        tauri::Url::from_file_path(second).unwrap()
+    );
+    let (sender, receiver) = mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let clipboard = gtk::gdk::Display::default().unwrap().clipboard();
+        let provider = gtk::gdk::ContentProvider::for_bytes(
+            mime,
+            &gtk::glib::Bytes::from_owned(content.into_bytes()),
+        );
+        clipboard.set_content(Some(&provider)).unwrap();
+        sender.send(()).unwrap();
+    })
+    .unwrap();
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap();
+}
 #[tauri_runtime_cef::cef_entry_point]
 fn main() {
     let hook = std::panic::take_hook();
@@ -89,25 +176,64 @@ fn main() {
                 .title("Clipboard fixture")
                 .inner_size(900., 640.)
                 .build()?;
+            let active_first = Arc::new(AtomicBool::new(true));
+            let first_slot = Arc::new(std::sync::Mutex::new(None::<Arc<account_attachments::Attachments>>));
+            let second_slot = Arc::new(std::sync::Mutex::new(None::<Arc<account_attachments::Attachments>>));
+            let first_paste = first_slot.clone();
+            let second_paste = second_slot.clone();
             let first = window.add_child(
                 WebviewBuilder::new("account-one", WebviewUrl::External("about:blank".parse()?))
                     .data_directory(root.path().join("one"))
+                    .on_native_paste(move |browser| first_paste.lock().unwrap().clone().is_none_or(|transfer| transfer.paste(browser)))
                     .size(LogicalSize::new(900., 640.)),
             )?;
             let second = window.add_child(
                 WebviewBuilder::new("account-two", WebviewUrl::External("about:blank".parse()?))
                     .data_directory(root.path().join("two"))
+                    .on_native_paste(move |browser| second_paste.lock().unwrap().clone().is_none_or(|transfer| transfer.paste(browser)))
                     .size(LogicalSize::new(900., 640.)),
             )?;
             second.hide()?;
+            let forbidden = root.path().join("vault");
+            std::fs::create_dir(&forbidden).unwrap();
+            let first_active = active_first.clone();
+            let second_active = active_first.clone();
+            let first_transfer = account_attachments::Attachments::attach(&first, forbidden.clone(), move || first_active.load(Ordering::SeqCst))?;
+            let second_transfer = account_attachments::Attachments::attach(&second, forbidden, move || !second_active.load(Ordering::SeqCst))?;
+            *first_slot.lock().unwrap() = Some(first_transfer.clone());
+            *second_slot.lock().unwrap() = Some(second_transfer);
+            let image = root.path().join("synthetic.png");
+            let archive = root.path().join("synthetic.zip");
+            std::fs::write(&image, include_bytes!("../icons/32x32.png"))?;
+            std::fs::write(&archive, b"PK\x03\x04synthetic attachment")?;
+
+            let drop_transfer = first_transfer.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event {
+                    drop_transfer.drop_at(paths.clone(), *position);
+                }
+            });
+            let drag_content = format!("{}\n{}\n", tauri::Url::from_file_path(&image).unwrap(), tauri::Url::from_file_path(&archive).unwrap());
+            let source_button = gtk::Button::with_label("Drag synthetic attachments");
+            let drag = gtk::DragSource::builder().actions(gtk::gdk::DragAction::COPY).build();
+            drag.connect_prepare(move |_, _, _| Some(gtk::gdk::ContentProvider::for_bytes("text/uri-list", &gtk::glib::Bytes::from_owned(drag_content.as_bytes().to_vec()))));
+            source_button.add_controller(drag);
+            let source_window = gtk::Window::builder().title("Attachment source").decorated(false).default_width(200).default_height(120).child(&source_button).build();
+            source_window.set_application(window.gtk_window()?.application().as_ref());
+            source_window.present();
             let app = app.handle().clone();
             std::thread::spawn(move || {
+                let _root = root;
                 for view in [&first, &second] {
                     fixture::serve(view, HTML);
                     view.navigate("https://web.whatsapp.com/".parse().unwrap())
                         .unwrap();
                     fixture::wait_for(|| fixture::evaluate(view, "typeof pastes") == "object");
                 }
+                assert!(std::process::Command::new("timeout").args([
+                    "8s", "xdotool", "search", "--onlyvisible", "--pid", &std::process::id().to_string(),
+                    "--name", "Attachment source", "windowmove", "%1", "1100", "20",
+                ]).status().unwrap().success());
                 first.set_focus().unwrap();
                 clipboard(&app, 0);
                 paste();
@@ -133,11 +259,34 @@ fn main() {
                 paste();
                 fixture::wait_for(|| fixture::evaluate(&first,"pastes[2]?.invalid === true") == true);
                 assert_eq!(fixture::evaluate(&first,"pastes[0].decoded"), serde_json::json!([32,32]));
+                for (mime, prefix, expected) in [("text/uri-list", "", 4), ("x-special/gnome-copied-files", "copy\n", 5)] {
+                    clipboard_files(&app, &image, &archive, mime, prefix);
+                    let before = fixture::evaluate(&first,"pastes.length");
+                    fixture::evaluate(&first,"editor.dispatchEvent(new KeyboardEvent('keydown',{key:'v',ctrlKey:true,bubbles:true}));true");
+                    assert_eq!(fixture::evaluate(&first,"pastes.length"),before,"Page-generated keys cannot request clipboard files");
+                    paste();
+                    fixture::wait_for(|| fixture::evaluate(&first,"pastes.length") == expected);
+                    assert_eq!(fixture::evaluate(&first,&format!("pastes[{}].files.map(file=>file.name)",expected-1)),serde_json::json!(["synthetic.png","synthetic.zip"]));
+                }
+                first_transfer.drop_files(vec![image.clone(),archive], [0.2,0.2]);
+                fixture::wait_for(|| fixture::evaluate(&first,"drops.length") == 1);
+                assert_eq!(fixture::evaluate(&first,"drops[0].map(file=>file.name)"),serde_json::json!(["synthetic.png","synthetic.zip"]));
+                drag_files();
+                fixture::wait_for(|| fixture::evaluate(&first,"drops.length") == 2);
+                assert_eq!(fixture::evaluate(&first,"drops[1].map(file=>file.name)"),serde_json::json!(["synthetic.png","synthetic.zip"]));
+                app.run_on_main_thread(|| {
+                    for widget in gtk::Window::list_toplevels() {
+                        if let Ok(window) = widget.downcast::<gtk::Window>() {
+                            if window.title().as_deref() == Some("Attachment source") { window.close(); }
+                        }
+                    }
+                }).unwrap();
+                active_first.store(false,Ordering::SeqCst);
                 second.show().unwrap();
                 second.set_focus().unwrap();
                 first.hide().unwrap();
                 let previous = fixture::evaluate(&first, "pastes.length");
-                clipboard(&app, 1);
+                clipboard_files(&app, &image, &image, "text/uri-list", "");
                 paste();
                 fixture::wait_for(|| fixture::evaluate(&second, "pastes.length") == 1);
                 assert_eq!(
@@ -146,8 +295,8 @@ fn main() {
                     "Hidden account must never receive the active account's paste"
                 );
                 assert_eq!(
-                    fixture::evaluate(&second, "pastes[0].text"),
-                    "Synthetic clipboard text"
+                    fixture::evaluate(&second, "pastes[0].files[0].name"),
+                    "synthetic.png"
                 );
                 fixture::evaluate(&second,"window.nativeDenied=false;window.__TAURI__.core.invoke('plugin:window|destroy',{label:'clipboard'}).catch(()=>window.nativeDenied=true);true");
                 fixture::wait_for(|| fixture::evaluate(&second,"window.nativeDenied") == true);
@@ -160,6 +309,6 @@ fn main() {
         .unwrap();
     assert!(verified.load(Ordering::SeqCst));
     println!(
-        "PASS: CEF native image/text paste, invalid image handling and hidden-account isolation"
+        "PASS: CEF image/text/file paste, attachment delivery, invalid image handling and hidden-account isolation"
     );
 }

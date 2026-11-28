@@ -26,6 +26,13 @@ marker, or with Alt+Up/Down while focused. Drag a channel onto a category or
 workspace to move it. The order is saved in the encrypted vault. Server-managed
 structure remains read-only.
 
+Attach files or images by dropping them into an open WhatsApp conversation.
+You can also copy files in your file manager and press Ctrl+V in the message box;
+text and copied images continue to use Chromium's native paste. File-manager
+transfers accept up to 100 local files and 2 GB in total. Folders and Elo's private
+vault files are excluded. WhatsApp prepares the attachments for your confirmation;
+Elo does not send them automatically.
+
 Built with **Tauri 3, Rust and Chromium Embedded Framework (CEF)**, without Electron.
 The Tauri/CEF prereleases and Chromium distribution are pinned. Server controls are
 hidden; local accounts and encrypted backups remain available.
@@ -41,8 +48,8 @@ hidden; local accounts and encrypted backups remain available.
 - **Encrypted backups.** Export a closed vault with a separate password and
   restore workspaces and account profiles into a new Linux installation. See
   [backup instructions and limitations](docs/RELEASE-0.5.md).
-- **Desktop notifications.** Choose private alerts, channel names or message
-  previews. Pause notifications globally or mute individual accounts.
+- **Desktop notifications.** Choose private alerts, workspace/account names or message
+  previews with optional sender photos. Pause notifications globally or mute individual accounts.
 - **Verified updates.** A bundled launcher checks for updates before opening the
   app. During use, updates prepare in the background and wait for you to restart.
 - **Keyboard-friendly navigation.** Search channels with `Ctrl+K`, adjust text size

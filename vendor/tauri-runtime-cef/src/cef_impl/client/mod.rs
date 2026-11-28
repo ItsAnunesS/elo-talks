@@ -53,6 +53,7 @@ pub(crate) struct TauriCefBrowserClientHandlers<T: UserEvent> {
   pub(crate) download_handler: Option<Arc<tauri_runtime::webview::DownloadHandler>>,
   pub(crate) console_message_handler: Option<Arc<crate::ConsoleMessageHandler>>,
   pub(crate) media_permission_handler: Option<Arc<crate::MediaPermissionHandler>>,
+  pub(crate) native_paste_handler: Option<Arc<crate::NativePasteHandler>>,
   pub(crate) permission_request_handler: Option<Arc<PermissionRequestHandler>>,
   pub(crate) web_content_process_terminate_handler:
     Option<Arc<tauri_runtime::webview::OnWebContentProcessTerminateHandler>>,
@@ -70,6 +71,7 @@ impl<T: UserEvent> Clone for TauriCefBrowserClientHandlers<T> {
       download_handler: self.download_handler.clone(),
       console_message_handler: self.console_message_handler.clone(),
       media_permission_handler: self.media_permission_handler.clone(),
+      native_paste_handler: self.native_paste_handler.clone(),
       permission_request_handler: self.permission_request_handler.clone(),
       web_content_process_terminate_handler: self.web_content_process_terminate_handler.clone(),
     }
@@ -178,6 +180,7 @@ wrap_with_args! {
             // app observes popups without their URLs through `Webview::popups`.
             frame_event_handler: Some(Arc::new(move |event| events.on_frame_event(&event))),
             media_permission_handler: Some(Arc::new(drop)),
+            native_paste_handler: None,
             navigation_handler: navigation_handler.clone(),
             new_window_handler: new_window_handler.clone(),
             // CEF cancels every download of a client whose download handler is
@@ -258,7 +261,7 @@ wrap_with_args! {
     }
 
     fn keyboard_handler(&self) -> Option<KeyboardHandler> {
-      Some(TauriCefKeyboardHandler::new(self.devtools_enabled))
+      Some(TauriCefKeyboardHandler::new(self.devtools_enabled, self.handlers.native_paste_handler.clone()))
     }
 
     fn command_handler(&self) -> Option<CommandHandler> {

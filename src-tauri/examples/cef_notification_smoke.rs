@@ -30,9 +30,10 @@ fn main() {
         .setup(move |app| {
             let window = tauri::window::WindowBuilder::new(app,"test").title("Synthetic CEF notification transport").build()?;
             let view = window.add_child(WebviewBuilder::new("account-test", WebviewUrl::External("about:blank".parse()?)).size(tauri::LogicalSize::new(900.,640.)))?;
-            cef_notifications::attach(&view, "http://fixture.localhost", move |title, body| {
+            cef_notifications::attach(&view, "http://fixture.localhost", move |title, body, icon| {
                 assert_eq!(title, "Synthetic sender");
                 assert_eq!(body, "Synthetic private body");
+                assert!(icon.is_none());
                 received.fetch_add(1, Ordering::SeqCst);
             }, || {}, || panic!("Synthetic notification transport failed"))?;
 

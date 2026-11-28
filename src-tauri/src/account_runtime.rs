@@ -9,6 +9,8 @@ pub struct NotificationPreferences {
     #[serde(default)]
     pub detail: NotificationDetail,
     #[serde(default)]
+    pub sender_photo: bool,
+    #[serde(default)]
     pub do_not_disturb: bool,
     #[serde(default)]
     pub muted_accounts: BTreeSet<String>,
@@ -68,8 +70,6 @@ pub enum AvatarState {
 pub struct AccountHealth {
     #[serde(skip)]
     pub generation: u64,
-    #[serde(skip)]
-    pub readiness_probe_active: bool,
     pub page: PageState,
     pub readiness: Readiness,
     pub avatar: AvatarState,
@@ -92,6 +92,8 @@ pub struct AccountRuntime {
     pub focused: bool,
     #[serde(skip)]
     pub channel_names: BTreeMap<String, String>,
+    #[serde(skip)]
+    pub workspace_names: BTreeMap<String, String>,
 }
 
 impl AccountHealth {
@@ -122,7 +124,6 @@ impl AccountRuntime {
                 account.page = page;
                 if page == PageState::Loading {
                     account.generation = account.generation.saturating_add(1);
-                    account.readiness_probe_active = false;
                     account.avatar_probe_active = false;
                     account.avatar_attempts = 0;
                 }
@@ -171,7 +172,7 @@ impl AccountRuntime {
             "doNotDisturb": self.preferences.do_not_disturb,
             "badgeProtocol": "Unity LauncherEntry (requires desktop support)",
             "counter": "WhatsApp page-title unread counter when available; otherwise native notifications since last viewed. Not a guaranteed message total.",
-            "pageState": "Page load plus bounded structural startup readiness; not messaging connection health"
+            "pageState": "Page load plus structural login state; not messaging connection health"
         })
     }
 
@@ -309,6 +310,7 @@ mod tests {
         let existing: NotificationPreferences =
             serde_json::from_str(r#"{"doNotDisturb":false,"mutedAccounts":[]}"#).unwrap();
         assert_eq!(existing.detail, NotificationDetail::Private);
+        assert!(!existing.sender_photo);
         assert!(
             serde_json::from_str::<NotificationPreferences>(r#"{"detail":"unknown"}"#).is_err()
         );

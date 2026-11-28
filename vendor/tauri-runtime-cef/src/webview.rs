@@ -32,6 +32,9 @@ use crate::cef_impl::{client as browser_client, cookie, request_context, request
 use crate::runtime::{CefRuntime, Message, RuntimeContext, WinitCefApp};
 use crate::window::AppWindow;
 
+/// Native paste shortcut hook. Return true only when the application handles it.
+pub type NativePasteHandler = dyn Fn(cef::Browser) -> bool + Send + Sync + 'static;
+
 /// A handle to the native CEF browser backing a Tauri webview.
 ///
 /// This is the runtime-specific webview object exposed through
@@ -565,16 +568,22 @@ impl AppWebview {
 
     self.host.notify_move_or_resize_started();
     self.resize(scale, x, y, w, h);
-    self.host.was_resized();
+    if self.offscreen.is_some() {
+      self.host.was_resized();
+    }
   }
 
   pub(crate) fn set_visible(&self, visible: bool) {
-    self.host.was_hidden(if visible { 0 } else { 1 });
     if let Some(view) = &self.offscreen {
+      // These notifications are for windowless rendering only.
+      self.host.was_hidden(if visible { 0 } else { 1 });
       view.visible.store(visible, Ordering::Relaxed);
       view.request_redraw();
     } else {
       self.apply_visible(visible);
+      if visible {
+        self.host.notify_screen_info_changed();
+      }
     }
   }
 
@@ -789,7 +798,14 @@ impl<T: UserEvent> WinitCefApp<T> {
         .runtime_specific_attributes
         .console_message_handler
         .clone(),
-      media_permission_handler: pending.runtime_specific_attributes.media_permission_handler.clone(),
+      media_permission_handler: pending
+        .runtime_specific_attributes
+        .media_permission_handler
+        .clone(),
+      native_paste_handler: pending
+        .runtime_specific_attributes
+        .native_paste_handler
+        .clone(),
       permission_request_handler: pending.permission_request_handler.take().map(Arc::from),
       web_content_process_terminate_handler,
     };
@@ -1512,6 +1528,8 @@ pub enum RuntimeStyle {
 ///   can take the accelerators back with [`ChromeCommandGroup::History`].
 #[derive(Default, Clone)]
 pub struct CefWebviewAttributes {
+  /// Handles native paste shortcuts. Not inherited by popups.
+  pub native_paste_handler: Option<Arc<NativePasteHandler>>,
   /// Windowless rendering and application-provided CEF callbacks.
   pub offscreen: Option<crate::Offscreen>,
   /// The browser runtime style, see [`RuntimeStyle`]. CEF picks one when not set.
@@ -2095,7 +2113,9 @@ pub(crate) fn layout_app_window(appwindow: &AppWindow) {
     let h = (rate.height * win_h).round() as i32;
     child.host.notify_move_or_resize_started();
     child.resize(scale, x, y, w, h);
-    child.host.was_resized();
+    if child.offscreen.is_some() {
+      child.host.was_resized();
+    }
   }
 }
 

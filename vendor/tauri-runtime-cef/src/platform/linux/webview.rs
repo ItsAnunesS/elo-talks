@@ -3,14 +3,13 @@
 // SPDX-License-Identifier: MIT
 
 use cef::ImplBrowserHost;
-use std::os::raw::c_ulong;
 use tauri_runtime::dpi::{PhysicalPosition, PhysicalSize, Rect};
 use tauri_utils::config::Color;
 use x11_dl::xlib;
 
 use crate::{webview::AppWebview, window::AppWindow};
 
-use super::utils::{atom, with_cef_display};
+use super::utils::with_cef_display;
 
 impl AppWebview {
   pub(crate) fn native_parent_matches(&self, parent: &AppWindow) -> Option<bool> {
@@ -119,33 +118,11 @@ impl AppWebview {
     let xid = self.xid();
 
     with_cef_display((), |xlib, display| unsafe {
-      let net_wm_state = atom(xlib, display, "_NET_WM_STATE");
-      const PROP_MODE_REPLACE: i32 = 0;
-
       if visible {
-        (xlib.XChangeProperty)(
-          display,
-          xid,
-          net_wm_state,
-          xlib::XA_ATOM,
-          32,
-          PROP_MODE_REPLACE,
-          std::ptr::null(),
-          0,
-        );
-        (xlib.XMapWindow)(display, xid);
+        // Remapping alone retains the old sibling stack position. The local
+        // shell or another browser can otherwise continue covering this view.
+        (xlib.XMapRaised)(display, xid);
       } else {
-        let hidden: [c_ulong; 1] = [atom(xlib, display, "_NET_WM_STATE_HIDDEN")];
-        (xlib.XChangeProperty)(
-          display,
-          xid,
-          net_wm_state,
-          xlib::XA_ATOM,
-          32,
-          PROP_MODE_REPLACE,
-          hidden.as_ptr() as *const u8,
-          1,
-        );
         (xlib.XUnmapWindow)(display, xid);
       }
     });

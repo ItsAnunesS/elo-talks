@@ -62,6 +62,7 @@ pub struct AccountEvents {
     pub avatar_cache_paths: Mutex<std::collections::BTreeMap<String, std::path::PathBuf>>,
     pub avatar_resources:
         Mutex<std::collections::BTreeMap<String, Arc<crate::account_avatar::Resources>>>,
+    photo_inflight: Arc<Mutex<std::collections::BTreeSet<String>>>,
     badge_count: Arc<AtomicU64>,
     badge_wake: mpsc::SyncSender<()>,
     desktop: DesktopNotifications,
@@ -87,6 +88,7 @@ impl Default for AccountEvents {
             avatars: Mutex::default(),
             avatar_cache_paths: Mutex::default(),
             avatar_resources: Mutex::default(),
+            photo_inflight: Arc::default(),
             badge_count,
             badge_wake,
             desktop: DesktopNotifications::default(),
@@ -147,6 +149,7 @@ pub fn attach(
         .lock()
         .unwrap()
         .insert(id.to_owned(), script);
+    crate::account_readiness::observe(view, app, id)?;
     use tauri_runtime_cef::{DevToolsProtocol, WebviewCefExt};
     let tls_handle = app.clone();
     let tls_account = id.to_owned();
@@ -171,58 +174,80 @@ pub fn attach(
     let account = id.to_owned();
     let failure_handle = app.clone();
     let failure_id = id.to_owned();
+    let view_for_photo = view.clone();
     crate::cef_notifications::attach(
         view,
         "https://web.whatsapp.com",
-        move |title, body| {
+        move |title, body, icon| {
             let events = handle.state::<AccountEvents>();
-            let allowed = events.runtime.lock().unwrap().notification(&account);
+            let (allowed, detail, photo, workspace, channel, sequence) = {
+                let mut runtime = events.runtime.lock().unwrap();
+                let allowed = runtime.notification(&account);
+                (
+                    allowed,
+                    runtime.preferences.detail,
+                    runtime.preferences.sender_photo,
+                    runtime
+                        .workspace_names
+                        .get(&account)
+                        .cloned()
+                        .unwrap_or_default(),
+                    runtime
+                        .channel_names
+                        .get(&account)
+                        .cloned()
+                        .unwrap_or_default(),
+                    runtime
+                        .accounts
+                        .get(&account)
+                        .map(|health| health.native_notifications),
+                )
+            };
             publish(&handle);
-            if allowed {
-                let (detail, channel) = {
-                    let runtime = events.runtime.lock().unwrap();
-                    (
-                        runtime.preferences.detail,
-                        runtime
-                            .channel_names
-                            .get(&account)
-                            .cloned()
-                            .unwrap_or_default(),
-                    )
-                };
-                // Only opt-in previews reach the desktop. Notification content never enters
-                // account state, diagnostics, frontend events or persistent storage.
-                let (sender, body) = if detail == NotificationDetail::Preview {
-                    (Some(title), Some(body))
-                } else {
-                    (None, None)
-                };
-                let text =
-                    NotificationText::message(detail, &channel, sender.as_deref(), body.as_deref());
+            if !allowed {
+                return;
+            }
+            let (sender, message) = if detail == NotificationDetail::Preview {
+                (Some(title), Some(body))
+            } else {
+                (None, None)
+            };
+            let mut text = NotificationText::message(
+                detail,
+                &workspace,
+                &channel,
+                sender.as_deref(),
+                message.as_deref(),
+            );
+            text.sequence = sequence;
+            let resolve_photo = photo && detail == NotificationDetail::Preview && icon.is_some();
+            let reserved = if resolve_photo {
+                let mut active = events.photo_inflight.lock().unwrap();
+                active.len() < 20 && active.insert(account.clone())
+            } else {
+                false
+            };
+            if reserved {
                 let handle = handle.clone();
                 let account = account.clone();
-                let dispatcher = handle.clone();
-                let _ = dispatcher.run_on_main_thread(move || {
-                    gtk::glib::MainContext::default().spawn_local(async move {
-                        let result = send_desktop_notification(&handle, &account, text).await;
-                        {
-                            let events = handle.state::<AccountEvents>();
-                            let mut runtime = events.runtime.lock().unwrap();
-                            if let Some(health) = runtime.accounts.get_mut(&account) {
-                                if result != Ok(false)
-                                    && health.notification_delivery == NotificationDelivery::Pending
-                                {
-                                    health.notification_delivery = if result.is_ok() {
-                                        NotificationDelivery::Submitted
-                                    } else {
-                                        NotificationDelivery::Failed
-                                    };
-                                }
-                            }
-                        }
-                        publish(&handle);
-                    });
+                let active = events.photo_inflight.clone();
+                let view = view_for_photo.clone();
+                std::thread::spawn(move || {
+                    let script = handle
+                        .state::<AccountEvents>()
+                        .scripts
+                        .lock()
+                        .unwrap()
+                        .get(&account)
+                        .cloned();
+                    if let (Some(script), Some(icon)) = (script, icon) {
+                        text.image = crate::notification_photo::resolve(&view, &script, &icon);
+                    }
+                    active.lock().unwrap().remove(&account);
+                    post_notification(&handle, &account, text);
                 });
+            } else {
+                post_notification(&handle, &account, text);
             }
         },
         move || {
@@ -239,6 +264,33 @@ pub fn attach(
     )
 }
 
+fn post_notification(app: &tauri::AppHandle, account: &str, text: NotificationText) {
+    let handle = app.clone();
+    let account = account.to_owned();
+    let dispatcher = handle.clone();
+    let _ = dispatcher.run_on_main_thread(move || {
+        gtk::glib::MainContext::default().spawn_local(async move {
+            let result = send_desktop_notification(&handle, &account, text).await;
+            {
+                let events = handle.state::<AccountEvents>();
+                let mut runtime = events.runtime.lock().unwrap();
+                if let Some(health) = runtime.accounts.get_mut(&account) {
+                    if result != Ok(false)
+                        && health.notification_delivery == NotificationDelivery::Pending
+                    {
+                        health.notification_delivery = if result.is_ok() {
+                            NotificationDelivery::Submitted
+                        } else {
+                            NotificationDelivery::Failed
+                        };
+                    }
+                }
+            }
+            publish(&handle);
+        });
+    });
+}
+
 /// Called on GTK's main context; D-Bus work and click handling are asynchronous.
 pub async fn send_desktop_notification(
     app: &tauri::AppHandle,
@@ -246,17 +298,58 @@ pub async fn send_desktop_notification(
     text: NotificationText,
 ) -> Result<bool, &'static str> {
     let handle = app.clone();
-    app.state::<AccountEvents>()
+    let on_open = move |account: &str| {
+        if handle.get_webview(&format!("account-{account}")).is_none() {
+            return;
+        }
+        if let Some(window) = handle.get_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        let _ = handle.emit_to("main", "open-account", account);
+    };
+    let events = app.state::<AccountEvents>();
+    if !text.actionable {
+        return events.desktop.show(id, text, on_open).await;
+    }
+    events
         .desktop
-        .show(id, text, move |account| {
-            if handle.get_webview(&format!("account-{account}")).is_none() {
-                return;
+        .show_checked(id, text, on_open, |text| {
+            let mut runtime = events.runtime.lock().unwrap();
+            let delivery = if runtime.preferences.do_not_disturb {
+                NotificationDelivery::DoNotDisturb
+            } else if runtime.preferences.muted_accounts.contains(id) {
+                NotificationDelivery::Muted
+            } else {
+                NotificationDelivery::Pending
+            };
+            let health = runtime.accounts.get_mut(id)?;
+            if delivery != NotificationDelivery::Pending {
+                health.notification_delivery = delivery;
+                return None;
             }
-            if let Some(window) = handle.get_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
+            if text
+                .sequence
+                .is_some_and(|sequence| sequence != health.native_notifications)
+            {
+                return None;
             }
-            let _ = handle.emit_to("main", "open-account", account);
+            Some(
+                text.restrict(
+                    runtime.preferences.detail,
+                    runtime
+                        .workspace_names
+                        .get(id)
+                        .map(String::as_str)
+                        .unwrap_or_default(),
+                    runtime
+                        .channel_names
+                        .get(id)
+                        .map(String::as_str)
+                        .unwrap_or_default(),
+                    runtime.preferences.sender_photo,
+                ),
+            )
         })
         .await
 }

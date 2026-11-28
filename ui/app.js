@@ -541,9 +541,9 @@ function notificationControls(parent) {
   detail.id = `field-${crypto.randomUUID()}`;
   detailLabel.htmlFor = detail.id;
   for (const [value, label] of [
-    ["private", "Private — hide all details"],
-    ["channel", "Channel name only"],
-    ["preview", "Channel, sender and message"],
+    ["private", "Private - hide all details"],
+    ["channel", "Workspace and WhatsApp account only"],
+    ["preview", "Workspace, account, sender and message"],
   ]) {
     const option = createElement("option", "", label);
     option.value = value;
@@ -556,9 +556,18 @@ function notificationControls(parent) {
     createElement(
       "p",
       "hint",
-      "Previews use the sender and text provided by WhatsApp. Details are shared with Linux and may remain in notification history or appear on the lock screen, depending on system settings.",
+      "Previews show the sender and message excerpt provided by WhatsApp. The workspace/account-only mode hides the sender, message and photo. Optional sender photos fall back to the Elo Talks icon when unavailable. Preview details are shared with Linux and may remain in notification history or appear on the lock screen.",
     ),
   );
+  const senderPhoto = checkbox(
+    "Show sender photo in message previews",
+    preferences.senderPhoto || false,
+  );
+  const updatePhotoOption = () => {
+    senderPhoto.disabled = detail.value !== "preview";
+  };
+  detail.addEventListener("change", updatePhotoOption);
+  updatePhotoOption();
   const dnd = checkbox("Do not disturb", preferences.doNotDisturb);
   const accounts = state.accounts.map((account) => ({
     id: account.id,
@@ -579,6 +588,7 @@ function notificationControls(parent) {
     createButton("Save notification settings", async () => {
       await request("notifications", {
         detail: detail.value,
+        senderPhoto: senderPhoto.checked,
         doNotDisturb: dnd.checked,
         mutedAccounts: accounts
           .filter((account) => account.input.checked)

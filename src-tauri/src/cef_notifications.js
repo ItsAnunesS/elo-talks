@@ -7,6 +7,7 @@
     deliver(JSON.stringify({
       title: [...String(title)].slice(0, 400).join(""),
       body: [...String(options.body ?? "")].slice(0, 1200).join(""),
+      icon: typeof options.icon === "string" && options.icon.length <= 4096 ? options.icon : null,
     }));
   };
   class AccountNotification extends EventTarget {

@@ -67,9 +67,12 @@ impl Script {
                 } => {
                     if let Some(sender) = state.pending.remove(&message_id) {
                         let value = if success && result.len() <= 128 * 1024 {
-                            serde_json::from_slice::<Value>(&result)
-                                .ok()
-                                .and_then(|result| result["result"].get("value").cloned())
+                            serde_json::from_slice::<Value>(&result).ok().filter(
+                                |result: &Value| {
+                                    result.get("error").is_none()
+                                        && result.get("exceptionDetails").is_none()
+                                },
+                            )
                         } else {
                             None
                         };
@@ -81,6 +84,7 @@ impl Script {
         })?;
         for (method, params) in [
             ("Page.enable", json!({})),
+            ("Runtime.enable", json!({})),
             (
                 "Page.addScriptToEvaluateOnNewDocument",
                 json!({"worldName":"elo-account-native","source":"void 0"}),
@@ -97,18 +101,41 @@ impl Script {
     }
     /// Call only on a worker thread. No page-provided expression is accepted.
     pub fn evaluate(&self, view: &tauri::Webview, expression: &'static str) -> Option<Value> {
+        self.evaluate_remote(view, expression, true)?["result"]
+            .get("value")
+            .cloned()
+    }
+    pub fn evaluate_remote(
+        &self,
+        view: &tauri::Webview,
+        expression: &'static str,
+        by_value: bool,
+    ) -> Option<Value> {
+        let context = self.state.lock().unwrap().context.clone()?;
+        self.command(view, "Runtime.evaluate", json!({"expression":expression,"uniqueContextId":context,"returnByValue":by_value,"awaitPromise":false}))
+    }
+    /// Native-owned protocol calls only. Never pass methods or parameters from a page.
+    pub fn command(
+        &self,
+        view: &tauri::Webview,
+        method: &'static str,
+        params: Value,
+    ) -> Option<Value> {
         let id = allocate_devtools_message_id().ok()?;
         let (sender, receiver) = mpsc::sync_channel(1);
-        let context = {
+        {
             let mut state = self.state.lock().unwrap();
-            let context = state.context.clone()?;
+            state.context.as_ref()?;
             if state.pending.len() >= 2 {
                 return None;
             }
             state.pending.insert(id, sender);
-            context
-        };
-        let sent = view.send_dev_tools_message(json!({"id":id,"method":"Runtime.evaluate","params":{"expression":expression,"uniqueContextId":context,"returnByValue":true,"awaitPromise":false}}).to_string().as_bytes());
+        }
+        let sent = view.send_dev_tools_message(
+            json!({"id":id,"method":method,"params":params})
+                .to_string()
+                .as_bytes(),
+        );
         let result = if sent.is_ok() {
             receiver.recv_timeout(Duration::from_secs(3)).ok().flatten()
         } else {

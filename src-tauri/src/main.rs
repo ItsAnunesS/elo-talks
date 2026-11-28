@@ -1,4 +1,5 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod account_attachments;
 mod account_avatar;
 mod account_browser;
 mod account_events;
@@ -19,6 +20,7 @@ mod desktop_notifications;
 mod ipc;
 mod launcher;
 mod notification_content;
+mod notification_photo;
 mod process_security;
 mod process_shutdown;
 mod server_sync;

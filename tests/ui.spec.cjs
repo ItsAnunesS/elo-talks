@@ -35,6 +35,86 @@ const http = require("node:http"),
     chromiumSandbox: true,
   });
   try {
+    const attachmentPage = await browser.newPage();
+    const syntheticAttachments = fs.mkdtempSync(
+      path.join(require("node:os").tmpdir(), "elo-attachments-"),
+    );
+    try {
+      const image = path.join(syntheticAttachments, "sample.png");
+      const archive = path.join(syntheticAttachments, "sample.zip");
+      fs.copyFileSync(path.resolve(__dirname, "../src-tauri/icons/32x32.png"), image);
+      fs.writeFileSync(archive, "PK synthetic attachment");
+      const html =
+        '<body><div id="editor" contenteditable style="width:500px;height:300px"></div><button id="send">Send</button><script>window.received=[];window.sent=0;send.onclick=()=>sent++;for(const kind of ["paste","drop"])document.addEventListener(kind,event=>{event.preventDefault();received.push({kind,names:[...(event.clipboardData||event.dataTransfer).files].map(file=>file.name)});});</script>';
+      await attachmentPage.route("https://web.whatsapp.com/**", (route) =>
+        route.fulfill({ contentType: "text/html", body: html }),
+      );
+      await attachmentPage.route("https://untrusted.example/**", (route) =>
+        route.fulfill({ contentType: "text/html", body: html }),
+      );
+      await attachmentPage.goto("https://web.whatsapp.com/");
+      const cdp = await attachmentPage.context().newCDPSession(attachmentPage);
+      const capture = fs.readFileSync(
+        path.resolve(__dirname, "../src-tauri/src/attachment_capture.js"),
+        "utf8",
+      );
+      const dispatch = fs.readFileSync(
+        path.resolve(__dirname, "../src-tauri/src/attachment_dispatch.js"),
+        "utf8",
+      );
+      const world = async () => {
+        const tree = await cdp.send("Page.getFrameTree");
+        return (
+          await cdp.send("Page.createIsolatedWorld", {
+            frameId: tree.frameTree.frame.id,
+            worldName: "elo-account-native",
+          })
+        ).executionContextId;
+      };
+      let contextId = await world();
+      const prepare = async () => {
+        await attachmentPage.locator("#editor").click();
+        const result = await cdp.send("Runtime.evaluate", { contextId, expression: capture });
+        assert.ok(result.result.objectId);
+        await cdp.send("DOM.setFileInputFiles", {
+          objectId: result.result.objectId,
+          files: [image, archive],
+        });
+        return result.result.objectId;
+      };
+      const deliver = (objectId, kind) =>
+        cdp.send("Runtime.callFunctionOn", {
+          objectId,
+          functionDeclaration: dispatch,
+          awaitPromise: true,
+          arguments: [{ value: kind }, { value: [0.2, 0.2] }],
+          returnByValue: true,
+        });
+      assert.equal((await deliver(await prepare(), "paste")).result.value, true);
+      assert.equal((await deliver(await prepare(), "drop")).result.value, true);
+      assert.deepEqual(await attachmentPage.evaluate(() => received), [
+        { kind: "paste", names: ["sample.png", "sample.zip"] },
+        { kind: "drop", names: ["sample.png", "sample.zip"] },
+      ]);
+      const staleFocus = await prepare();
+      await attachmentPage.locator("#send").focus();
+      assert.equal((await deliver(staleFocus, "paste")).result.value, false);
+      assert.equal(await attachmentPage.evaluate(() => sent), 0);
+      assert.equal(await attachmentPage.locator('input[type="file"]').count(), 0);
+      const staleDocument = await prepare();
+      await attachmentPage.goto("https://untrusted.example/");
+      await assert.rejects(() => deliver(staleDocument, "paste"));
+      contextId = await world();
+      await attachmentPage.locator("#editor").click();
+      assert.equal(
+        (await cdp.send("Runtime.evaluate", { contextId, expression: capture })).result.subtype,
+        "null",
+      );
+      assert.deepEqual(await attachmentPage.evaluate(() => received), []);
+    } finally {
+      await attachmentPage.close();
+      fs.rmSync(syntheticAttachments, { recursive: true, force: true });
+    }
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     await page.clock.install();
     const pointerDrag = async (source, target, options = {}) => {
@@ -631,7 +711,14 @@ const http = require("node:http"),
       await page.getByLabel("Notification content", { exact: true }).inputValue(),
       "private",
     );
+    const senderPhoto = page.getByLabel("Show sender photo in message previews", { exact: true });
+    assert.equal(await senderPhoto.isChecked(), false);
+    assert.equal(await senderPhoto.isDisabled(), true);
+    await page.getByLabel("Notification content", { exact: true }).selectOption("channel");
+    assert.equal(await senderPhoto.isDisabled(), true);
     await page.getByLabel("Notification content", { exact: true }).selectOption("preview");
+    assert.equal(await senderPhoto.isDisabled(), false);
+    await senderPhoto.check();
     await page.getByRole("button", { name: "Test Linux notification", exact: true }).click();
     await page
       .getByRole("status")
@@ -659,6 +746,7 @@ const http = require("node:http"),
     await page.getByRole("status").filter({ hasText: "Notification settings saved" }).waitFor();
     assert.deepEqual(await page.evaluate(() => window.testState.notifications), {
       detail: "preview",
+      senderPhoto: true,
       doNotDisturb: true,
       mutedAccounts: ["b"],
     });
@@ -669,6 +757,7 @@ const http = require("node:http"),
       await page.getByLabel("Notification content", { exact: true }).inputValue(),
       "preview",
     );
+    assert.equal(await senderPhoto.isChecked(), true);
     await page.getByRole("tab", { name: "Updates", exact: true }).click();
     assert.equal(
       await page.getByLabel("Check for updates every", { exact: true }).inputValue(),
@@ -1339,6 +1428,100 @@ const http = require("node:http"),
       document.body.append(splash);
     });
     assert.equal(await readinessPage.evaluate(readinessScript), 0);
+    const readinessWatch = fs
+      .readFileSync(path.resolve(__dirname, "../src-tauri/src/readiness_watch.js"), "utf8")
+      .replace("__READINESS_QUERY__", readinessScript);
+    await readinessPage.route("https://web.whatsapp.com/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: '<body><div data-testid="qrcode"><canvas width="160" height="160"></canvas></div></body>',
+      }),
+    );
+    await readinessPage.goto("https://web.whatsapp.com/");
+    const photoScript = fs.readFileSync(
+      path.resolve(__dirname, "../src-tauri/src/notification_photo.js"),
+      "utf8",
+    );
+    const photoSource = await readinessPage.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 32;
+      canvas.getContext("2d").fillRect(0, 0, 32, 32);
+      return canvas.toDataURL();
+    });
+    const photoResult = await readinessPage.evaluate(
+      async ({ script, source }) => {
+        const resolve = (0, eval)(script);
+        const result = await resolve(source);
+        const bytes = Uint8Array.from(atob(result.split(",")[1]), (char) => char.charCodeAt(0));
+        const view = new DataView(bytes.buffer);
+        const invalid = [];
+        for (const url of [
+          "file:///etc/passwd",
+          "https://untrusted.example/photo",
+          "http://web.whatsapp.com/photo",
+          "https://web.whatsapp.com.evil.example/photo",
+        ])
+          invalid.push(await resolve(url));
+        let fetched = false;
+        window.fetch = () => {
+          fetched = true;
+          throw Error("Must reject before fetch");
+        };
+        const rejected = await resolve("https://untrusted.example/photo");
+        return {
+          width: view.getUint32(16),
+          height: view.getUint32(20),
+          invalid,
+          fetched,
+          rejected,
+        };
+      },
+      { script: photoScript, source: photoSource },
+    );
+    assert.deepEqual(photoResult, {
+      width: 64,
+      height: 64,
+      invalid: ["", "", "", ""],
+      fetched: false,
+      rejected: "",
+    });
+
+    await readinessPage.evaluate(() => {
+      window.readinessUpdates = [];
+      window.sameDocumentMarker = "business-session";
+      window.__eloReadiness = (value) => window.readinessUpdates.push(value);
+      HTMLCanvasElement.prototype.toDataURL = () => {
+        throw Error("Must not inspect QR pixels");
+      };
+    });
+    assert.equal(await readinessPage.evaluate(readinessWatch), true);
+    assert.deepEqual(await readinessPage.evaluate(() => window.readinessUpdates), ["2"]);
+    await readinessPage.evaluate(() => {
+      const navigation = document.createElement("nav");
+      navigation.setAttribute("aria-label", "Business tools");
+      const chats = document.createElement("section");
+      chats.id = "pane-side";
+      chats.style.cssText = "width:400px;height:400px";
+      document.body.replaceChildren(navigation, chats);
+    });
+    await readinessPage.waitForFunction(() => window.readinessUpdates.at(-1) === "1");
+    assert.equal(await readinessPage.evaluate(() => window.sameDocumentMarker), "business-session");
+    const reported = await readinessPage.evaluate(() => window.readinessUpdates.length);
+    await readinessPage.evaluate(() => {
+      const conversation = document.createElement("div");
+      document.getElementById("pane-side").append(conversation);
+      for (let index = 0; index < 20; index++) conversation.append(document.createElement("div"));
+    });
+    await readinessPage.waitForTimeout(300);
+    assert.equal(await readinessPage.evaluate(() => window.readinessUpdates.length), reported);
+    await readinessPage.evaluate(() => {
+      const login = document.createElement("div");
+      login.dataset.testid = "qrcode";
+      login.append(document.createElement("canvas"));
+      document.body.replaceChildren(login);
+    });
+    await readinessPage.waitForFunction(() => window.readinessUpdates.at(-1) === "2");
+    assert.deepEqual(await readinessPage.evaluate(() => window.readinessUpdates), ["2", "1", "2"]);
     const avatarScript = fs.readFileSync(
       path.resolve(__dirname, "../src-tauri/src/avatar.js"),
       "utf8",
@@ -1368,7 +1551,7 @@ const http = require("node:http"),
     await readinessPage.close();
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: encrypted backup workflows, credentials, safe labels, account switching, workspace/channel drag and keyboard ordering, move recovery, raster uploads, category moves, notification badges and private diagnostics.",
+      "PASS: attachment paste/drop with focus/origin isolation and no automatic send, encrypted backup workflows, credentials, safe labels, account switching, workspace/channel ordering, move recovery, raster uploads, category moves, notification badges and private diagnostics.",
     );
   } finally {
     await browser.close();

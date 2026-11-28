@@ -25,7 +25,7 @@ fn command(
 pub fn attach(
     view: &tauri::Webview,
     origin: &str,
-    notify: impl Fn(String, String) + Send + Sync + 'static,
+    notify: impl Fn(String, String, Option<String>) + Send + Sync + 'static,
     activity: impl Fn() + Send + Sync + 'static,
     failed: impl Fn() + Send + Sync + 'static,
 ) -> tauri::Result<()> {
@@ -285,7 +285,7 @@ pub fn attach(
                     });
                     if trusted {
                         if let Some(payload) =
-                            params["payload"].as_str().filter(|p| p.len() <= 8192)
+                            params["payload"].as_str().filter(|p| p.len() <= 16 * 1024)
                         {
                             if let Ok(value) = serde_json::from_str::<Value>(payload) {
                                 if let (Some(title), Some(body)) =
@@ -294,6 +294,10 @@ pub fn attach(
                                     notify(
                                         title.chars().take(400).collect(),
                                         body.chars().take(1200).collect(),
+                                        value["icon"]
+                                            .as_str()
+                                            .filter(|value| value.len() <= 4096)
+                                            .map(str::to_owned),
                                     );
                                 }
                             }

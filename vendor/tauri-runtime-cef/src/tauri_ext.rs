@@ -283,6 +283,12 @@ pub trait WebviewWindowBuilderCefExt {
   #[must_use]
   fn on_frame_event<F: Fn(FrameEvent) + Send + Sync + 'static>(self, handler: F) -> Self;
 
+  /// Handles a native Ctrl+V shortcut without exposing a page-callable command.
+  /// Return true when handled. The callback must not block CEF's UI thread.
+  #[must_use]
+  fn on_native_paste<F: Fn(cef::Browser) -> bool + Send + Sync + 'static>(self, handler: F)
+  -> Self;
+
   /// Observes the messages the renderer writes to the JavaScript console,
   /// without DevTools having to be open.
   ///
@@ -367,6 +373,17 @@ where
     self
   }
 
+  fn on_native_paste<F: Fn(cef::Browser) -> bool + Send + Sync + 'static>(
+    mut self,
+    handler: F,
+  ) -> Self {
+    let handler = Arc::new(handler);
+    with_cef_webview_attributes(self.runtime_specific_attributes_mut(), |attributes| {
+      attributes.native_paste_handler = Some(handler);
+    });
+    self
+  }
+
   fn on_frame_event<F: Fn(FrameEvent) + Send + Sync + 'static>(mut self, handler: F) -> Self {
     let handler = Arc::new(handler);
     with_cef_webview_attributes(self.runtime_specific_attributes_mut(), |attributes| {
@@ -437,6 +454,12 @@ pub trait WebviewBuilderCefExt {
   #[must_use]
   fn on_frame_event<F: Fn(FrameEvent) + Send + Sync + 'static>(self, handler: F) -> Self;
 
+  /// Handles a native Ctrl+V shortcut without exposing a page-callable command.
+  /// Return true when handled. The callback must not block CEF's UI thread.
+  #[must_use]
+  fn on_native_paste<F: Fn(cef::Browser) -> bool + Send + Sync + 'static>(self, handler: F)
+  -> Self;
+
   /// Observes the messages the renderer writes to the JavaScript console,
   /// without DevTools having to be open.
   ///
@@ -495,6 +518,17 @@ where
   fn browser_runtime_style(mut self, style: RuntimeStyle) -> Self {
     with_cef_webview_attributes(self.runtime_specific_attributes_mut(), |attributes| {
       attributes.runtime_style = Some(style);
+    });
+    self
+  }
+
+  fn on_native_paste<F: Fn(cef::Browser) -> bool + Send + Sync + 'static>(
+    mut self,
+    handler: F,
+  ) -> Self {
+    let handler = Arc::new(handler);
+    with_cef_webview_attributes(self.runtime_specific_attributes_mut(), |attributes| {
+      attributes.native_paste_handler = Some(handler);
     });
     self
   }

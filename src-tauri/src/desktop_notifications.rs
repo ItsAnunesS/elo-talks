@@ -33,8 +33,18 @@ impl DesktopNotifications {
     pub async fn show(
         &self,
         key: &str,
+        text: NotificationText,
+        on_open: impl Fn(&str) + 'static,
+    ) -> Result<bool, &'static str> {
+        self.show_checked(key, text, on_open, Some).await
+    }
+
+    pub async fn show_checked(
+        &self,
+        key: &str,
         mut text: NotificationText,
         on_open: impl Fn(&str) + 'static,
+        filter: impl Fn(NotificationText) -> Option<NotificationText>,
     ) -> Result<bool, &'static str> {
         {
             let mut pending = self.pending.lock().unwrap();
@@ -114,55 +124,62 @@ impl DesktopNotifications {
                 self.subscriptions.lock().unwrap().push(subscription);
             }
         }
+        let mut accepted = false;
         loop {
-            let replaces = self.targets.lock().unwrap().get(key).copied().unwrap_or(0);
-            let hints = BTreeMap::from([
-                ("desktop-entry", "dev.anuness.elotalks".to_variant()),
-                ("category", "im.received".to_variant()),
-            ]);
-            let actions = if text.actionable {
-                vec!["default", "Open account"]
-            } else {
-                vec![]
-            };
-            let parameters = (
-                "Elo Talks",
-                replaces,
-                "dev.anuness.elotalks",
-                text.summary,
-                text.body,
-                actions,
-                hints,
-                8000i32,
-            )
-                .to_variant();
-            let result = self
-                .connection
-                .get()
-                .unwrap()
-                .call_future(
-                    Some(SERVICE),
-                    PATH,
-                    SERVICE,
-                    "Notify",
-                    Some(&parameters),
-                    None,
-                    gio::DBusCallFlags::NONE,
-                    3000,
+            if let Some(text) = filter(text) {
+                let replaces = self.targets.lock().unwrap().get(key).copied().unwrap_or(0);
+                let mut hints = BTreeMap::from([
+                    ("desktop-entry", "dev.anuness.elotalks".to_variant()),
+                    ("category", "im.received".to_variant()),
+                ]);
+                if let Some(image) = &text.image {
+                    hints.insert("image-data", image.variant());
+                }
+                let actions = if text.actionable {
+                    vec!["default", "Open account"]
+                } else {
+                    vec![]
+                };
+                let parameters = (
+                    "Elo Talks",
+                    replaces,
+                    "dev.anuness.elotalks",
+                    text.summary,
+                    text.body,
+                    actions,
+                    hints,
+                    8000i32,
                 )
-                .await
-                .map_err(|_| ERROR)?;
-            let (id,) = result
-                .get::<(u32,)>()
-                .filter(|(id,)| *id != 0)
-                .ok_or(ERROR)?;
-            let mut targets = self.targets.lock().unwrap();
-            // Bound metadata even when accounts are repeatedly removed and recreated.
-            if !targets.contains_key(key) && targets.len() >= 21 {
-                targets.pop_first();
+                    .to_variant();
+                let result = self
+                    .connection
+                    .get()
+                    .unwrap()
+                    .call_future(
+                        Some(SERVICE),
+                        PATH,
+                        SERVICE,
+                        "Notify",
+                        Some(&parameters),
+                        None,
+                        gio::DBusCallFlags::NONE,
+                        3000,
+                    )
+                    .await
+                    .map_err(|_| ERROR)?;
+                let (id,) = result
+                    .get::<(u32,)>()
+                    .filter(|(id,)| *id != 0)
+                    .ok_or(ERROR)?;
+                let mut targets = self.targets.lock().unwrap();
+                // Bound metadata even when accounts are repeatedly removed and recreated.
+                if !targets.contains_key(key) && targets.len() >= 21 {
+                    targets.pop_first();
+                }
+                targets.insert(key.to_owned(), id);
+                drop(targets);
+                accepted = true;
             }
-            targets.insert(key.to_owned(), id);
-            drop(targets);
             let next = self
                 .pending
                 .lock()
@@ -171,7 +188,7 @@ impl DesktopNotifications {
                 .and_then(Option::take);
             match next {
                 Some(latest) => text = latest,
-                None => return Ok(true),
+                None => return Ok(accepted),
             }
         }
     }

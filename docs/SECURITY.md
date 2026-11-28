@@ -37,7 +37,7 @@ vault. Interrupted operations may leave private ciphertext temporary files.
 - Decrypted content exists in memory and the mounted filesystem while the vault is open.
 - Root access, malware running as the user, unencrypted swap or hibernation, and compromised WhatsApp/Chromium are outside the at-rest protection model.
 - Exported files are outside the vault. Users are responsible for these copies.
-- Notification details are opt-in. Channel-only mode shares the configured channel name; preview mode additionally shares the native WhatsApp notification title and body with the Linux notification service. These copies may remain in desktop history or appear on the lock screen and are outside vault protection. Changing the setting or locking the vault does not erase notifications already accepted by the OS.
+- Notification details are opt-in. Workspace/account mode shares the configured workspace and WhatsApp account names; preview mode additionally shares the native WhatsApp notification title and body with the Linux notification service. These copies may remain in desktop history or appear on the lock screen and are outside vault protection. Changing the setting or locking the vault does not erase notifications already accepted by the OS.
 - Sizes, file counts, timestamps, and previous versions can expose metadata. Authenticated encryption does not prevent rollback to a complete older snapshot.
 - Logical deletion does not guarantee physical erasure on SSDs, snapshots, or backups. Revoke linked devices on the phone when removing an account.
 - Process core dumps are disabled. This does not control privileged system capture tools.
@@ -55,16 +55,49 @@ DevTools port or pipe is exposed. Native execution-context/session identities an
 exact origins gate delivery; bounded queues fail closed on overflow. Sender/body
 are transient and reach the desktop only in opt-in preview mode. They never enter
 account state, logs, diagnostics, frontend events or notification-history files.
-The adapter does not read conversation DOM or request notification images.
+The adapter does not read conversation DOM. Sender photos require a separate opt-in
+and preview mode. Only an icon supplied by WhatsApp is resolved, in its admitted
+browser document with normal CORS and TLS checks, without credentials or redirects.
+Sources are restricted to same-origin blobs, embedded images and HTTPS WhatsApp
+hosts. Downloads are limited to 64 KiB and 1024-pixel dimensions, then reduced to
+64 by 64 PNG pixels and submitted as D-Bus image data without temporary files.
+Unavailable photos fall back to the app icon. Privacy, muting and Do Not Disturb
+are rechecked before queued delivery; changing settings cannot retract banners
+already submitted to the desktop.
 
-## Clipboard images
+Login readiness observes structural QR/chat markers only in the admitted main
+document's isolated world. Only a readiness enum crosses that binding; message
+text and QR pixels are not read. Login readiness does not assert messaging
+connection health.
 
-Clipboard paste is handled by Chromium's native text/file/image pipeline after
-user input. Elo no longer injects WebKit clipboard events or grants a persistent
-clipboard-read capability. Native regressions verify image decoding, malformed
-image rejection by the browser decoder and that hidden accounts do not receive
-the active account's paste. Clipboard contents and clipboard managers remain
-outside vault protection.
+## Clipboard and attachments
+
+Text and bitmap-image paste uses Chromium's native pipeline. File-manager lists
+(`text/uri-list` and GNOME copied-file lists) are read only after a native Ctrl+V
+shortcut in the selected WhatsApp account. Page-generated key events cannot
+invoke the native hook. No persistent clipboard-read capability is granted, and
+popups do not inherit the hook. Native window drop events supply dropped paths;
+page messages cannot supply them to the filesystem adapter.
+
+File-manager transfers accept at most 100 local, regular files and 2 GiB in total.
+Remote URLs, directories, special files and paths resolving inside the vault are
+rejected. The adapter passes selected paths to Chromium without reading file
+contents into Rust or creating plaintext staging copies. A detached file input
+in the admitted document's isolated world holds the browser File objects. A
+scoped paste/drop event hands them to WhatsApp, which retains its own attachment
+preview, format limits and send confirmation. The adapter never clicks Send.
+
+Selection, origin, document lifetime, focus and visibility gate delivery. The
+native adapter permits one operation per account at a time; clipboard reads,
+protocol replies and input lists are bounded. A stale document's object identifier
+cannot target a replacement document. Temporary browser references are released
+on completion or failure. File names, paths and clipboard contents are not logged,
+persisted in catalog metadata or published in frontend events. Clipboard managers
+and source files remain outside vault protection.
+
+Native regressions cover text/image/file paste, malformed images, delivery of
+file lists and hidden-account isolation using synthetic data. Current execution
+and real-desktop acceptance limitations are recorded in VALIDATION.md.
 
 ## Distribution
 

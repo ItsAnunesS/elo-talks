@@ -2,6 +2,50 @@
 
 This document distinguishes completed checks from outstanding acceptance criteria. A successful build does not certify WhatsApp compatibility or package security.
 
+## Native account presentation - 2026-11-28
+
+Linux browser views are raised above sibling views when shown, instead of merely
+remapping them in their previous stacking position. Windowed browsers use native
+visibility/configure events and screen-information notification; CEF's
+windowless-only `WasHidden`/`WasResized` calls remain scoped to offscreen views.
+No account document is reloaded or stopped when switching channels.
+
+The native layout fixture cycles linked and QR-only synthetic documents after
+raising the local shell. A single solid-color pixel on the isolated Xvfb display
+must match the selected document, and per-document tokens must survive switching.
+This verifies actual window presentation rather than a renderer-only screenshot.
+Real GNOME/compositor acceptance and the CEF fixture's execution remain pending.
+
+## Same-document WhatsApp Business sign-in - 2026-11-28
+
+The previous startup probe stopped after detecting a QR code. Session linking
+that replaced the login UI without navigating could therefore leave the channel
+label at "Scan QR code". Structural login-state observation now remains active
+in the admitted main document's isolated world and reports QR/chat transitions.
+Only the readiness enum crosses the native bridge; conversation text and QR
+pixels are not read. Changes inside a stable chat list do not generate duplicate
+status reports. TLS and process failures retain precedence.
+
+Browser regressions cover QR-to-chats-to-QR in one document, including a
+Business-style navigation layout. Native layout regressions exercise the same
+transition without a generation change. Real Business-account acceptance remains
+pending; the installed app and its profiles were not accessed.
+
+## File-manager attachments - 2026-11-28
+
+The attachment adapter handles native Ctrl+V file lists and native window drops
+for the selected WhatsApp account. Unit checks cover bounded local URI lists,
+invalid/remote URLs, folders, special/private paths, symlinks and size limits.
+Browser checks use the production capture/dispatch scripts and real Chromium
+File objects for PNG/ZIP delivery, focus changes, stale document rejection and
+absence of automatic send actions.
+
+`clipboard_smoke` now includes copied file lists, a GTK drag source on the isolated
+X11 display, and hidden-account isolation. The fixture compiles locally; native
+execution at both scales and real GNOME/WhatsApp attachment-preview acceptance
+remain pending. The local container's Chromium sandbox limitation is unchanged.
+Installed profiles and conversations were not used for validation.
+
 ## Navigation pointer reordering - 2026-11-27
 
 Local channel and workspace reordering uses pointer capture instead of HTML5
@@ -365,7 +409,10 @@ preferences, preference persistence at the vault path, exclusion of channel labe
 diagnostics, bounded Unicode previews, markup escaping and missing-content
 fallbacks. The isolated D-Bus fixture checks the exact private/channel/preview
 payloads and unchanged account click routing. UI coverage verifies explicit
-preview selection, saving and restoring the choice. Real sender/group formatting
+preview selection, saving and restoring the choice. Sender-photo coverage checks
+bounded PNG decoding, the D-Bus image-data signature and privacy downgrades.
+Real sender photos and desktop rendering still require WhatsApp/GNOME acceptance.
+Real sender/group formatting
 still depends on what WhatsApp includes in its native notification.
 
 ## Automatic updates

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 use cef::*;
+use std::sync::Arc;
 
 #[cfg(target_os = "linux")]
 type CefOsEvent<'a> = Option<&'a mut cef::sys::XEvent>;
@@ -14,6 +15,7 @@ type CefOsEvent<'a> = Option<&'a mut cef::sys::MSG>;
 wrap_keyboard_handler! {
   pub struct TauriCefKeyboardHandler {
     devtools_enabled: bool,
+    native_paste_handler: Option<Arc<crate::NativePasteHandler>>,
   }
 
   impl KeyboardHandler {
@@ -24,6 +26,20 @@ wrap_keyboard_handler! {
       _os_event: CefOsEvent<'_>,
       _is_keyboard_shortcut: Option<&mut ::std::os::raw::c_int>,
     ) -> ::std::os::raw::c_int {
+      if let (Some(browser), Some(event), Some(handler)) = (_browser, event, &self.native_paste_handler) {
+        use cef::sys::{cef_event_flags_t as flags, cef_key_event_type_t};
+        #[cfg(windows)]
+        let modifiers = event.modifiers as i32;
+        #[cfg(not(windows))]
+        let modifiers = event.modifiers;
+        let control = modifiers & flags::EVENTFLAG_CONTROL_DOWN.0 != 0;
+        let other = modifiers & (flags::EVENTFLAG_ALT_DOWN.0 | flags::EVENTFLAG_SHIFT_DOWN.0 | flags::EVENTFLAG_COMMAND_DOWN.0) != 0;
+        if event.type_ == cef_key_event_type_t::KEYEVENT_RAWKEYDOWN.into()
+          && event.windows_key_code == 86 && control && !other && handler(browser.clone()) {
+          if let Some(shortcut) = _is_keyboard_shortcut { *shortcut = 1; }
+          return 1;
+        }
+      }
       // If devtools is disabled, block devtools keyboard shortcuts.
       if !self.devtools_enabled {
         let Some(event) = event else {

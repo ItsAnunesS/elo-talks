@@ -21,6 +21,8 @@ mod fixture;
 #[allow(dead_code)]
 #[path = "../src/notification_content.rs"]
 mod notification_content;
+#[path = "../src/notification_photo.rs"]
+mod notification_photo;
 #[allow(dead_code)]
 #[path = "../src/storage.rs"]
 mod storage;
@@ -37,9 +39,34 @@ use std::sync::{
 };
 use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize, Manager, WebviewUrl};
 use tauri_runtime_cef::{
+    cef::{ImplBrowser, ImplBrowserHost},
     Cef, DebugEnvironment, DevToolsPolicy, RemoteDebugging, SandboxPolicy, WebviewCefExt,
 };
-const HTML: &str = r#"<!doctype html><body class="dark"><div id="pane-side" style="width:100px;height:100px">Synthetic structure</div><script>document.querySelector = () => null; window.fixtureAlive=1;setInterval(()=>window.fixtureAlive++,100);</script>"#;
+const HTML: &str = r#"<!doctype html><body class="dark" style="margin:0;min-height:100vh;background:#e03050"><div id="pane-side" style="width:100px;height:100px">Synthetic structure</div><script>document.querySelector = () => null; window.fixtureAlive=1;setInterval(()=>window.fixtureAlive++,100);</script>"#;
+fn native_window(view: &tauri::Webview) -> u64 {
+    let (sender, receiver) = mpsc::sync_channel(1);
+    view.with_cef_webview(move |native| {
+        let window = native.browser().host().unwrap().window_handle();
+        let _ = sender.send(window);
+    })
+    .unwrap();
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .unwrap()
+}
+fn presentation_probe(window: u64, action: &str) -> bool {
+    std::process::Command::new("python3")
+        .args([
+            "-c",
+            include_str!("support/presentation_probe.py"),
+            &window.to_string(),
+            action,
+        ])
+        .status()
+        .unwrap()
+        .success()
+}
+
 #[tauri_runtime_cef::cef_entry_point]
 fn main() {
     let hook = std::panic::take_hook();
@@ -66,7 +93,6 @@ fn main() {
                     .on_page_load(|view,event| {
                         if !whatsapp::is_origin(event.url()) { return; }
                         let id = view.label().strip_prefix("account-").unwrap();
-                        account_readiness::attach(&view,view.app_handle(),id);
                         if event.event() == tauri::webview::PageLoadEvent::Finished {
                             account_events::page(view.app_handle(),id,account_runtime::PageState::Ready);
                             account_avatar::attach(&view,view.app_handle(),id);
@@ -87,8 +113,9 @@ fn main() {
                     let html = if id == "two" {
                         html.replace("image.src=URL.createObjectURL(new Blob([bytes],{type:'image/png'}));", "image.onload=()=>{const canvas=document.createElement('canvas');canvas.getContext('2d').drawImage(image,0,0);try{canvas.toDataURL();window.canvasBlocked=false;}catch{window.canvasBlocked=true;}};image.src='https://avatar.example/self.png';")
                     } else { html };
+                    let html = if id == "two" { html.replace("#e03050", "#30c060") } else { html };
                     let html = if id == "qr" {
-                        r#"<!doctype html><body><img src="https://web.whatsapp.com/synthetic-pending.png"><script>setTimeout(()=>{document.body.insertAdjacentHTML('beforeend','<div data-ref="synthetic" style="position:relative;width:160px;height:160px"><canvas width="160" height="160"></canvas><div style="position:absolute;left:60px;top:60px;width:40px;height:40px">Synthetic logo</div></div>');},750);document.querySelector=()=>null;</script>"#.to_owned()
+                        r#"<!doctype html><body style="margin:0;min-height:100vh;background:#3070e0"><img src="https://web.whatsapp.com/synthetic-pending.png"><script>setTimeout(()=>{document.body.insertAdjacentHTML('beforeend','<div data-ref="synthetic" style="position:relative;width:160px;height:160px"><canvas width="160" height="160"></canvas><div style="position:absolute;left:60px;top:60px;width:40px;height:40px">Synthetic logo</div></div>');},750);document.querySelector=()=>null;</script>"#.to_owned()
                     } else { html };
                     fixture::serve(view,&html);
                     account_avatar::observe(view,&app,id).unwrap();
@@ -106,6 +133,13 @@ fn main() {
                     let runtime = events.runtime.lock().unwrap();
                     runtime.accounts.len() == 3 && runtime.accounts.iter().all(|(id,state)| state.page == if id == "qr" { account_runtime::PageState::Loading } else { account_runtime::PageState::Ready } && state.readiness == if id == "qr" { account_runtime::Readiness::QrCode } else { account_runtime::Readiness::Chats })
                 });
+                eprintln!("STAGE: same-document Business-style QR sign-in and logout");
+                let qr_generation = app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["qr"].generation;
+                fixture::evaluate(qr,"document.getElementsByTagName('canvas')[0].parentElement.remove();const chats=document.createElement('section');chats.id='pane-side';chats.style.cssText='width:300px;height:300px';document.body.append(chats);true");
+                fixture::wait_for(|| app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["qr"].readiness == account_runtime::Readiness::Chats);
+                assert_eq!(app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["qr"].generation,qr_generation,"QR sign-in must be recognized without a document reload");
+                fixture::evaluate(qr,"document.getElementById('pane-side').remove();const login=document.createElement('div');login.dataset.ref='synthetic';login.append(document.createElement('canvas'));document.body.append(login);true");
+                fixture::wait_for(|| app.state::<account_events::AccountEvents>().runtime.lock().unwrap().accounts["qr"].readiness == account_runtime::Readiness::QrCode);
                 eprintln!("STAGE: account avatars");
                 fixture::wait_for(|| account_avatar::current(&app,"one").is_some() && account_avatar::current(&app,"two").is_some());
                 assert_eq!(fixture::evaluate(second,"window.canvasBlocked"), true);
@@ -116,6 +150,27 @@ fn main() {
                 ui_layout::set_account_visible(first,true).unwrap();
                 ui_layout::set_account_visible(first,false).unwrap();
                 ui_layout::set_account_visible(second,true).unwrap();
+                eprintln!("STAGE: visible pixels survive linked/unlinked account switching");
+                let shell_window = native_window(&shell);
+                let markers = [(first, "e03050"), (second, "30c060"), (qr, "3070e0")];
+                let windows = markers.iter().map(|(view,_)| native_window(view)).collect::<Vec<_>>();
+                for (index, (view,_)) in markers.iter().enumerate() {
+                    fixture::evaluate(view,&format!("window.presentationToken={index};true"));
+                }
+                for selected in [0usize, 2, 1, 2, 0, 1, 2] {
+                    // A local dialog/overview can raise the shell while browsers stay alive.
+                    assert!(presentation_probe(shell_window, "raise"));
+                    ui_layout::set_account_visible(markers[selected].0,true).unwrap();
+                    for (index,(view,_)) in markers.iter().enumerate() {
+                        if index != selected { ui_layout::set_account_visible(view,false).unwrap(); }
+                    }
+                    fixture::wait_for(|| presentation_probe(windows[selected],markers[selected].1));
+                    for (index,(view,_)) in markers.iter().enumerate() {
+                        assert_eq!(fixture::evaluate(view,"window.presentationToken"),serde_json::json!(index),"Switching views must not reload either linked or QR documents");
+                    }
+                }
+                ui_layout::set_account_visible(second,true).unwrap();
+                ui_layout::set_account_visible(qr,false).unwrap();
                 eprintln!("STAGE: resize native views");
                 for (width,height) in [(900.,640.),(1400.,900.),(1200.,800.)] {
                     window.set_size(LogicalSize::new(width,height)).unwrap();

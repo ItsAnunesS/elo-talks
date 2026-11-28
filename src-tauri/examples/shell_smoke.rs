@@ -1,4 +1,6 @@
 //! Production shell and account creation with synthetic IPC and offline profiles.
+#[path = "../src/account_attachments.rs"]
+mod account_attachments;
 #[allow(dead_code)]
 #[path = "../src/account_avatar.rs"]
 mod account_avatar;
@@ -31,6 +33,8 @@ mod ipc;
 #[allow(dead_code)]
 #[path = "../src/notification_content.rs"]
 mod notification_content;
+#[path = "../src/notification_photo.rs"]
+mod notification_photo;
 #[path = "../src/process_security.rs"]
 mod process_security;
 #[allow(dead_code)]

@@ -77,9 +77,15 @@ fn main() {
                 assert_eq!(icon, "dev.anuness.elotalks");
                 assert_eq!(hints["desktop-entry"].get::<String>().unwrap(), "dev.anuness.elotalks");
                 assert_eq!(timeout, 8000);
+                if let Some(image) = hints.get("image-data") {
+                    assert_eq!(image.type_().as_str(), "(iiibiiay)");
+                    assert_eq!(image.child_value(0).get::<i32>(), Some(64));
+                    assert_eq!(image.child_value(1).get::<i32>(), Some(64));
+                    assert_eq!(image.child_value(6).get::<Vec<u8>>().unwrap().len(), 64 * 64 * 4);
+                }
                 let mut records = records.lock().unwrap();
                 let id = if replaces == 0 { records.len() as u32 + 1 } else { replaces };
-                records.push((replaces, id, actions, title, body));
+                records.push((replaces, id, actions, title, body, hints.contains_key("image-data")));
                 if delay.load(Ordering::Relaxed) {
                     glib::MainContext::default().spawn_local(async move {
                         glib::timeout_future(Duration::from_millis(50)).await;
@@ -104,7 +110,7 @@ fn main() {
         assert_eq!(notifier.show("test", NotificationText::test(), |_| {}).await, Ok(true));
         assert!(calls.lock().unwrap().last().unwrap().2.is_empty());
         assert_eq!(calls.lock().unwrap().last().unwrap().4, "This is a test notification from Elo Talks.");
-        let preview = NotificationText::message(NotificationDetail::Preview, "Portugal", Some("Maria & André"), Some("Hello <img src='https://example.invalid/'>"));
+        let preview = NotificationText::message(NotificationDetail::Preview, "", "Portugal", Some("Maria & André"), Some("Hello <img src='https://example.invalid/'>"));
         assert_eq!(notifier.show("account-two", preview, |_| {}).await, Ok(true));
         {
             let records = calls.lock().unwrap();
@@ -113,10 +119,26 @@ fn main() {
             assert_eq!(preview.4, "Maria &amp; André\nHello &lt;img src=&apos;https://example.invalid/&apos;&gt;");
             assert_eq!(preview.2, ["default", "Open account"]);
         }
-        let channel = NotificationText::message(NotificationDetail::Channel, "Work", Some("Private sender"), Some("Private message"));
+        let channel = NotificationText::message(NotificationDetail::Channel, "", "Work", Some("Private sender"), Some("Private message"));
         assert_eq!(notifier.show("account-two", channel, |_| {}).await, Ok(true));
         assert_eq!(calls.lock().unwrap().last().unwrap().3, "WhatsApp · Work");
         assert_eq!(calls.lock().unwrap().last().unwrap().4, "You have a new message.");
+        let pixbuf = gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, true, 8, 64, 64).unwrap();
+        pixbuf.fill(0x663399ff);
+        let data = format!("data:image/png;base64,{}", glib::base64_encode(&pixbuf.save_to_bufferv("png", &[]).unwrap()));
+        let mut photo = NotificationText::message(NotificationDetail::Preview, "Personal", "Portugal", Some("Sender"), Some("Secret"));
+        photo.image = notification_content::NotificationImage::from_data_url(&data);
+        assert!(photo.image.is_some());
+        assert_eq!(notifier.show("photo", photo, |_| {}).await, Ok(true));
+        assert!(calls.lock().unwrap().last().unwrap().5);
+        let preview = NotificationText::message(NotificationDetail::Preview, "Personal", "Portugal", Some("Sender"), Some("Secret"));
+        assert_eq!(notifier.show_checked("privacy", preview, |_| {}, |text| Some(text.restrict(NotificationDetail::Channel, "Personal", "Portugal", false))).await, Ok(true));
+        assert_eq!(calls.lock().unwrap().last().unwrap().3, "WhatsApp · Personal / Portugal");
+        assert!(!calls.lock().unwrap().last().unwrap().5);
+        assert_eq!(calls.lock().unwrap().last().unwrap().4, "You have a new message.");
+        let count = calls.lock().unwrap().len();
+        assert_eq!(notifier.show_checked("suppressed", private_text(), |_| {}, |_| None).await, Ok(false));
+        assert_eq!(calls.lock().unwrap().len(), count);
         fail.store(true, Ordering::Relaxed);
         let error = notifier.show("account-two", private_text(), |_| {}).await.unwrap_err();
         assert!(!error.contains("Synthetic private error"));
@@ -132,7 +154,7 @@ fn main() {
         });
         glib::timeout_future(Duration::from_millis(10)).await;
         for body in ["Superseded", "Latest"] {
-            let text = NotificationText::message(NotificationDetail::Preview, "Burst", Some("Sender"), Some(body));
+            let text = NotificationText::message(NotificationDetail::Preview, "", "Burst", Some("Sender"), Some(body));
             assert_eq!(notifier.show("burst", text, |_| {}).await, Ok(false));
         }
         for _ in 0..20 {
@@ -156,6 +178,7 @@ fn main() {
 fn private_text() -> NotificationText {
     NotificationText::message(
         NotificationDetail::Private,
+        "",
         "Private channel",
         Some("Private sender"),
         Some("Private message"),

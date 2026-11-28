@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "format": "prettier --write ui tests/*.cjs package.json .prettierrc.json",
-    "format:check": "prettier --check ui tests/*.cjs package.json .prettierrc.json",
+    "format": "prettier --write ui src-tauri/src/attachment_*.js src-tauri/src/readiness_watch.js src-tauri/src/notification_photo.js tests/*.cjs package.json .prettierrc.json",
+    "format:check": "prettier --check ui src-tauri/src/attachment_*.js src-tauri/src/readiness_watch.js src-tauri/src/notification_photo.js tests/*.cjs package.json .prettierrc.json",
     "test:ui": "node tests/ui.spec.cjs"
   },
   "devDependencies": {
