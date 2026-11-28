@@ -21,6 +21,12 @@ runner now bounds each xdotool invocation and avoids synchronous focus/movement
 waits. Stage and move/error counters distinguish input hangs from failed reorder
 assertions; native acceptance remains pending a successful run at both scales.
 
+Run `46050445597` (`f6ad91b`) passed native channel and workspace reordering at
+1x. At 2x it received movement/release events but no initial press, so no reorder
+was attempted. The fixture now calibrates X11 coordinates using observed DOM
+pointer positions instead of assuming that `devicePixelRatio` is the embedding
+transform. Verification at both scales remains pending.
+
 ## Full-app CEF candidate — 2026-11-08, unpublished
 
 Completed locally with pinned Rust/Go tools and Ubuntu 24.04 Docker builds,
