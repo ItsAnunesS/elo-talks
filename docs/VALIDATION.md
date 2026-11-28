@@ -2,6 +2,27 @@
 
 This document distinguishes completed checks from outstanding acceptance criteria. A successful build does not certify WhatsApp compatibility or package security.
 
+## Native file-drop fixture - 2026-11-28
+
+Run `46157119725`, source `c13f883`, passed bitmap/text paste, malformed-image
+handling, both file-manager clipboard formats and direct adapter delivery. It
+timed out waiting for the GTK-to-Chromium drag. Persistence also passed at both
+scales after the Chrome-to-Alloy migration.
+
+The destination now explicitly accepts file drags with the copy action and counts
+trusted drops separately from adapter-generated events. The native gesture must
+deliver exactly one trusted drop with the two synthetic files. GTK begin/end/cancel
+and root-window-drop markers distinguish gesture, routing and duplicate delivery;
+timeout diagnostics contain only counters and focus/visibility flags.
+
+A separate GTK-to-GTK probe received the same real mouse gesture and URI list in
+isolated Docker/Xvfb. Browser regressions received the two files through trusted
+Chromium input events. Browser-internal dragging into the editable destination
+also succeeded before this change, so missing dragover cancellation alone has
+not been established as the cause. Native GTK-to-CEF execution remains pending
+because the local container cannot initialize the required Chromium sandbox.
+No native assertions have been removed or weakened.
+
 ## Clipboard fixture focus diagnostics - 2026-11-28
 
 Run `46149844859`, source `b12f70b`, passed persistence at both scales but timed

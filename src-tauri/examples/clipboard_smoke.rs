@@ -19,7 +19,7 @@ use tauri_runtime_cef::{
     Cef, DebugEnvironment, DevToolsPolicy, RemoteDebugging, SandboxPolicy, WebviewBuilderCefExt,
     WebviewCefExt,
 };
-const HTML: &str = r#"<!doctype html><body style="margin:0"><div id="editor" contenteditable style="width:500px;height:400px"></div><script>window.pastes=[];editor.addEventListener('paste',event=>{event.preventDefault();const record={text:event.clipboardData.getData('text/plain'),files:[...event.clipboardData.files].map(file=>({name:file.name,type:file.type,size:file.size}))};pastes.push(record);const file=event.clipboardData.files[0];if(file)createImageBitmap(file).then(image=>{record.decoded=[image.width,image.height];image.close();}).catch(()=>record.invalid=true);});window.drops=[];document.addEventListener('drop',event=>{event.preventDefault();drops.push([...event.dataTransfer.files].map(file=>({name:file.name,type:file.type,size:file.size})));});editor.focus();</script>"#;
+const HTML: &str = r#"<!doctype html><body style="margin:0"><div id="editor" contenteditable style="width:500px;height:400px"></div><script>window.pastes=[];editor.addEventListener('paste',event=>{event.preventDefault();const record={text:event.clipboardData.getData('text/plain'),files:[...event.clipboardData.files].map(file=>({name:file.name,type:file.type,size:file.size}))};pastes.push(record);const file=event.clipboardData.files[0];if(file)createImageBitmap(file).then(image=>{record.decoded=[image.width,image.height];image.close();}).catch(()=>record.invalid=true);});window.drops=[];window.nativeDrops=0;window.dragEvents={enter:0,over:0,leave:0};document.addEventListener('dragenter',()=>dragEvents.enter++);document.addEventListener('dragleave',()=>dragEvents.leave++);document.addEventListener('dragover',event=>{dragEvents.over++;if([...event.dataTransfer.types].includes('Files')){event.preventDefault();event.dataTransfer.dropEffect='copy';}});document.addEventListener('drop',event=>{event.preventDefault();if(event.isTrusted)nativeDrops++;drops.push([...event.dataTransfer.files].map(file=>({name:file.name,type:file.type,size:file.size})));});editor.focus();</script>"#;
 fn paste(view: &tauri::Webview) {
     let (sender, receiver) = mpsc::sync_channel(1);
     view.with_cef_webview(move |native| {
@@ -245,12 +245,24 @@ fn main() {
             let drop_transfer = first_transfer.clone();
             window.on_window_event(move |event| {
                 if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event {
+                    eprintln!("STAGE: native root-window file drop received");
                     drop_transfer.drop_at(paths.clone(), *position);
                 }
             });
             let drag_content = format!("{}\n{}\n", tauri::Url::from_file_path(&image).unwrap(), tauri::Url::from_file_path(&archive).unwrap());
             let source_button = gtk::Button::with_label("Drag synthetic attachments");
             let drag = gtk::DragSource::builder().actions(gtk::gdk::DragAction::COPY).build();
+            let drag_started = Arc::new(AtomicBool::new(false));
+            let drag_began = drag_started.clone();
+            drag.connect_drag_begin(move |_, _| {
+                drag_began.store(true, Ordering::SeqCst);
+                eprintln!("STAGE: GTK native drag began");
+            });
+            drag.connect_drag_cancel(|_, _, reason| {
+                eprintln!("STAGE: GTK native drag cancelled ({reason:?})");
+                false
+            });
+            drag.connect_drag_end(|_, _, _| eprintln!("STAGE: GTK native drag ended"));
             drag.connect_prepare(move |_, _, _| Some(gtk::gdk::ContentProvider::for_bytes("text/uri-list", &gtk::glib::Bytes::from_owned(drag_content.as_bytes().to_vec()))));
             source_button.add_controller(drag);
             let source_window = gtk::Window::builder().title("Attachment source").decorated(false).default_width(200).default_height(120).child(&source_button).build();
@@ -313,7 +325,18 @@ fn main() {
                 assert_eq!(fixture::evaluate(&first,"drops[0].map(file=>file.name)"),serde_json::json!(["synthetic.png","synthetic.zip"]));
                 eprintln!("STAGE: native file drag and drop");
                 drag_files();
-                fixture::wait_for(|| fixture::evaluate(&first,"drops.length") == 2);
+                assert!(drag_started.load(Ordering::SeqCst), "GTK source did not begin the native drag");
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+                loop {
+                    let state = fixture::evaluate(&first,"({drops:drops.length,native:nativeDrops,events:dragEvents,focused:document.hasFocus(),hidden:document.hidden})");
+                    if state["drops"].as_u64().unwrap() > 1 {
+                        assert_eq!(state["drops"], 2, "Native drop was delivered more than once: {state}");
+                        break;
+                    }
+                    assert!(std::time::Instant::now() < deadline, "Native file drop did not arrive: {state}");
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                assert_eq!(fixture::evaluate(&first,"nativeDrops"), 1, "OS drag must deliver one trusted Chromium drop");
                 assert_eq!(fixture::evaluate(&first,"drops[1].map(file=>file.name)"),serde_json::json!(["synthetic.png","synthetic.zip"]));
                 app.run_on_main_thread(|| {
                     for widget in gtk::Window::list_toplevels() {

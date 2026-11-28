@@ -44,6 +44,35 @@ const http = require("node:http"),
       const archive = path.join(syntheticAttachments, "sample.zip");
       fs.copyFileSync(path.resolve(__dirname, "../src-tauri/icons/32x32.png"), image);
       fs.writeFileSync(archive, "PK synthetic attachment");
+      const dropFixture = fs
+        .readFileSync(path.resolve(__dirname, "../src-tauri/examples/clipboard_smoke.rs"), "utf8")
+        .match(/const HTML: &str = r#"([\s\S]*?)"#;/)[1];
+      const nativeDropPage = await browser.newPage();
+      try {
+        await nativeDropPage.route("https://web.whatsapp.com/**", (route) =>
+          route.fulfill({ contentType: "text/html", body: dropFixture }),
+        );
+        await nativeDropPage.goto("https://web.whatsapp.com/");
+        const input = await nativeDropPage.context().newCDPSession(nativeDropPage);
+        for (const type of ["dragEnter", "dragOver", "drop"]) {
+          await input.send("Input.dispatchDragEvent", {
+            type,
+            x: 100,
+            y: 100,
+            data: { items: [], files: [image, archive], dragOperationsMask: 1 },
+          });
+        }
+        await nativeDropPage.waitForFunction(() => window.nativeDrops === 1);
+        assert.deepEqual(
+          await nativeDropPage.evaluate(() =>
+            window.drops.map((files) => files.map((file) => file.name)),
+          ),
+          [["sample.png", "sample.zip"]],
+        );
+      } finally {
+        await nativeDropPage.close();
+      }
+
       const html =
         '<body><div id="editor" contenteditable style="width:500px;height:300px"></div><button id="send">Send</button><script>window.received=[];window.sent=0;send.onclick=()=>sent++;for(const kind of ["paste","drop"])document.addEventListener(kind,event=>{event.preventDefault();received.push({kind,names:[...(event.clipboardData||event.dataTransfer).files].map(file=>file.name)});});</script>';
       await attachmentPage.route("https://web.whatsapp.com/**", (route) =>
