@@ -17,14 +17,30 @@ use std::sync::{
 use tauri::{webview::WebviewBuilder, LogicalSize, Manager, WebviewUrl};
 use tauri_runtime_cef::{
     Cef, DebugEnvironment, DevToolsPolicy, RemoteDebugging, SandboxPolicy, WebviewBuilderCefExt,
+    WebviewCefExt,
 };
 const HTML: &str = r#"<!doctype html><body style="margin:0"><div id="editor" contenteditable style="width:500px;height:400px"></div><script>window.pastes=[];editor.addEventListener('paste',event=>{event.preventDefault();const record={text:event.clipboardData.getData('text/plain'),files:[...event.clipboardData.files].map(file=>({name:file.name,type:file.type,size:file.size}))};pastes.push(record);const file=event.clipboardData.files[0];if(file)createImageBitmap(file).then(image=>{record.decoded=[image.width,image.height];image.close();}).catch(()=>record.invalid=true);});window.drops=[];document.addEventListener('drop',event=>{event.preventDefault();drops.push([...event.dataTransfer.files].map(file=>({name:file.name,type:file.type,size:file.size})));});editor.focus();</script>"#;
-fn paste() {
+fn paste(view: &tauri::Webview) {
+    let (sender, receiver) = mpsc::sync_channel(1);
+    view.with_cef_webview(move |native| {
+        use tauri_runtime_cef::cef::{ImplBrowser, ImplBrowserHost};
+        sender
+            .send(native.browser().host().unwrap().window_handle())
+            .unwrap();
+    })
+    .unwrap();
+    let browser_window = receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap();
+    assert_ne!(browser_window, 0);
+    // Target the browser child, not GTK's decoration/header coordinates. The
+    // previous top-level (30, 40) click could focus chrome instead of the editor.
     let program = std::env::var_os("XDOTOOL").unwrap_or_else(|| "xdotool".into());
-    assert!(std::process::Command::new(program)
+    assert!(std::process::Command::new("timeout")
+        .arg("8s")
+        .arg(&program)
         .args([
             "search",
-            "--sync",
             "--onlyvisible",
             "--pid",
             &std::process::id().to_string(),
@@ -34,19 +50,30 @@ fn paste() {
             "--sync",
             "mousemove",
             "--window",
-            "%1",
-            "30",
-            "40",
+            &browser_window.to_string(),
+            "100",
+            "100",
             "click",
             "1",
-            "key",
-            "--clearmodifiers",
-            "ctrl+v"
         ])
         .status()
         .unwrap()
         .success());
+    fixture::wait_for(|| {
+        fixture::evaluate(
+            view,
+            "document.hasFocus() && document.activeElement === editor",
+        ) == true
+    });
+    assert!(std::process::Command::new("timeout")
+        .arg("8s")
+        .arg(program)
+        .args(["key", "--clearmodifiers", "ctrl+v"])
+        .status()
+        .unwrap()
+        .success());
 }
+
 fn clipboard(app: &tauri::AppHandle, kind: u8) {
     let (sender, receiver) = mpsc::sync_channel(1);
     app.run_on_main_thread(move || {
@@ -183,14 +210,22 @@ fn main() {
             let second_paste = second_slot.clone();
             let first = window.add_child(
                 WebviewBuilder::new("account-one", WebviewUrl::External("about:blank".parse()?))
+                    .browser_runtime_style(tauri_runtime_cef::RuntimeStyle::Alloy)
                     .data_directory(root.path().join("one"))
-                    .on_native_paste(move |browser| first_paste.lock().unwrap().clone().is_none_or(|transfer| transfer.paste(browser)))
+                    .on_native_paste(move |browser| {
+                        eprintln!("STAGE: first-account native paste hook");
+                        first_paste.lock().unwrap().clone().is_none_or(|transfer| transfer.paste(browser))
+                    })
                     .size(LogicalSize::new(900., 640.)),
             )?;
             let second = window.add_child(
                 WebviewBuilder::new("account-two", WebviewUrl::External("about:blank".parse()?))
+                    .browser_runtime_style(tauri_runtime_cef::RuntimeStyle::Alloy)
                     .data_directory(root.path().join("two"))
-                    .on_native_paste(move |browser| second_paste.lock().unwrap().clone().is_none_or(|transfer| transfer.paste(browser)))
+                    .on_native_paste(move |browser| {
+                        eprintln!("STAGE: second-account native paste hook");
+                        second_paste.lock().unwrap().clone().is_none_or(|transfer| transfer.paste(browser))
+                    })
                     .size(LogicalSize::new(900., 640.)),
             )?;
             second.hide()?;
@@ -235,8 +270,9 @@ fn main() {
                     "--name", "Attachment source", "windowmove", "%1", "1100", "20",
                 ]).status().unwrap().success());
                 first.set_focus().unwrap();
+                eprintln!("STAGE: image paste into active editor");
                 clipboard(&app, 0);
-                paste();
+                paste(&first);
                 fixture::wait_for(|| fixture::evaluate(&first, "pastes.length") == 1);
                 assert_eq!(
                     fixture::evaluate(&first, "pastes[0].files[0].type"),
@@ -248,29 +284,34 @@ fn main() {
                         .unwrap()
                         > 0
                 );
+                eprintln!("STAGE: text paste into active editor");
                 clipboard(&app, 1);
-                paste();
+                paste(&first);
                 fixture::wait_for(|| fixture::evaluate(&first, "pastes.length") == 2);
                 assert_eq!(
                     fixture::evaluate(&first, "pastes[1].text"),
                     "Synthetic clipboard text"
                 );
+                eprintln!("STAGE: malformed image paste");
                 clipboard(&app, 2);
-                paste();
+                paste(&first);
                 fixture::wait_for(|| fixture::evaluate(&first,"pastes[2]?.invalid === true") == true);
                 assert_eq!(fixture::evaluate(&first,"pastes[0].decoded"), serde_json::json!([32,32]));
                 for (mime, prefix, expected) in [("text/uri-list", "", 4), ("x-special/gnome-copied-files", "copy\n", 5)] {
+                    eprintln!("STAGE: native file-list paste {mime}");
                     clipboard_files(&app, &image, &archive, mime, prefix);
                     let before = fixture::evaluate(&first,"pastes.length");
                     fixture::evaluate(&first,"editor.dispatchEvent(new KeyboardEvent('keydown',{key:'v',ctrlKey:true,bubbles:true}));true");
                     assert_eq!(fixture::evaluate(&first,"pastes.length"),before,"Page-generated keys cannot request clipboard files");
-                    paste();
+                    paste(&first);
                     fixture::wait_for(|| fixture::evaluate(&first,"pastes.length") == expected);
                     assert_eq!(fixture::evaluate(&first,&format!("pastes[{}].files.map(file=>file.name)",expected-1)),serde_json::json!(["synthetic.png","synthetic.zip"]));
                 }
+                eprintln!("STAGE: adapter file drop");
                 first_transfer.drop_files(vec![image.clone(),archive], [0.2,0.2]);
                 fixture::wait_for(|| fixture::evaluate(&first,"drops.length") == 1);
                 assert_eq!(fixture::evaluate(&first,"drops[0].map(file=>file.name)"),serde_json::json!(["synthetic.png","synthetic.zip"]));
+                eprintln!("STAGE: native file drag and drop");
                 drag_files();
                 fixture::wait_for(|| fixture::evaluate(&first,"drops.length") == 2);
                 assert_eq!(fixture::evaluate(&first,"drops[1].map(file=>file.name)"),serde_json::json!(["synthetic.png","synthetic.zip"]));
@@ -281,13 +322,14 @@ fn main() {
                         }
                     }
                 }).unwrap();
+                eprintln!("STAGE: hidden-account paste isolation");
                 active_first.store(false,Ordering::SeqCst);
                 second.show().unwrap();
                 second.set_focus().unwrap();
                 first.hide().unwrap();
                 let previous = fixture::evaluate(&first, "pastes.length");
                 clipboard_files(&app, &image, &image, "text/uri-list", "");
-                paste();
+                paste(&second);
                 fixture::wait_for(|| fixture::evaluate(&second, "pastes.length") == 1);
                 assert_eq!(
                     fixture::evaluate(&first, "pastes.length"),

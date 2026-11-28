@@ -2,6 +2,21 @@
 
 This document distinguishes completed checks from outstanding acceptance criteria. A successful build does not certify WhatsApp compatibility or package security.
 
+## Clipboard fixture focus diagnostics - 2026-11-28
+
+Run `46149844859`, source `b12f70b`, passed persistence at both scales but timed
+out on the first bitmap paste in `clipboard_smoke`. It did not reach file-list
+paste or drag/drop checks. The fixture clicked fixed GTK top-level coordinates
+without checking which document received focus.
+
+The updated fixture targets the native browser child and waits for the synthetic
+editor to have document focus before sending Ctrl+V. Native input commands have
+an eight-second timeout. Both accounts use the same Alloy style as production;
+stage and native-hook markers identify subsequent failures without clipboard
+contents. Rust formatting, Clippy and fixture compilation pass locally. Native
+execution remains pending due to the local container's mandatory sandbox limit;
+the focus change has not yet been confirmed as resolving the CI failure.
+
 ## Embedded browser startup - 2026-11-28
 
 Accounts and the local shell explicitly use CEF Alloy style. Chrome style can
