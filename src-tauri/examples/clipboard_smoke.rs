@@ -115,8 +115,10 @@ fn drag_files() {
             "Attachment source",
             "windowmove",
             "%1",
-            "1100",
+            "2200",
             "20",
+            "windowraise",
+            "%1",
             "mousemove",
             "--window",
             "%1",
@@ -281,7 +283,7 @@ fn main() {
                 }
                 assert!(std::process::Command::new("timeout").args([
                     "8s", "xdotool", "search", "--onlyvisible", "--pid", &std::process::id().to_string(),
-                    "--name", "Attachment source", "windowmove", "%1", "1100", "20",
+                    "--name", "Attachment source", "windowmove", "%1", "2200", "20",
                 ]).status().unwrap().success());
                 first.set_focus().unwrap();
                 eprintln!("STAGE: image paste into active editor");

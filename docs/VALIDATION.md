@@ -2,6 +2,17 @@
 
 This document distinguishes completed checks from outstanding acceptance criteria. A successful build does not certify WhatsApp compatibility or package security.
 
+## HiDPI drag-source placement - 2026-11-28
+
+Run `46159488485`, source `37378bb`, passed the complete clipboard fixture at 1x:
+bitmap/text/file paste, the real GTK drop and hidden-account isolation. At 2x,
+the source never emitted drag begin. Its fixed x=1100 position lay inside the
+1800-pixel-wide account window and could be obscured after focus changes.
+
+The source is now placed at x=2200 within the fixture's 3200-pixel Xvfb display
+and raised before input. It remains outside the account window at both scales.
+The real gesture and all native-delivery assertions are retained.
+
 ## GTK native file-drop registration - 2026-11-28
 
 Run `46158475014`, source `5b19ef6`, confirmed GTK drag begin followed by
